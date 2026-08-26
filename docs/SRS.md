@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.4 (draft for developer handover)"
+author: "Version 1.5 (draft for developer handover)"
 date: "25 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "25 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.4 — draft for developer handover |
+| Version | 1.5 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -24,6 +24,7 @@ date: "25 August 2026"
 | 1.1 | 25 Aug 2026 | Resolved a contradiction between the outbound webhook (FR-1004) and the no-external-traffic acceptance test (AC-17). FR-1004 reclassified to [SHOULD] and made off-by-default; design principle 2 and NFR-201 qualified; AC-17 scoped to the default configuration; AC-18 added. |
 | 1.2 | 25 Aug 2026 | Completed the webhook amendment: §2.3 vision qualified; FR-210 now suppresses webhook delivery for notification-sourced captures (AC-19 added); FR-1004 payload schema defined and phased; FR-1001 settings list and FR-1103 Data Safety obligation updated. |
 | 1.4 | 25 Aug 2026 | Closing corrections: classification note now lists FR-1004b; the offline no-webhook consequence of FR-1004b stated explicitly and given an acceptance test (AC-21). |
+| 1.5 | 26 Aug 2026 | Recorded four parser rules established during the Android build: year resolution (FR-513), the Hinglish heuristics and their confidence treatment (FR-514), the parse-context requirement (FR-515) and the `java.time` decision, which also fixes the minimum SDK (FR-516). Recorded the reading of NFR-204 under which platform encryption satisfies encryption at rest. No existing requirement changed. |
 | 1.3 | 25 Aug 2026 | Closed the webhook thread. §12 no longer justifies a scope exclusion by a deferrable feature; the privacy-policy obligation moved into FR-1102 as a hard clause; the conditional `[MUST, if X ships]` modality added to the legend; NFR-203 extended to cover the webhook endpoint as a secret; FR-1004b defines failure semantics (AC-20 added). |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
@@ -267,6 +268,29 @@ Four independent capture layers are required. Each must function if the others a
 
 **FR-512 [MUST]** Where confidence is below a configurable threshold, the item shall be routed to the Capture Inbox rather than saved directly.
 
+**FR-513 [MUST]** Where a date is written without a year, the parser shall resolve it to the current year and shall **not** advance it to the next year. A date that then lies in the past is reported as past and handled under FR-510.
+
+> **Rationale, because the alternative looks more helpful and is wrong.** AC-04 requires "the order dated 12 March" to produce no dated item. Rolling a past date forward to its next occurrence would make that date valid and future, and the acceptance test would pass while the product did the opposite of what it promises.
+
+Where the day of the month alone is given ("3 tarikh"), the month may be inferred: the current month, or the next month where that day has already passed. This is a narrower inference than a year roll — the writer has named no month at all — and the resolved date shall be displayed before saving.
+
+**FR-514 [MUST]** Where a Hinglish term is ambiguous, the parser shall resolve it to the forward-in-time reading and shall assign it a confidence strictly lower than an equivalent unambiguous match, so that a deployment may set the FR-512 threshold to route such captures to the Capture Inbox for confirmation. The resolved value shall in all cases be displayed before saving.
+
+| Term | Ambiguity | Resolution |
+|---|---|---|
+| `kal` | Means both yesterday and tomorrow; disambiguated in speech by verb tense, which the parser does not model | Tomorrow (AC-13) |
+| `N baje` | Carries no meridiem | Hours 1–7 resolve to the afternoon (13:00–19:00); hours 8–12 as written. AC-13 fixes "4 baje" at 16:00; FR-503's "11 baje" resolves to 11:00 |
+
+The reduced confidence is the requirement, not a detail of it: these readings are correct more often than not, which is exactly why they must not be silent.
+
+**FR-515 [MUST]** The parser shall receive the reference instant, the time zone and the date-order preference as explicit inputs, and shall not read the system clock. Each parse shall be a pure function of the input text and that context.
+
+> **Rationale.** NFR-502's corpus cannot hold a parser that reads the clock: every relative expectation would drift daily and the suite would fail on its own without a code change. AC-13 and AC-14 are only testable against a fixed reference instant.
+
+**FR-516 [MUST]** Date and time arithmetic shall use `java.time`. The Android minimum SDK shall be 26 or higher, at which `java.time` is available natively with no core library desugaring and behaves identically on the JVM. No third-party date library shall be added (NFR-501).
+
+> **Consequence worth stating:** the parsing and recipe modules compile and run unchanged under desktop JUnit and on the device, which is what makes the NFR-502 corpus cheap enough to keep growing.
+
 ## 5.6 Recipes and derived items (FR-600 series)
 
 **FR-601 [MUST]** A Recipe shall expand one captured date into a chain of related items, each with its own type, title template and date offset.
@@ -378,6 +402,10 @@ Four independent capture layers are required. Each must function if the others a
 **NFR-203 [MUST]** OAuth tokens shall be stored in the platform secure store (Android Keystore / Windows DPAPI or Credential Manager), never in plain preferences. The FR-1004 webhook endpoint shall be stored the same way and treated as a secret, because such URLs commonly embed a bearer token in the path or query string. It shall be masked in the Settings UI once saved.
 
 **NFR-204 [MUST]** The Capture Inbox database shall be stored in app-private storage and encrypted at rest.
+
+> **How this requirement is read, recorded so the decision is visible rather than implied.** At the minimum SDK fixed by FR-516, every supported device encrypts app-private storage at the platform level, and the app disables cloud backup and device transfer for its data. Encryption at rest is therefore satisfied by the platform, and **no application-level database encryption library is required for v1.0**. Adding one (SQLCipher or equivalent) was measured at approximately 2 MB per device and was rejected on NFR-501 grounds.
+>
+> The residual gap is deliberate and narrow: platform encryption does not protect the database from an attacker with root access on an unlocked device. **This reading shall be revisited if the threat model ever includes a rooted device**, at which point application-level encryption becomes the answer, along with the key-management question it brings — the passphrase would have to live in the same secure store as the OAuth tokens under NFR-203.
 
 **NFR-205 [MUST]** The app shall provide a single action to revoke access and delete all local data.
 

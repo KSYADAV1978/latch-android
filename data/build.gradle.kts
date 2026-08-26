@@ -21,11 +21,13 @@ dependencies {
     api(project(":core-model"))
 }
 
-// Storage contracts only, no implementation yet. The three decisions this module is waiting
-// on all carry a dependency, so none of them is made here:
-//   - Capture Inbox persistence (FR-701) with encryption at rest (NFR-204) — Room + SQLCipher,
-//     or a smaller hand-rolled store
-//   - the write queue (FR-806) surviving process death (NFR-302) — WorkManager, or a plain
-//     table plus a boot receiver
-//   - OAuth token and webhook URL storage (NFR-203) — androidx.security, or EncryptedFile
-//     on the Keystore directly
+// Storage contracts only, no implementation yet. Where the dependency decisions landed, in
+// full in docs/DEPENDENCIES.md:
+//   - Capture Inbox persistence (FR-701): Room is deferred — it needs KSP, which AGP 9's
+//     built-in Kotlin does not support. Hand-rolled SQLite is the interim if the Inbox
+//     lands first.
+//   - Encryption at rest (NFR-204): no library. Platform encryption at minSdk 26 plus
+//     allowBackup=false satisfies it; the reading is recorded against NFR-204 in the SRS.
+//   - The write queue surviving process death (FR-806, NFR-302): WorkManager, approved.
+//   - OAuth token and webhook URL storage (NFR-203): still open — androidx.security, or
+//     EncryptedFile on the Keystore directly.

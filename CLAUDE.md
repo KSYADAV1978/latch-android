@@ -44,8 +44,9 @@ Do not violate these without asking first:
   NFR-201). The one exception is a user-configured FR-1004 webhook, off by default, never
   for notification-sourced captures (FR-210a), never in the write queue (FR-1004b).
 - **No `MediaProjection`** (FR-217) and **no Accessibility Service** (FR-218).
-- **Ask before adding a dependency** (NFR-501). Each one needs a written justification; this
-  is a free product with no revenue and every dependency is a maintenance obligation.
+- **Ask before adding a dependency** (NFR-501). Each one needs a written justification in
+  `docs/DEPENDENCIES.md`, with its measured APK impact. Anything not listed there has not
+  been justified.
 - **All user-facing strings live in `app/src/main/res/values/strings.xml`** (NFR-402). The
   pure-Kotlin modules return data, never display text — see `ShiftResult` for how FR-606's
   "weekend skipped" message is left to the app to phrase.
