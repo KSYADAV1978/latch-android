@@ -97,6 +97,29 @@ would have done and it is deprecated in favour of these platform APIs. The secre
 (NFR-203) should reuse `KeystoreCipher`. Setup therefore runs once: a second launch reads
 the stored account and goes straight to the home screen.
 
+## Verified on a device
+SRS §10 requires each acceptance scenario to pass on a physical device before sign-off. This
+is the running record. A green `./gradlew build` is not evidence for anything in this list —
+the launch canary exists because the app once could not start at all with every unit test
+passing.
+
+Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
+
+| Scenario | Date | Result |
+|---|---|---|
+| **AC-16** — abandon setup at step 2 | 26 Aug 2026 | **Pass.** Signed in, reached step 2, backed out. No Latch calendar created in the Google account. FR-105 holds against the real `calendars.insert`, not just the stub. |
+
+Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
+to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
+encrypts against a real Keystore, a completed setup survives a cold start, and the stored
+preference key is a hex digest rather than an email address.
+
+Not yet run on a device: **AC-15** (setup under 60 seconds, calendar created only on finish),
+**AC-09** (hidden calendar offered and actually ticked), **AC-17** (network monitor over a
+full cycle), the FR-104 colour, and the consent-bridge cases — rotation and process death
+with the consent screen up, which are the only part of this app with no automated cover at
+all.
+
 **AC-17 is no longer structural.** The app holds `INTERNET` now, so "no outbound request to
 any non-Google endpoint" is a property of the code rather than of the manifest. It rests on
 `ALLOWED_HOSTS` in `data/.../GoogleHttp.kt` — three exact hostnames, checked on the parsed
