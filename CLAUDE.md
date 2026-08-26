@@ -155,12 +155,20 @@ where AC-07 fails silently otherwise. An undated task falls back to a ten-page c
 that *reports* giving up rather than returning a false negative; `DuplicateSearch.scanCapped`
 is that signal and callers must not read it as "no duplicate".
 
-**Nothing calls any of it yet, and the blocker is a requirement, not effort.** FR-906 forbids
-routing to a calendar the user has not seen and FR-904 wants the destination shown as a chip
-in its own colour, but `AccountDefaults` stores only a calendar id — no name, no colour. A
-Save button therefore needs either a `calendarList` lookup on the capture path or a record
-migration, plus a `ParseResult → Item` mapping (FR-506, FR-511, FR-507). That is the next
-slice.
+**Capture saves.** The confirmation screen has a destination chip (FR-904) and a Save button,
+and a capture becomes a real event or task in the user's account. `ItemDrafts.kt` maps
+FR-506's rows onto `Item`; `CaptureSaver` — held by `LatchApplication`, not the activity,
+because the capture window closes on a tap outside it and a write in flight must still finish
+— runs the FR-803 check and then the insert.
+
+`AccountDefaults` gained the destination's name and colour, and the record format went to
+**version 2**. There is no migration: a v1 record decodes to null, is deleted as unreadable
+and setup runs once more. That was the point of the leading version field, and it stops being
+an acceptable answer the moment there are users.
+
+FR-512 is under an **interim** reading recorded in the SRS: with no Capture Inbox to route to,
+a user-confirmed item is saved whatever its confidence, and the confidence is shown instead of
+blocking the save. That reading dies when the FR-700 series lands.
 
 FR-805a is structural rather than careful: call sites never compose an item's description
 themselves, `sourceBlock` does, and it drops the source text for `CaptureLayer.NOTIFICATION`.
@@ -168,7 +176,12 @@ AC-22 is a unit test over it.
 
 Not built: FR-806's queue — deliberately, and recorded as such in the SRS. Writes go straight
 to Google, so an offline capture cannot be saved and a failed write is surfaced under NFR-303
-and then lost. **AC-10 does not pass until that lands.** Also not built: FR-807 undo,
+and then lost. **AC-10 does not pass until that lands.** Also not built, and now user-visible
+because saving is real: **FR-807 undo** — a save cannot be reversed from the app, and the
+recourse is Google Calendar; FR-506 row 3's date picker, so a capture with a time but no date
+cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
+is saved; FR-507's type override; and FR-510's past-date follow-up. Each is recorded against
+its requirement in the SRS. Further out:
 the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
 notification listener (FR-208). FR-908 is not built either — the calendar list is not
 refreshed on launch and a stored destination that has been deleted or has lost write access

@@ -18,6 +18,12 @@ data class CapturedText(
     val preferredTitle: String? = null,
     /** FR-203: true when the host will not accept modified text back. */
     val readOnly: Boolean = true,
+    /**
+     * FR-802's source application, where the platform discloses it. Filled in by the
+     * activity from `getReferrer()`, not here — reading the intent alone is this file's
+     * whole contract, and the referrer is not in the intent.
+     */
+    val appId: String? = null,
 )
 
 /** Marks an intent that the Quick Settings tile started, so the activity reads the clipboard. */

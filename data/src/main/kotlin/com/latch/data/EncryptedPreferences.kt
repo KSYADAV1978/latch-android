@@ -175,6 +175,8 @@ internal fun encodeDefaults(defaults: AccountDefaults): String = listOf(
     defaults.email,
     defaults.routingMode.name,
     defaults.destinationCalendarId,
+    defaults.destinationCalendarName,
+    defaults.destinationCalendarColour,
     defaults.taskListId,
 ).joinToString(SEPARATOR)
 
@@ -188,10 +190,22 @@ internal fun decodeDefaults(record: String): AccountDefaults? {
         email = fields[2],
         routingMode = mode,
         destinationCalendarId = fields[4],
-        taskListId = fields[5],
+        destinationCalendarName = fields[5],
+        destinationCalendarColour = fields[6],
+        taskListId = fields[7],
     )
 }
 
 private val SEPARATOR = Char(0x1F).toString()
-private const val RECORD_VERSION = "1"
-private const val FIELD_COUNT = 6
+
+/**
+ * Version 2 added the destination's name and colour, so that FR-904's chip can be drawn
+ * without a network call on the capture path (NFR-101).
+ *
+ * There is no migration from version 1 and there does not need to be one: a v1 record fails
+ * the check above, `read` deletes it as unreadable, and setup runs once more. That is the
+ * behaviour this format was designed for, and it costs a minute. It would not be acceptable
+ * with users on the other end, at which point this becomes a real migration.
+ */
+private const val RECORD_VERSION = "2"
+private const val FIELD_COUNT = 8

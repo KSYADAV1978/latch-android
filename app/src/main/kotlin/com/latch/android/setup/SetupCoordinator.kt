@@ -119,17 +119,21 @@ class SetupCoordinator(
             return
         }
 
+        var patchedColour: String? = null
+
         if (plan.mode == RoutingMode.LATCH_CALENDAR) {
             // FR-104's "one colour". Failing setup over this would be disproportionate: a
             // calendar returned by calendars.insert is already in the user's list and
             // already visible, so the only thing lost is the colour, and Settings can set
             // it later (FR-1001).
             try {
-                calendarApi.setColourAndVisibility(calendarId, LATCH_CALENDAR_COLOR_ID, visible = true)
+                patchedColour =
+                    calendarApi.setColourAndVisibility(calendarId, LATCH_CALENDAR_COLOR_ID, visible = true)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (ignored: Exception) {
-                // Deliberately swallowed; see above.
+                // Deliberately swallowed; see above. FR-904's chip then has no colour and
+                // renders grey, which is a cosmetic loss on a destination that works.
             }
         } else if (plan.makeChosenCalendarVisible) {
             // FR-903 / AC-09: the user accepted the offer to tick a calendar of their own
@@ -152,6 +156,11 @@ class SetupCoordinator(
                     email = plan.account.email,
                     routingMode = plan.mode,
                     destinationCalendarId = calendarId,
+                    // From the calendar the user saw in the picker, or — for a Latch calendar
+                    // created moments ago — its resource name and the colour the patch just
+                    // gave it. Stored so FR-904's chip costs the capture path no network call.
+                    destinationCalendarName = plan.destinationName ?: latchCalendarSummary,
+                    destinationCalendarColour = plan.destinationColour ?: patchedColour.orEmpty(),
                     taskListId = plan.taskListId,
                 )
             )

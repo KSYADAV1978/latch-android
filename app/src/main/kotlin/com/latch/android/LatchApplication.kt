@@ -1,6 +1,7 @@
 package com.latch.android
 
 import android.app.Application
+import com.latch.android.capture.CaptureSaver
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
@@ -69,6 +70,24 @@ class LatchApplication : Application() {
      */
     private val authClient by lazy { GoogleAuthClient(this, authResolution) }
 
+    private val calendarApi by lazy { googleCalendarApi(authClient) }
+    private val tasksApi by lazy { googleTasksApi(authClient) }
+
+    /**
+     * Held here rather than by `CaptureActivity`, because the capture window is a floating
+     * dialog that closes on a tap outside it. A write already on its way to Google must
+     * still finish and still be reported — see [CaptureSaver].
+     */
+    val captureSaver: CaptureSaver by lazy {
+        CaptureSaver(
+            defaultsStore = accountDefaults,
+            calendarApi = calendarApi,
+            tasksApi = tasksApi,
+            scope = appScope,
+            sourceLinkTemplate = getString(R.string.capture_source_link),
+        )
+    }
+
     /**
      * FR-105: setup state is held here, for the life of the process and nowhere else, so
      * that abandoning setup — or losing the process partway through it — leaves nothing in
@@ -81,8 +100,8 @@ class LatchApplication : Application() {
     val setupCoordinator: SetupCoordinator by lazy {
         SetupCoordinator(
             auth = authClient,
-            calendarApi = googleCalendarApi(authClient),
-            tasksApi = googleTasksApi(authClient),
+            calendarApi = calendarApi,
+            tasksApi = tasksApi,
             defaultsStore = accountDefaults,
             scope = appScope,
             latchCalendarSummary = getString(R.string.latch_calendar_summary),

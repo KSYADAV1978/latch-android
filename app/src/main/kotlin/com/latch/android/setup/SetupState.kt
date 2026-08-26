@@ -109,6 +109,16 @@ data class CommitPlan(
      * unticked, and they accepted the offer to turn it on.
      */
     val makeChosenCalendarVisible: Boolean = false,
+    /**
+     * What FR-904's chip will show, carried from a calendar the user has already seen.
+     *
+     * Null means the destination does not exist yet — Option B with nothing to adopt — and
+     * the coordinator supplies both from the calendar it is about to create. The reducer
+     * cannot: the Latch calendar's name is a string resource (NFR-402) and its colour is not
+     * decided until `calendarList.patch` answers.
+     */
+    val destinationName: String? = null,
+    val destinationColour: String? = null,
 ) {
     val createsCalendar: Boolean get() = existingCalendarId == null
 }
@@ -288,19 +298,24 @@ private fun SetupState.commitPlan(): CommitPlan? {
     val account = account ?: return null
     val taskListId = chosenTaskListId ?: return null
 
-    val existingCalendarId = when (mode) {
-        // Option B adopts a Latch calendar another client already made, and is otherwise
-        // null — the single case in all of setup that creates a calendar.
-        RoutingMode.LATCH_CALENDAR -> adoptableLatchCalendar?.id
-        RoutingMode.EXISTING_CALENDARS -> chosenCalendar?.id ?: return null
+    // The calendar the destination will be, where one already exists. Option B with nothing
+    // to adopt is the single case in all of setup that creates one.
+    val destination = when (mode) {
+        RoutingMode.LATCH_CALENDAR -> adoptableLatchCalendar
+        RoutingMode.EXISTING_CALENDARS -> chosenCalendar ?: return null
     }
+
     return CommitPlan(
         account = account,
         mode = mode,
-        existingCalendarId = existingCalendarId,
+        existingCalendarId = destination?.id,
         taskListId = taskListId,
         // Guarded by chosenCalendarIsHidden as well as the answer, so a calendar that was
         // ticked all along is never patched on the strength of a stale toggle.
         makeChosenCalendarVisible = chosenCalendarIsHidden && makeChosenVisible,
+        // Taken from a calendar the user has seen in the picker, which is what FR-906 means
+        // by never routing somewhere they have not.
+        destinationName = destination?.summary,
+        destinationColour = destination?.backgroundColor,
     )
 }

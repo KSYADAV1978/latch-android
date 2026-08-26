@@ -3,20 +3,29 @@ package com.latch.android.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.CapturedText
+import com.latch.android.capture.DraftBlocker
+import com.latch.android.capture.SaveFailure
+import com.latch.android.capture.SaveState
+import com.latch.android.capture.draftBlocker
+import com.latch.data.AccountDefaults
 import com.latch.core.model.ItemType
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
@@ -27,21 +36,33 @@ private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(F
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
 
 /**
- * The confirmation UI, as far as it goes today: what was captured, what the parser made of
- * it, and which way FR-506 classified it.
+ * The confirmation UI: what was captured, what the parser made of it, which way FR-506
+ * classified it, where it will go (FR-904) and the save itself (FR-801).
  *
- * Still to come, and deliberately absent rather than faked: the destination calendar chip
- * (FR-904), the Event/Task override (FR-507), per-date checkboxes for multiple dates
- * (FR-511) and the save itself (FR-801).
+ * Still to come, and deliberately absent rather than faked: the Event/Task override
+ * (FR-507), per-date checkboxes for multiple dates (FR-511), FR-506 row 3's date picker and
+ * FR-807's undo.
  */
 @Composable
 fun CaptureScreen(
     captured: CapturedText?,
     result: ParseResult?,
     onDismiss: () -> Unit,
+    /** FR-904: where this will go. Null until the stored defaults have been read. */
+    destination: AccountDefaults? = null,
+    saveState: SaveState = SaveState.Idle,
+    /** FR-512, interim: shown rather than blocking the save until the Inbox exists. */
+    lowConfidence: Boolean = false,
+    onSave: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
 ) {
+    val blocker = result?.let(::draftBlocker)
+    val canSave = captured != null &&
+        result != null &&
+        destination != null &&
+        blocker == null &&
+        saveState is SaveState.Idle
     Surface(
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
@@ -61,11 +82,39 @@ fun CaptureScreen(
                 )
             } else {
                 CaptureBody(captured, result)
+
+                // FR-904: the destination is on screen before the user confirms, which is
+                // also what FR-906 means by never routing somewhere they have not seen.
+                destination?.let { DestinationChip(it) }
+
+                if (lowConfidence) {
+                    Note(stringResource(R.string.capture_low_confidence))
+                }
+                if (blocker == DraftBlocker.NEEDS_A_DATE) {
+                    Note(stringResource(R.string.capture_save_needs_date))
+                }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            SaveOutcome(saveState, destination)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
+                }
+                if (saveState !is SaveState.Saved && saveState !is SaveState.AlreadySaved) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onSave, enabled = canSave) {
+                        Text(
+                            stringResource(
+                                if (saveState is SaveState.Saving) R.string.capture_saving
+                                else R.string.capture_save
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -113,7 +162,53 @@ private fun CaptureBody(captured: CapturedText, result: ParseResult) {
         Note(pluralStringResource(R.plurals.capture_extra_dates, extraDates, extraDates))
     }
 
-    Note(stringResource(R.string.capture_save_unavailable))
+}
+
+/**
+ * FR-904: the destination as a chip carrying the calendar's own colour. Drawn from stored
+ * defaults, never a lookup — NFR-101 gives the whole capture path 800 ms and this must be on
+ * screen before the user can confirm.
+ */
+@Composable
+private fun DestinationChip(destination: AccountDefaults) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        CalendarSwatch(destination.destinationCalendarColour)
+        Text(
+            text = destination.destinationCalendarName,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+/** NFR-303: every outcome says what happened, and a failure says what was not saved. */
+@Composable
+private fun SaveOutcome(state: SaveState, destination: AccountDefaults?) {
+    when (state) {
+        SaveState.Idle, SaveState.Saving -> Unit
+
+        is SaveState.Saved -> Note(
+            if (state.searchWasCapped) {
+                stringResource(R.string.capture_saved_unchecked)
+            } else {
+                stringResource(
+                    R.string.capture_saved,
+                    destination?.destinationCalendarName.orEmpty(),
+                )
+            }
+        )
+
+        SaveState.AlreadySaved -> Note(stringResource(R.string.capture_already_saved))
+
+        is SaveState.Failed -> Note(
+            stringResource(
+                when (state.reason) {
+                    SaveFailure.NO_DESTINATION -> R.string.capture_save_no_destination
+                    SaveFailure.NEEDS_A_DATE -> R.string.capture_save_needs_date
+                    SaveFailure.WRITE_FAILED -> R.string.capture_save_error
+                }
+            )
+        )
+    }
 }
 
 /**

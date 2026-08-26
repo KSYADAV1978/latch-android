@@ -148,8 +148,14 @@ interface CalendarApi {
     /**
      * `calendarList.patch`. Used at commit to give the Latch calendar its colour — the
      * "one colour" FR-104 promises — and to ensure it is ticked, per FR-903.
+     *
+     * Returns the resulting `backgroundColor`, because a calendar Latch has just created is
+     * the one destination whose colour nothing else knows: `calendars.insert` answers with a
+     * Calendar resource, which has no colour, and the colour is only decided by this call.
+     * Null where the response did not carry one — the caller stores it for FR-904's chip and
+     * an absent colour renders grey rather than failing.
      */
-    suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean)
+    suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean): String?
 
     /**
      * `calendarList.patch`, visibility only (FR-903, AC-09). Separate from

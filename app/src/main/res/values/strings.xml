@@ -14,7 +14,7 @@
     <string name="badge_task">TASK</string>
 
     <string name="capture_no_date">No date found</string>
-    <string name="capture_undated_explanation">This will be saved to the Capture Inbox, undated. Latch never guesses a date.</string>
+    <string name="capture_undated_explanation">This will be saved without a date. Latch never guesses one.</string>
     <string name="capture_past_date">That date has already passed. Latch will offer a follow-up instead of a dated item.</string>
     <string name="capture_ambiguous_order">Read as %1$s. Change the date order in Settings.</string>
     <string name="capture_ambiguous_relative">Pick a day to finish this one.</string>
@@ -24,7 +24,21 @@
         <item quantity="other">%1$d more dates found in this capture</item>
     </plurals>
     <string name="capture_dismiss">Close</string>
-    <string name="capture_save_unavailable">Saving is not wired up yet</string>
+    <string name="capture_save">Save</string>
+    <string name="capture_saving">Saving…</string>
+    <string name="capture_saved">Saved to %1$s</string>
+    <!-- FR-803: the same message was captured before, so nothing was written this time. -->
+    <string name="capture_already_saved">Already saved. Nothing was written again.</string>
+    <!-- The duplicate check gave up before reading every task; see the reading against FR-803. -->
+    <string name="capture_saved_unchecked">Saved. Latch could not check every task for a duplicate, so this may be a second copy.</string>
+    <!-- NFR-303: a failure says what happened and what was not saved. -->
+    <string name="capture_save_error">Could not save to Google. Check your connection and try again — nothing was saved.</string>
+    <string name="capture_save_no_destination">Finish setting up Latch before saving.</string>
+    <string name="capture_save_needs_date">Latch found a time but no day, and cannot save without one yet.</string>
+    <!-- FR-805: the link back to where a capture came from, written into the item itself. -->
+    <string name="capture_source_link">Captured from %1$s</string>
+    <!-- FR-512, interim: confidence is shown rather than blocking the save. -->
+    <string name="capture_low_confidence">Latch is not confident about this one — check it before saving.</string>
     <string name="capture_nothing_shared">Nothing was shared with Latch</string>
     <string name="capture_clipboard_empty">The clipboard is empty. Copy some text, then tap the tile.</string>
 
@@ -91,6 +105,6 @@
     <string name="latch_calendar_description">Created by Latch. Dates and deadlines captured on your devices are saved here.</string>
 
     <string name="home_headline">Latch</string>
-    <string name="home_setup_pending">Setup is done. Writing to Google is not built yet, so captures are parsed and shown but not saved.</string>
+    <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google. Undo is not built yet, so remove anything unwanted in Google Calendar.</string>
     <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text to Latch.</string>
 </resources>

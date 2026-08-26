@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.9 (draft for developer handover)"
+author: "Version 1.10 (draft for developer handover)"
 date: "26 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "26 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.9 — draft for developer handover |
+| Version | 1.10 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -30,6 +30,7 @@ date: "26 August 2026"
 | 1.7 | 26 Aug 2026 | Specified §7.2 in full ahead of the first write of the FR-800 path. §7.2 previously gave six key names and nothing else; it now fixes every value's format, the hash normalisation, the task-notes encoding, the version-skew rule and the Google platform limits, and is marked normative as a cross-client wire contract. Adds `latch.item_key`, without which FR-804 and AC-08 are unsatisfiable — a reschedule has different source text, so FR-803's hash can never find the item being rescheduled. Points at normative conformance vectors for AC-07. FR-802 now defers to §7.2, resolving a five-versus-six element discrepancy. §2.4 widens "chain" from a Recipe expansion to the items produced by one save, so FR-807 undo has a group identity in every case. No existing requirement changed in substance. |
 | 1.8 | 26 Aug 2026 | Resolved the conflict between FR-805 and FR-210/NFR-206, before any write path exists to embed it. FR-805 required the source text in every item; NFR-206 forbids notification content reaching persistent storage. A reading recorded against NFR-206 settles that a Google item is persistent storage, and FR-805a excludes the source text for notification-sourced captures only, on the same reasoning as FR-210a. Records what is deliberately still written for that layer — a derived title, and the FR-803 hash — and the brute-force caveat on hashing short messages. AC-22 added. |
 | 1.9 | 26 Aug 2026 | Recorded how FR-803 is met and where it is bounded, as the write path was built. Events are matched server-side and are exact; tasks have no content filter in the Google API at all, so the check is a scan bounded to D±1 day — a day wider than correctness needs, to absorb time-zone boundary differences between two devices, which is where AC-07 would otherwise fail silently. An undated task falls back to a ten-page capped scan that reports when it gives up rather than returning a false negative, with the residual duplicate risk accepted for v1.0 and the cure named. Also records that FR-806's queue is deliberately deferred, that a failed or offline write is surfaced under NFR-303 and lost, and that AC-10 does not pass until it lands. No requirement changed. |
+| 1.10 | 26 Aug 2026 | Recorded two readings as the Save button was built. FR-512 gains an **interim** reading, in force only until the FR-700 Inbox exists: with nowhere to route to, a user-confirmed item is saved whatever its confidence, with the confidence surfaced rather than the save blocked — refusing would lose the capture entirely and would make an undated item unsaveable, which design principle 1 contradicts. FR-512 is superseded the moment the Inbox lands. FR-807 records that a save cannot yet be undone from the app, that `latch.chain_id` is already written so undo has a group to act on, and alongside it that FR-506 row 3, FR-507, FR-510 and FR-511 are unmet because the UI each needs is not built. No requirement changed. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -272,6 +273,12 @@ Four independent capture layers are required. Each must function if the others a
 
 **FR-512 [MUST]** Where confidence is below a configurable threshold, the item shall be routed to the Capture Inbox rather than saved directly.
 
+> **Interim reading, in force only until the FR-700 Capture Inbox exists.** The Inbox is not built, so there is nowhere to route to. Until it is, **a user-confirmed item is saved whatever its confidence**, and the confidence is surfaced on the confirmation screen instead of blocking the save.
+>
+> The alternative — refusing to save anything below the threshold — would honour the sentence and lose the capture entirely, since the Inbox that was supposed to catch it does not exist. That is worse than saving something the user has read and chosen to keep, and it would also make an undated capture unsaveable, which design principle 1 contradicts: "If no date is found, the item is created undated."
+>
+> **This reading is superseded the moment the FR-700 series lands.** It is not a reinterpretation of FR-512 and does not weaken it: once there is an Inbox, below-threshold items go to it as written, and the confirmation screen stops being the only thing standing between a doubtful parse and the user's calendar.
+
 **FR-513 [MUST]** Where a date is written without a year, the parser shall resolve it to the current year and shall **not** advance it to the next year. A date that then lies in the past is reported as past and handled under FR-510.
 
 > **Rationale, because the alternative looks more helpful and is wrong.** AC-04 requires "the order dated 12 March" to produce no dated item. Rolling a past date forward to its next occurrence would make that date valid and future, and the acceptance test would pass while the product did the opposite of what it promises.
@@ -362,6 +369,12 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 > This is a sequencing decision, not a change of intent. The requirement stands as written, WorkManager is already approved for it in `docs/DEPENDENCIES.md`, and the `WriteQueue` contract is already defined in the data layer. Nothing in the write path assumes the absence of a queue, so introducing one moves where the insert is called from and changes nothing about what is sent.
 
 **FR-807 [MUST]** Every save shall offer an undo for a period of not less than 10 seconds, removing all items created by that save.
+
+> **Implementation status, recorded so this reads as deferred rather than overlooked.** Saving from the confirmation screen now works and **cannot be undone from the app**. There is no `events.delete` or `tasks.delete`, and no undo window. A user who saves something they did not want must remove it in Google Calendar or Google Tasks.
+>
+> This is the most user-visible gap the write path opens, and it is the first thing the FR-800 series should close. The groundwork is in place: `latch.chain_id` is written on every item and means the items produced by one save (§2.4), so undo has a group to act on and does not depend on anything held locally.
+>
+> Two other requirements are unmet in the same way and for the same reason — the UI they need is not built. **FR-506 row 3**: a capture with a time but no date cannot be saved at all, because completing it needs the date picker that row describes. **FR-511**: only the first date of a multi-date capture is saved; the others are counted on screen and wait for the per-date checkboxes. **FR-507**'s Event/Task override is likewise absent, so the parser's classification stands. **FR-510**'s past-date follow-up is not offered; a past date is saved as read.
 
 ## 5.9 Calendar selection and routing (FR-900 series)
 

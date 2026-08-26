@@ -374,13 +374,7 @@ private fun CalendarRow(calendar: WritableCalendar, selected: Boolean, onSelect:
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = selected, onClick = null)
-        // FR-902: the calendar's own colour, so it looks the same here as in Google.
-        Box(
-            modifier = Modifier
-                .padding(start = 4.dp, end = 12.dp)
-                .size(12.dp)
-                .background(calendar.backgroundColor.toComposeColour(), CircleShape)
-        )
+        CalendarSwatch(calendar.backgroundColor, modifier = Modifier.padding(start = 4.dp))
         Text(calendar.summary, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         // FR-903: an unticked calendar makes a successful write look like a failed one.
         if (!calendar.visible) {
@@ -442,8 +436,23 @@ private fun Problem(message: String, onRetry: (() -> Unit)?) {
 }
 
 /**
+ * FR-902: a calendar's own colour, so it looks the same in Latch as it does in Google.
+ * Shared with the capture screen's FR-904 destination chip — one swatch, drawn once.
+ */
+@Composable
+internal fun CalendarSwatch(colour: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(end = 12.dp)
+            .size(12.dp)
+            .background(colour.toComposeColour(), CircleShape)
+    )
+}
+
+/**
  * Google gives calendar colours as "#rrggbb". A colour that will not parse is cosmetic
- * only, so it falls back rather than failing the screen.
+ * only, so it falls back rather than failing the screen — which is also what an empty
+ * colour means, where Google gave none at all.
  */
 private fun String.toComposeColour(): Color =
     runCatching { Color(toColorInt()) }.getOrDefault(Color.Gray)

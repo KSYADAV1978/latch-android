@@ -1,8 +1,12 @@
 package com.latch.android.capture
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import com.latch.android.LatchApplication
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.parser.DateParser
@@ -11,35 +15,69 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
- * The confirmation window for capture layers 1, 2 and 4.
+ * The confirmation screen behind every capture layer (§5.2).
  *
- * Nothing is written to the user's Google account here, and nothing is persisted: the Google
- * write (FR-801), the Capture Inbox (FR-701) and the destination picker (FR-904) are not
- * built yet. What this proves out is the capture path end to end — intent in, on-device
- * parse, classified item on screen with its EVENT/TASK badge (FR-508).
+ * The parse is synchronous and touches no I/O, which is what keeps NFR-101's 800 ms budget
+ * from gesture to confirmation achievable — and why the FR-904 destination is read from
+ * stored defaults rather than fetched.
  */
 class CaptureActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val app = application as LatchApplication
 
-        val captured = intent.toCapturedText(this)
-        // Parsing is synchronous: it is string work with no I/O, and NFR-101 gives the whole
-        // gesture-to-window path 800 ms. If the corpus ever grows a rule that changes that,
-        // NFR-102 (render first, fill fields progressively) is the answer, not a spinner.
-        val result = captured?.let {
-            DateParser.parse(it.text, ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault()))
-        }
+        // A previous capture in this process may have left an outcome on screen.
+        app.captureSaver.reset()
+
+        val captured = intent.toCapturedText(this)?.copy(appId = referrerPackage())
+        val context = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
+        val result = captured?.let { DateParser.parse(it.text, context) }
 
         setContent {
             LatchTheme {
+                val destinations by app.configuredAccounts.collectAsState()
+                val saveState by app.captureSaver.state.collectAsState()
+
                 CaptureScreen(
                     captured = captured,
                     result = result,
                     onDismiss = { finish() },
+                    destination = destinations?.firstOrNull(),
+                    saveState = saveState,
+                    // FR-512, interim: shown rather than blocking the save, until the
+                    // Capture Inbox exists to send it to instead.
+                    lowConfidence = result != null &&
+                        result.overallConfidence < context.confidenceThreshold,
+                    onSave = {
+                        if (captured != null && result != null) {
+                            app.captureSaver.save(captured, result, context)
+                        }
+                    },
                     fromEmptyClipboard = intent.getBooleanExtra(EXTRA_READ_CLIPBOARD, false),
                 )
             }
         }
     }
+
+    /**
+     * `launchMode` is `singleTop`, so a second capture arriving while this one is showing is
+     * delivered here rather than to a new instance. Without this the screen would keep the
+     * previous capture's text — and, now that there is a Save button under it, would offer
+     * to save the wrong thing.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recreate()
+    }
+
+    /**
+     * FR-802's source application, for `latch.source_app`. `getReferrer()` is the only
+     * source of it here — neither `ACTION_PROCESS_TEXT` nor `ACTION_SEND` carries the
+     * sender's package, and `getCallingActivity()` is null because both arrive via
+     * `startActivity` rather than for a result. Often null, which the schema reads as
+     * unknown rather than as an error.
+     */
+    private fun referrerPackage(): String? = referrer?.host?.takeIf { it.isNotBlank() }
 }

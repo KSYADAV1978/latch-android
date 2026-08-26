@@ -78,6 +78,18 @@ data class AccountDefaults(
     val email: String,
     val routingMode: RoutingMode,
     val destinationCalendarId: String,
+    /**
+     * The destination's name and colour as Google gives them, stored rather than fetched.
+     *
+     * FR-904 wants the destination on screen as a chip in its own colour before the user
+     * confirms a capture, and NFR-101 gives the whole path from gesture to confirmation UI
+     * 800 ms. A `calendarList` round-trip per capture would spend most of that budget on a
+     * value that changes about never. FR-908's launch-time refresh is where staleness is
+     * meant to be corrected.
+     */
+    val destinationCalendarName: String,
+    /** `#rrggbb`, or empty where Google gave none — the UI renders an unparseable colour grey. */
+    val destinationCalendarColour: String,
     val taskListId: String,
 )
 

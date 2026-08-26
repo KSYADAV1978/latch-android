@@ -66,14 +66,21 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
             ?: throw GoogleUnreadable("calendars.insert returned no id")
     }
 
-    override suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean) {
+    override suspend fun setColourAndVisibility(
+        calendarId: String,
+        colorId: String,
+        visible: Boolean,
+    ): String? {
         val body = JSONObject()
             .put("colorId", colorId)
             .put("selected", visible)
         // colorRgbFormat is deliberately not set: it exists to make backgroundColor and
         // foregroundColor writable, and using it would oblige us to supply both. Setting
         // colorId alone needs nothing.
-        http.patch("$CALENDAR_V3/users/me/calendarList/${encodePath(calendarId)}", body)
+        val patched = http.patch("$CALENDAR_V3/users/me/calendarList/${encodePath(calendarId)}", body)
+        // The response is a CalendarListEntry, which — unlike the Calendar resource that
+        // calendars.insert returns — does carry the colour.
+        return patched.optString("backgroundColor").takeIf { it.isNotBlank() }
     }
 
     override suspend fun makeVisible(calendarId: String) {
