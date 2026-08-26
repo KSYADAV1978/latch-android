@@ -2,6 +2,9 @@ package com.latch.data
 
 import java.net.URLEncoder
 import java.security.MessageDigest
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -78,6 +81,22 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
         val body = JSONObject().put("selected", true)
         http.patch("$CALENDAR_V3/users/me/calendarList/${encodePath(calendarId)}", body)
     }
+
+    override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
+        val created = http.post(
+            "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events",
+            eventRequestBody(event),
+        )
+        return created.optString("id").takeIf { it.isNotBlank() }
+            ?: throw GoogleUnreadable("events.insert returned no id")
+    }
+
+    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {
+        val page = http.get(eventDedupUrl(calendarId, sourceHash))
+        // Never capped: Google did the matching, so an empty result means there is none,
+        // not that we stopped looking.
+        return DuplicateSearch(firstEventId(page))
+    }
 }
 
 /** FR-106 — the task list half. */
@@ -115,6 +134,36 @@ internal class GoogleTasksApi(private val http: GoogleHttp) : TasksApi {
         } else {
             lists
         }
+    }
+
+    override suspend fun insertTask(taskListId: String, task: TaskWrite): String {
+        val created = http.post(
+            "$TASKS_V1/lists/${encodePath(taskListId)}/tasks",
+            taskRequestBody(task),
+        )
+        return created.optString("id").takeIf { it.isNotBlank() }
+            ?: throw GoogleUnreadable("tasks.insert returned no id")
+    }
+
+    override suspend fun findTaskBySourceHash(
+        taskListId: String,
+        sourceHash: String,
+        due: LocalDate?,
+    ): DuplicateSearch {
+        var pageToken: String? = null
+        var pages = 0
+
+        do {
+            currentCoroutineContext().ensureActive()
+            val page = http.get(taskDedupUrl(taskListId, due, pageToken))
+            matchingTaskId(page, sourceHash)?.let { return DuplicateSearch(it) }
+            pageToken = nextPageTokenFrom(page)
+            pages++
+        } while (pageToken != null && pages < MAX_DEDUP_PAGES)
+
+        // A token still in hand means there were more tasks than we were willing to read.
+        // Reported rather than logged, so a caller cannot mistake it for "no duplicate".
+        return DuplicateSearch(existingId = null, scanCapped = pageToken != null)
     }
 }
 
@@ -222,6 +271,99 @@ internal fun taskListsFrom(page: JSONObject, defaultListId: String?): List<TaskL
 
 internal fun nextPageTokenFrom(page: JSONObject): String? =
     page.optString("nextPageToken").takeIf { it.isNotBlank() }
+
+// ---------------------------------------------------------------------------------------
+// Writing (FR-801, FR-802) and the FR-803 check that precedes it.
+// ---------------------------------------------------------------------------------------
+
+/** How many pages of tasks a dedup scan will read before giving up. See [DuplicateSearch]. */
+private const val MAX_DEDUP_PAGES = 10
+
+internal fun eventRequestBody(event: EventWrite): JSONObject {
+    val body = JSONObject().put("summary", event.summary)
+
+    // Omitted rather than sent empty: FR-805a leaves a notification-sourced item with no
+    // description at all, and an empty string is a value where absence is the truth.
+    event.description.takeIf { it.isNotBlank() }?.let { body.put("description", it) }
+    event.location?.takeIf { it.isNotBlank() }?.let { body.put("location", it) }
+
+    body.put("start", eventTimePoint(event.start, event.allDay, event.timeZone))
+    body.put("end", eventTimePoint(event.end, event.allDay, event.timeZone))
+
+    // §7.2. Private, never shared: shared properties are visible to every attendee of the
+    // event, and this is the user's own provenance data.
+    body.put(
+        "extendedProperties",
+        JSONObject().put("private", JSONObject(event.metadata.toEventProperties() as Map<*, *>)),
+    )
+    return body
+}
+
+private fun eventTimePoint(at: LocalDateTime, allDay: Boolean, timeZone: String): JSONObject =
+    if (allDay) {
+        JSONObject().put("date", at.toLocalDate().toString())
+    } else {
+        // Seconds are written explicitly: ISO_LOCAL_DATE_TIME drops them at zero, and RFC
+        // 3339 — which is what the API documents — requires them.
+        JSONObject()
+            .put("dateTime", at.format(EVENT_DATE_TIME))
+            .put("timeZone", timeZone)
+    }
+
+private val EVENT_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+
+internal fun taskRequestBody(task: TaskWrite): JSONObject {
+    val body = JSONObject().put("title", task.title)
+    // The metadata line is appended here, not by the caller, so a task cannot be written
+    // without it (§7.2).
+    body.put("notes", task.metadata.toTaskNotes(task.notes))
+    // Google records only the date and discards the time (§9.1), but the field is a
+    // timestamp, so midnight UTC is the unambiguous way to say "this day".
+    task.due?.let { body.put("due", "${it}T00:00:00.000Z") }
+    return body
+}
+
+internal fun eventDedupUrl(calendarId: String, sourceHash: String): String =
+    "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events" +
+        "?privateExtendedProperty=${encodeQuery("$KEY_SOURCE_HASH=$sourceHash")}" +
+        "&maxResults=1"
+
+/**
+ * `showCompleted` and `showHidden` are on deliberately: a duplicate the user has already
+ * ticked off still exists, and FR-803 asks whether the message was saved, not whether it is
+ * outstanding. `showDeleted` stays at its default of false, matching events — an item the
+ * user deleted must not block them capturing it again.
+ */
+internal fun taskDedupUrl(taskListId: String, due: LocalDate?, pageToken: String?): String =
+    buildString {
+        append("$TASKS_V1/lists/${encodePath(taskListId)}/tasks")
+        append("?maxResults=100&showCompleted=true&showHidden=true")
+        if (due != null) {
+            append("&dueMin=").append(encodeQuery("${due.minusDays(1)}T00:00:00.000Z"))
+            append("&dueMax=").append(encodeQuery("${due.plusDays(1)}T23:59:59.999Z"))
+        }
+        pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
+    }
+
+internal fun firstEventId(page: JSONObject): String? =
+    page.optJSONArray("items")
+        ?.optJSONObject(0)
+        ?.optString("id")
+        ?.takeIf { it.isNotBlank() }
+
+internal fun matchingTaskId(page: JSONObject, sourceHash: String): String? {
+    val items = page.optJSONArray("items") ?: return null
+    for (index in 0 until items.length()) {
+        val entry = items.optJSONObject(index) ?: continue
+        // A task whose notes the user has edited into nonsense parses to null and is simply
+        // not a match — it must not take out the write.
+        val metadata = remoteMetadataFromTaskNotes(entry.optString("notes")) ?: continue
+        if (metadata.sourceHash == sourceHash) {
+            return entry.optString("id").takeIf { it.isNotBlank() }
+        }
+    }
+    return null
+}
 
 /**
  * Percent-encoding for a path segment. `URLEncoder` is form-encoding, which turns a space

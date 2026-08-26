@@ -145,7 +145,30 @@ pass, and is pure ASCII so an editor cannot normalise a case away. `latch.item_k
 there: FR-803's source hash can never find a rescheduled item, because a reschedule *is*
 different source text, so FR-804 and AC-08 would have been unsatisfiable without it.
 
-Not built: the FR-800 write path (`events.insert`, FR-803 dedup, FR-806 queue, FR-807 undo),
+`:data` can now write. `insertEvent` and `insertTask` build the request bodies and attach the
+§7.2 metadata, and `findEventBySourceHash` / `findTaskBySourceHash` are FR-803. The two
+transports are not equally capable and the asymmetry is worth knowing before touching it:
+events are filtered server-side by `privateExtendedProperty` and the answer is exact, while
+the Tasks API has **no content filter at all**, so the check is a scan bounded to D±1 day —
+a day wider than correctness needs, to absorb time-zone skew between two devices, which is
+where AC-07 fails silently otherwise. An undated task falls back to a ten-page capped scan
+that *reports* giving up rather than returning a false negative; `DuplicateSearch.scanCapped`
+is that signal and callers must not read it as "no duplicate".
+
+**Nothing calls any of it yet, and the blocker is a requirement, not effort.** FR-906 forbids
+routing to a calendar the user has not seen and FR-904 wants the destination shown as a chip
+in its own colour, but `AccountDefaults` stores only a calendar id — no name, no colour. A
+Save button therefore needs either a `calendarList` lookup on the capture path or a record
+migration, plus a `ParseResult → Item` mapping (FR-506, FR-511, FR-507). That is the next
+slice.
+
+FR-805a is structural rather than careful: call sites never compose an item's description
+themselves, `sourceBlock` does, and it drops the source text for `CaptureLayer.NOTIFICATION`.
+AC-22 is a unit test over it.
+
+Not built: FR-806's queue — deliberately, and recorded as such in the SRS. Writes go straight
+to Google, so an offline capture cannot be saved and a failed write is surfaced under NFR-303
+and then lost. **AC-10 does not pass until that lands.** Also not built: FR-807 undo,
 the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
 notification listener (FR-208). FR-908 is not built either — the calendar list is not
 refreshed on launch and a stored destination that has been deleted or has lost write access

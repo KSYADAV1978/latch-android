@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.8 (draft for developer handover)"
+author: "Version 1.9 (draft for developer handover)"
 date: "26 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "26 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.8 — draft for developer handover |
+| Version | 1.9 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -29,6 +29,7 @@ date: "26 August 2026"
 | 1.6 | 26 Aug 2026 | Recorded the reading of NFR-203 under which the Android Keystore is used directly and no encryption library is required, established when account defaults were first persisted. Names the restore-unreadability consequence and requires it be treated as absence rather than error. No existing requirement changed. |
 | 1.7 | 26 Aug 2026 | Specified §7.2 in full ahead of the first write of the FR-800 path. §7.2 previously gave six key names and nothing else; it now fixes every value's format, the hash normalisation, the task-notes encoding, the version-skew rule and the Google platform limits, and is marked normative as a cross-client wire contract. Adds `latch.item_key`, without which FR-804 and AC-08 are unsatisfiable — a reschedule has different source text, so FR-803's hash can never find the item being rescheduled. Points at normative conformance vectors for AC-07. FR-802 now defers to §7.2, resolving a five-versus-six element discrepancy. §2.4 widens "chain" from a Recipe expansion to the items produced by one save, so FR-807 undo has a group identity in every case. No existing requirement changed in substance. |
 | 1.8 | 26 Aug 2026 | Resolved the conflict between FR-805 and FR-210/NFR-206, before any write path exists to embed it. FR-805 required the source text in every item; NFR-206 forbids notification content reaching persistent storage. A reading recorded against NFR-206 settles that a Google item is persistent storage, and FR-805a excludes the source text for notification-sourced captures only, on the same reasoning as FR-210a. Records what is deliberately still written for that layer — a derived title, and the FR-803 hash — and the brute-force caveat on hashing short messages. AC-22 added. |
+| 1.9 | 26 Aug 2026 | Recorded how FR-803 is met and where it is bounded, as the write path was built. Events are matched server-side and are exact; tasks have no content filter in the Google API at all, so the check is a scan bounded to D±1 day — a day wider than correctness needs, to absorb time-zone boundary differences between two devices, which is where AC-07 would otherwise fail silently. An undated task falls back to a ten-page capped scan that reports when it gives up rather than returning a false negative, with the residual duplicate risk accepted for v1.0 and the cure named. Also records that FR-806's queue is deliberately deferred, that a failed or offline write is surfaced under NFR-303 and lost, and that AC-10 does not pass until it lands. No requirement changed. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -332,6 +333,18 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **FR-803 [MUST]** Before writing, the app shall check for an existing item with a matching source hash and shall not create a duplicate.
 
+> **How this requirement is met, and where it is bounded — recorded because the two transports are not equally capable.**
+>
+> **Events are exact.** `events.list` accepts a `privateExtendedProperty=latch.source_hash=<hash>` constraint, so Google performs the match and one request answers the question however large the calendar is. Deleted events are excluded by the API's own default, which is the behaviour this requirement wants: an event the user undid under FR-807 must not prevent them capturing it again.
+>
+> **Tasks are a bounded scan, and this is a real limitation.** The Google Tasks API has **no filter on content of any kind** — only due, completion and update dates — `maxResults` caps at 100, and §7.2 metadata lives in free-text notes. There is therefore nothing for Google to match on and the client must read and parse tasks itself.
+>
+> Where the item has a due date the scan is bounded to **D−1 to D+1**. A duplicate of the same source text parses to the same due date, so a single day would suffice for correctness on one device; the window is a day wider either side **to absorb time-zone boundary differences between two devices**. A task due "5 September" written from a phone in IST and searched for from a PC in UTC is precisely where AC-07 fails silently otherwise, and the failure would look like the feature simply not working rather than like a boundary error.
+>
+> The scan sets `showCompleted` and `showHidden`, because a duplicate the user has already ticked off still exists and this requirement asks whether the message was saved, not whether it is outstanding. It leaves `showDeleted` at false, matching events.
+>
+> **An undated task has nothing to bound the scan by**, and falls back to reading pages until it runs out or reaches a cap of ten. Beyond that the search gives up and **reports that it did so** rather than returning "no duplicate found" — the caller is told the difference between having looked everywhere and having stopped looking. A user with more than roughly a thousand undated tasks in one list may therefore have a duplicate created. That is accepted for v1.0. The cure is a local index of source hashes maintained by an incremental `updatedMin` sync, which is deferred because it needs local storage that does not yet exist; it should be revisited when the Capture Inbox (FR-701) brings that storage with it.
+
 **FR-804 [MUST]** Where a capture appears to be a rescheduling of an existing item (matching title and identifiers, different date), the app shall offer to **update** the existing item and its chain rather than create a new one. The user shall confirm; the app shall not update silently.
 
 **FR-805 [MUST]** The item's source text and, where available, a link back to the source (URL, or source app and timestamp) shall be stored in the item description or notes. **Subject to FR-805a.**
@@ -341,6 +354,12 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 > Rationale. A Google item is persistent storage (see the reading recorded against NFR-206), and NFR-206 forbids notification content reaching it. This is the same reasoning that suppresses webhook delivery for this layer under FR-210a, and it applies with more force here: a webhook is an endpoint the user chose, whereas the calendar entry is written by default and syncs to every device on the account. The exclusion shall be stated in the notification-access disclosure screen alongside FR-210a's.
 
 **FR-806 [MUST]** All writes shall be queued locally when offline and retried on reconnection, with the queue visible to the user.
+
+> **Implementation status, recorded so this reads as deferred rather than overlooked.** The write path was built without the queue: `events.insert` and `tasks.insert` go straight to Google. This requirement is **not met**, deliberately and temporarily, and the consequences are stated here rather than discovered.
+>
+> Until the queue lands: a capture cannot be saved while offline, and a write that fails is surfaced to the user under NFR-303 and then lost — there is no retry and nothing survives app termination. **AC-10 does not pass**, and neither does the queue half of AC-21.
+>
+> This is a sequencing decision, not a change of intent. The requirement stands as written, WorkManager is already approved for it in `docs/DEPENDENCIES.md`, and the `WriteQueue` contract is already defined in the data layer. Nothing in the write path assumes the absence of a queue, so introducing one moves where the insert is called from and changes nothing about what is sent.
 
 **FR-807 [MUST]** Every save shall offer an undo for a period of not less than 10 seconds, removing all items created by that save.
 

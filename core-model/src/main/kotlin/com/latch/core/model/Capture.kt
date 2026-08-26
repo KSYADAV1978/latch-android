@@ -33,4 +33,14 @@ data class CaptureSource(
 ) {
     /** FR-210a. */
     val webhookEligible: Boolean get() = layer != CaptureLayer.NOTIFICATION
+
+    /**
+     * FR-805a. The source text of a notification is never stored in the created item.
+     *
+     * The sibling of [webhookEligible], and excluded for the same reason: a Google item is
+     * persistent storage, synchronised to every device on the account, and NFR-206 forbids
+     * notification content reaching it. The item's title and date still go — FR-210 sanctions
+     * the confirmed item — but the message itself does not.
+     */
+    val storesSourceText: Boolean get() = layer != CaptureLayer.NOTIFICATION
 }

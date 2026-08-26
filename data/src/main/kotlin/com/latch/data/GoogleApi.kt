@@ -1,8 +1,11 @@
 package com.latch.data
 
+import java.time.LocalDate
+import java.time.LocalDateTime
+
 /**
- * The Google surface that first-run setup (FR-101 to FR-110) and, later, the write path
- * (FR-800 series) need. Contracts only: no implementation, no HTTP client, no dependency.
+ * The Google surface that first-run setup (FR-101 to FR-110) and the write path (FR-800
+ * series) need. Contracts only: no implementation, no HTTP client, no dependency.
  *
  * Whether the implementation is hand-written REST or a Google client library is an open
  * NFR-501 decision recorded in docs/DEPENDENCIES.md. Setup is built against these
@@ -54,6 +57,54 @@ data class TaskList(
  * summary alone would adopt any calendar a user happened to name "Latch".
  */
 const val LATCH_CALENDAR_MARKER: String = "latch.calendar.v1"
+
+/**
+ * An event to create (FR-801). Wire-shaped, like [WritableCalendar] and [TaskList], rather
+ * than `:core-model`'s `Item`, which carries local-only concerns — `syncState`, `captureId` —
+ * that have no business crossing to Google.
+ */
+data class EventWrite(
+    val summary: String,
+    /**
+     * The FR-805 body, composed by [sourceBlock] so that FR-805a cannot be forgotten. The
+     * §7.2 metadata is **not** part of this; the implementation attaches it separately.
+     */
+    val description: String,
+    val location: String? = null,
+    val start: LocalDateTime,
+    /**
+     * **For an all-day event Google treats the end date as exclusive** — a single-day event
+     * on 5 September ends on the 6th. This field is passed through unchanged, so that
+     * arithmetic belongs to the caller; guessing at it here would silently move dates.
+     */
+    val end: LocalDateTime,
+    val allDay: Boolean = false,
+    /** An IANA zone id. `Item.start` is a `LocalDateTime` and needs one to resolve. */
+    val timeZone: String,
+    val metadata: RemoteMetadata,
+)
+
+/** A task to create (FR-801). Tasks record a due **date** only — §9.1, and the API discards any time. */
+data class TaskWrite(
+    val title: String,
+    /** The FR-805 body. The `[latch]` metadata line is appended by the implementation. */
+    val notes: String,
+    val due: LocalDate? = null,
+    val metadata: RemoteMetadata,
+)
+
+/**
+ * The result of the FR-803 check that must precede every write.
+ *
+ * [scanCapped] exists because the two transports are not equally capable. Events are filtered
+ * server-side by `privateExtendedProperty`, so the answer is exact. Tasks have no content
+ * filter at all, so the search is a bounded scan and can give up — and when it does, the
+ * caller is told rather than being handed a "no duplicate" that merely means "did not look
+ * far enough".
+ */
+data class DuplicateSearch(val existingId: String?, val scanCapped: Boolean = false) {
+    val found: Boolean get() = existingId != null
+}
 
 interface AuthClient {
     /** FR-002: requests the four scopes and no others. */
@@ -107,9 +158,42 @@ interface CalendarApi {
      * ask for. Only the tick changes.
      */
     suspend fun makeVisible(calendarId: String)
+
+    /** `events.insert` (FR-801, FR-802). Returns the created event's id. */
+    suspend fun insertEvent(calendarId: String, event: EventWrite): String
+
+    /**
+     * FR-803, the check that must run before [insertEvent].
+     *
+     * `events.list` filtered by `privateExtendedProperty`, so Google does the matching and
+     * the answer is exact — one request regardless of how many events the calendar holds.
+     * Deleted events are excluded by the API's own default, which is what we want: an event
+     * the user undid under FR-807 must not block them capturing it again.
+     */
+    suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch
 }
 
 interface TasksApi {
     /** `tasklists.list` (FR-106). */
     suspend fun listTaskLists(): List<TaskList>
+
+    /** `tasks.insert` (FR-801, FR-802). Returns the created task's id. */
+    suspend fun insertTask(taskListId: String, task: TaskWrite): String
+
+    /**
+     * FR-803 for tasks, which is a scan rather than a query.
+     *
+     * The Tasks API has **no filter on content at all** — only due, completion and update
+     * dates — and metadata lives in free-text notes, so there is nothing for Google to match
+     * on. [due] bounds the scan: a duplicate of the same source text parses to the same due
+     * date, and the window is widened by a day either side purely to absorb time-zone
+     * boundary differences between two devices, which is where AC-07 would otherwise fail
+     * silently. An undated task has nothing to bound by and falls back to a capped scan, so
+     * the result may come back with `scanCapped` set.
+     */
+    suspend fun findTaskBySourceHash(
+        taskListId: String,
+        sourceHash: String,
+        due: LocalDate?,
+    ): DuplicateSearch
 }
