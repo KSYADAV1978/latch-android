@@ -19,15 +19,31 @@ android {
 
 dependencies {
     api(project(":core-model"))
+
+    testImplementation(libs.kotlin.test.junit5)
 }
 
-// Storage contracts only, no implementation yet. Where the dependency decisions landed, in
-// full in docs/DEPENDENCIES.md:
+// The stored-record format is pure Kotlin, so its round trip is a plain JVM test — the
+// same reason AC-15 and AC-16 are unit tests in :app. The Keystore half needs a device
+// and has no test here.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events("failed")
+        showStandardStreams = false
+    }
+}
+
+// Where the dependency decisions landed, in full in docs/DEPENDENCIES.md:
+//   - Account defaults (FR-110): persisted here, in EncryptedPreferences.kt. AES-GCM under
+//     an Android Keystore key, written to app-private preferences. No dependency: this is
+//     what androidx.security-crypto would have done, and that library is deprecated in
+//     favour of the platform APIs it wraps.
+//   - OAuth token and webhook URL storage (NFR-203): unbuilt, but no longer an open
+//     question — SecretStore reuses KeystoreCipher rather than minting a second scheme.
 //   - Capture Inbox persistence (FR-701): Room is deferred — it needs KSP, which AGP 9's
 //     built-in Kotlin does not support. Hand-rolled SQLite is the interim if the Inbox
 //     lands first.
 //   - Encryption at rest (NFR-204): no library. Platform encryption at minSdk 26 plus
 //     allowBackup=false satisfies it; the reading is recorded against NFR-204 in the SRS.
 //   - The write queue surviving process death (FR-806, NFR-302): WorkManager, approved.
-//   - OAuth token and webhook URL storage (NFR-203): still open — androidx.security, or
-//     EncryptedFile on the Keystore directly.

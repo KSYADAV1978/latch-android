@@ -76,8 +76,20 @@ confirmation screen, and first-run setup (FR-100 series) end to end.
 Setup runs against `StubGoogle.kt`, not Google. The screens, the state machine and the commit
 sequence are finished and tested; the four API calls behind them are stubs, because how this
 app talks to Google is an open NFR-501 decision (hand-written REST against the endpoints, or
-a Google client library). Replacing the stubs changes nothing above them. Defaults are held
-in memory, so every launch runs setup again.
+a Google client library). Replacing the stubs changes nothing above them.
+
+Account defaults persist. `EncryptedAccountDefaultsStore` in `:data` writes them to
+app-private preferences, each record encrypted with AES-GCM under an Android Keystore key
+(`KeystoreCipher`, same file) — no dependency, because that is all `androidx.security-crypto`
+would have done and it is deprecated in favour of these platform APIs. The secret store
+(NFR-203) should reuse `KeystoreCipher`. Setup therefore runs once: a second launch reads
+the stored account and goes straight to the home screen.
+
+One thing the stubs hide. `StubCalendarApi` mints a fresh `latch-N` id every process, so a
+persisted `destinationCalendarId` names a calendar the next launch has never heard of.
+Nothing reads it yet, so nothing breaks — but it is exactly the case FR-908 exists for
+(re-validate a stored destination on launch, fall back to primary, tell the user), and that
+is not built.
 
 Not built: any real Google API call (FR-800 series), the Capture Inbox (FR-700 series),
 Settings (FR-1000 series), OCR (FR-215) and the notification listener (FR-208). The app holds

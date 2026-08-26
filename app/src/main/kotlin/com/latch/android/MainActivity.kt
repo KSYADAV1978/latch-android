@@ -26,7 +26,8 @@ import com.latch.android.ui.SetupFlow
 /**
  * FR-101: first launch runs setup. It is not "first launch" that is tested, but whether an
  * account has been configured — which is what makes an abandoned setup indistinguishable
- * from never having run one (AC-16).
+ * from never having run one (AC-16), and what now makes a completed one survive the
+ * process that ran it.
  *
  * The Capture Inbox (FR-701) and Settings (FR-1001) still belong here and are not built.
  */
@@ -34,13 +35,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val coordinator = (application as LatchApplication).setupCoordinator
+        val app = application as LatchApplication
+        val coordinator = app.setupCoordinator
 
         setContent {
             LatchTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val outcome by coordinator.outcome.collectAsState()
                     val setupState by coordinator.state.collectAsState()
+                    val configured by app.configuredAccounts.collectAsState()
 
                     LaunchedEffect(outcome) {
                         // Backing out of step 1 leaves the app rather than stranding the
@@ -48,11 +51,20 @@ class MainActivity : ComponentActivity() {
                         if (outcome == SetupOutcome.ABANDONED) finish()
                     }
 
-                    if (outcome == SetupOutcome.COMPLETED) {
-                        Home()
-                    } else {
-                        BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
-                        SetupFlow(state = setupState, onEvent = coordinator::dispatch)
+                    when {
+                        // Stored defaults have not been read yet. This lasts a frame or
+                        // two, and drawing nothing through it is the only option that
+                        // cannot flash setup at a configured user.
+                        configured == null -> Unit
+
+                        // The outcome covers the account configured moments ago in this
+                        // process; the stored list covers every earlier launch.
+                        outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true -> Home()
+
+                        else -> {
+                            BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
+                            SetupFlow(state = setupState, onEvent = coordinator::dispatch)
+                        }
                     }
                 }
             }

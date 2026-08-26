@@ -1,7 +1,5 @@
 package com.latch.android.setup
 
-import com.latch.data.AccountDefaults
-import com.latch.data.AccountDefaultsStore
 import com.latch.data.AuthClient
 import com.latch.data.CalendarApi
 import com.latch.data.GoogleAccount
@@ -62,27 +60,6 @@ class StubTasksApi : TasksApi {
             TaskList("default", "My Tasks", isDefault = true),
             TaskList("work", "Work", isDefault = false),
         )
-    }
-}
-
-/**
- * Defaults live only as long as the process, so every launch runs setup again. Persistence
- * arrives with the rest of the storage layer; the contract it will satisfy is already fixed
- * by [AccountDefaultsStore].
- */
-class InMemoryAccountDefaultsStore : AccountDefaultsStore {
-    private val byAccount = mutableMapOf<String, AccountDefaults>()
-
-    override suspend fun defaultsFor(accountId: String) = byAccount[accountId]
-
-    override suspend fun allAccounts() = byAccount.values.toList()
-
-    override suspend fun save(defaults: AccountDefaults) {
-        byAccount[defaults.accountId] = defaults
-    }
-
-    override suspend fun remove(accountId: String) {
-        byAccount.remove(accountId)
     }
 }
 

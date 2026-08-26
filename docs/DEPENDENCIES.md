@@ -83,6 +83,27 @@ Kotlin and revisit when AGP supports KSP there. If the Inbox lands first, hand-r
 
 ## Rejected
 
+### `androidx.security:security-crypto` — encrypted preferences (FR-110, NFR-203)
+
+Considered for persisting account defaults, which until now lived in memory and made every
+launch re-run setup. `EncryptedSharedPreferences` is the obvious fit and was not taken.
+
+Two reasons, either sufficient. It is **deprecated** — Jetpack Security Crypto was
+deprecated in 2025 with the guidance being to use the platform Keystore APIs directly, so
+adopting it now means adopting something already on its way out, and NFR-501 counts a
+dependency as an ongoing obligation (FR-1107). And what it does here is small enough to
+own: an AES-256-GCM key in the Android Keystore, ciphertext base64'd into an app-private
+preferences file. That is `KeystoreCipher` in `data/.../EncryptedPreferences.kt`, about
+fifty lines, using only `javax.crypto` and `android.security.keystore`.
+
+**Not measured, because it was not adopted.** For reference the change that replaced it
+moved the release APK not at all: 892,134 bytes before and after, R8 and resource shrinking
+on. (That figure is not comparable to the 773,448-byte baseline in the table above — the app
+has grown since it was taken.)
+
+The same code is the answer for NFR-203 when the secret store is built. OAuth tokens and the
+FR-1004 webhook URL should reuse `KeystoreCipher` rather than introduce a second scheme.
+
 ### `net.zetetic:sqlcipher-android` — database encryption (NFR-204)
 
 Not required. NFR-204 asks for the Capture Inbox to be stored in app-private storage and
