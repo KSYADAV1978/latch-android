@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Colours and typography come from Compose (see ui/Theme.kt). These XML themes exist only
+      to give each window the right shape before Compose takes over: a normal window for the
+      home screen, a floating one for capture, which must feel like a popup over whatever the
+      user was reading (NFR-101 targets under 800 ms from gesture to this window).
+    -->
+    <style name="Theme.Latch" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Latch.Capture" parent="android:Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

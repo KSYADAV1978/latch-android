@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      No INTERNET permission yet. It will be needed for the Google write (FR-801), but until
+      that lands the app cannot reach the network at all, which is the strongest possible
+      form of AC-17 ("no outbound request to any non-Google endpoint").
+
+      Deliberately absent, and to stay absent (§5.2):
+        - MediaProjection screen capture (FR-217)
+        - AccessibilityService (FR-218)
+    -->
+
+    <application
+        android:name=".LatchApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Latch">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Latch">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Capture layers 1, 2 and 4 all land here (§5.2). Each works independently of the
+          others, so the activity treats the incoming intent as the only source of truth.
+
+          android:label is "Latch" — 5 characters, within the 6 that FR-202 allows for the
+          floating text-selection toolbar.
+        -->
+        <activity
+            android:name=".capture.CaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/capture_action_label"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Latch.Capture">
+
+            <!-- Layer 1: text selection (FR-201). -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Layer 2: share sheet (FR-205). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!--
+              FR-205 also requires image/* and FR-207 application/pdf. Those filters are not
+              declared yet: on-device OCR (FR-215) is not implemented, and a share target
+              that accepts a file it cannot read is worse than one that does not appear.
+              They go in with the OCR work.
+            -->
+        </activity>
+
+        <!--
+          Layer 4: Quick Settings tile (FR-213). The supported path for apps where partial
+          text selection is unavailable and the user has to use Copy. The clipboard is read
+          by the foreground activity, never by the tile — background clipboard access has
+          been blocked since Android 10 (FR-214, §8.4).
+        -->
+        <service
+            android:name=".capture.CaptureTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_today"
+            android:label="@string/capture_action_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

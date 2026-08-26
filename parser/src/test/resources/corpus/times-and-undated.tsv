@@ -1,0 +1,18 @@
+# FR-503 times, and FR-506 row 4: nothing dateable found.
+# A time with no date is an incomplete Event, not an invented date (design principle 1).
+# input	classification	date	time
+call me at 5pm	EVENT_INCOMPLETE	-	17:00
+11 AM	EVENT_INCOMPLETE	-	11:00
+11:00	EVENT_INCOMPLETE	-	11:00
+1130 hrs	EVENT_INCOMPLETE	-	11:30
+3.30 pm	EVENT_INCOMPLETE	-	15:30
+11 baje	EVENT_INCOMPLETE	-	11:00
+4 baje	EVENT_INCOMPLETE	-	16:00
+12 pm	EVENT_INCOMPLETE	-	12:00
+12 am	EVENT_INCOMPLETE	-	00:00
+0900 hours	EVENT_INCOMPLETE	-	09:00
+Buy milk	TASK_UNDATED	-	-
+Remember to call the plumber	TASK_UNDATED	-	-
+Please review the attached document	TASK_UNDATED	-	-
+Congratulations on the new house	TASK_UNDATED	-	-
+Order confirmed. Your parcel is on its way.	TASK_UNDATED	-	-

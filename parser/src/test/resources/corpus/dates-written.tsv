@@ -1,0 +1,16 @@
+# FR-503 written formats: "12 September", "12th Sept", "Sept 12".
+# input	classification	date	time
+12 September	TASK_WITH_DUE_DATE	2026-09-12	-
+12th Sept	TASK_WITH_DUE_DATE	2026-09-12	-
+Sept 12	TASK_WITH_DUE_DATE	2026-09-12	-
+September 12, 2026	TASK_WITH_DUE_DATE	2026-09-12	-
+12 September 2026 at 11:00 AM	EVENT	2026-09-12	11:00
+1st Jan 2027	TASK_WITH_DUE_DATE	2027-01-01	-
+Due 30 November	TASK_WITH_DUE_DATE	2026-11-30	-
+Exam on 3rd December at 9 am	EVENT	2026-12-03	09:00
+31 February	TASK_UNDATED	-	-
+PTM on Friday 12 September at 11:00 AM	EVENT	2026-09-12	11:00
+Diwali party on 8 Nov 2026 from 7 pm to 10 pm	EVENT	2026-11-08	19:00
+Interview scheduled for October 5 at 2.30 pm	EVENT	2026-10-05	14:30
+the order dated 12 March	TASK_WITH_DUE_DATE	2026-03-12	-
+Renewal date: 01 Oct 2026	TASK_WITH_DUE_DATE	2026-10-01	-

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing leaves the device through backup or device transfer.
+
+  NFR-204 keeps the Capture Inbox in encrypted app-private storage and NFR-203 keeps OAuth
+  tokens and the FR-1004 webhook endpoint in the platform secure store; letting either be
+  copied into a cloud backup would undo both. NFR-205 (one action deletes all local data)
+  also means what it says only if there is no second copy elsewhere.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,34 @@
+﻿# build output
+build/
+bin/
+obj/
+out/
+dist/
+*.apk
+*.aab
+
+# dependencies
+node_modules/
+.gradle/
+packages/
+
+# IDE
+.idea/
+.vs/
+*.iml
+*.user
+
+# local secrets - never commit
+local.properties
+*.keystore
+*.jks
+.env
+.env.local
+secrets.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code local session state
+.claude/settings.local.json

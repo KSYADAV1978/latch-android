@@ -1,0 +1,26 @@
+# FR-503 relative references and Hinglish; NFR-404 (parsed regardless of UI language).
+# Clock: 2026-08-25T09:00, a Tuesday.
+# input	classification	date	time
+today	TASK_WITH_DUE_DATE	2026-08-25	-
+tomorrow	TASK_WITH_DUE_DATE	2026-08-26	-
+day after tomorrow	TASK_WITH_DUE_DATE	2026-08-27	-
+kal	TASK_WITH_DUE_DATE	2026-08-26	-
+parso	TASK_WITH_DUE_DATE	2026-08-27	-
+aaj	TASK_WITH_DUE_DATE	2026-08-25	-
+next Monday	TASK_WITH_DUE_DATE	2026-08-31	-
+this Friday	TASK_WITH_DUE_DATE	2026-08-28	-
+agle Monday	TASK_WITH_DUE_DATE	2026-08-31	-
+Monday	TASK_WITH_DUE_DATE	2026-08-31	-
+next week	EVENT_INCOMPLETE	2026-09-01	-
+agle hafte	EVENT_INCOMPLETE	2026-09-01	-
+in 3 days	TASK_WITH_DUE_DATE	2026-08-28	-
+in 10 days	TASK_WITH_DUE_DATE	2026-09-04	-
+within 2 weeks	TASK_WITH_DUE_DATE	2026-09-08	-
+after 5 days	TASK_WITH_DUE_DATE	2026-08-30	-
+3 tarikh	TASK_WITH_DUE_DATE	2026-09-03	-
+kal 4 baje meeting	EVENT	2026-08-26	16:00
+meeting tomorrow at 3pm	EVENT	2026-08-26	15:00
+call kal 11 baje	EVENT	2026-08-26	11:00
+tomorrow 1130 hrs	EVENT	2026-08-26	11:30
+parso shaam 6 baje	EVENT	2026-08-27	18:00
+Sunday brunch at 11 am	EVENT	2026-08-30	11:00
