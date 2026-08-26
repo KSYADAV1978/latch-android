@@ -3,6 +3,7 @@ package com.latch.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,9 +34,35 @@ import com.latch.android.ui.SetupFlow
  */
 class MainActivity : ComponentActivity() {
 
+    private val latchApplication get() = application as LatchApplication
+
+    /**
+     * The consent screen's result. Registered as a field, which `ComponentActivity` handles
+     * before STARTED and gives a stable key. The composition-scoped
+     * `rememberLauncherForActivityResult` would key itself off a composition that changes
+     * shape below — the `when` that swaps between setup, Home and nothing — and a key that
+     * moves is a result delivered to no one. The wait it would strand has no retry on screen.
+     */
+    private val consentResult = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        // Null data covers a dismissed consent screen; the bridge reads that as cancelled.
+        latchApplication.authResolution.deliver(result.data)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        latchApplication.authResolution.attach(consentResult)
+    }
+
+    override fun onStop() {
+        latchApplication.authResolution.detach(consentResult)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val app = application as LatchApplication
+        val app = latchApplication
         val coordinator = app.setupCoordinator
 
         setContent {

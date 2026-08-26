@@ -6,6 +6,7 @@ import com.latch.data.AccountDefaultsStore
 import com.latch.data.AuthClient
 import com.latch.data.CalendarApi
 import com.latch.data.LATCH_CALENDAR_MARKER
+import com.latch.data.SignInCancelledException
 import com.latch.data.TasksApi
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +67,12 @@ class SetupCoordinator(
             dispatch(SetupEvent.SignInSucceeded(auth.signIn()))
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (dismissed: SignInCancelledException) {
+            // Caught above the generic branch, and distinct from CancellationException on
+            // purpose: dismissing the consent screen is a choice, not a fault, and it has
+            // always had its own wording. Nothing could produce it until there was a real
+            // consent screen to dismiss.
+            dispatch(SetupEvent.SignInFailed(SetupFailure.SIGN_IN_CANCELLED))
         } catch (failure: Exception) {
             dispatch(SetupEvent.SignInFailed(SetupFailure.SIGN_IN_FAILED))
         }
@@ -104,7 +111,7 @@ class SetupCoordinator(
                 // The marker, not the prose, is what a later run matches on to adopt this
                 // calendar rather than create a second one.
                 description = "$latchCalendarDescription\n\n$LATCH_CALENDAR_MARKER",
-            ).id
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -119,6 +126,18 @@ class SetupCoordinator(
             // it later (FR-1001).
             try {
                 calendarApi.setColourAndVisibility(calendarId, LATCH_CALENDAR_COLOR_ID, visible = true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (ignored: Exception) {
+                // Deliberately swallowed; see above.
+            }
+        } else if (plan.makeChosenCalendarVisible) {
+            // FR-903 / AC-09: the user accepted the offer to tick a calendar of their own
+            // that was hidden. Swallowed for the same reason as the colour above — the
+            // destination is saved and works either way, and the consequence of not ticking
+            // it is the visibility warning the user has already been shown.
+            try {
+                calendarApi.makeVisible(calendarId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (ignored: Exception) {
@@ -151,7 +170,13 @@ class SetupCoordinator(
 }
 
 /**
- * Google's "Tomato". Chosen only because it is distinct from the default colour of a
- * personal calendar; FR-1001 lets the user change it.
+ * A `colorId` from the **calendar** palette, which `calendarList.patch` reads. Calendar and
+ * event colours are two separately numbered maps — `colors.get` returns them as separate
+ * `calendar` and `event` objects — so an id copied from the event palette names a different
+ * colour here, or none. This was "11" with a comment calling it Tomato, which is the event
+ * palette's numbering; it was inert only because the stub's patch did nothing.
+ *
+ * Chosen to be distinct from the default colour of a personal calendar; FR-1001 lets the
+ * user change it. Confirm the rendered colour against a live `colors.get` on the device pass.
  */
-private const val LATCH_CALENDAR_COLOR_ID = "11"
+private const val LATCH_CALENDAR_COLOR_ID = "3"

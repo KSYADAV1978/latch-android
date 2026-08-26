@@ -156,6 +156,16 @@ class SetupStateTest {
     }
 
     @Test
+    fun `a second sign-in request while one is in flight does not start a second grant`() {
+        val (_, effects) = run(
+            SetupEvent.SignInRequested,
+            SetupEvent.SignInRequested,
+        )
+
+        assertEquals(1, effects.filterIsInstance<SetupEffect.SignIn>().size)
+    }
+
+    @Test
     fun `a second Finish while committing does not commit twice`() {
         val (_, effects) = run(
             *signedInAndLoaded,
@@ -165,6 +175,81 @@ class SetupStateTest {
         )
 
         assertEquals(1, effects.filterIsInstance<SetupEffect.Commit>().size)
+    }
+
+    // ----- FR-903 / AC-09: the offer to turn on a hidden calendar -----
+
+    private fun planFrom(vararg events: SetupEvent): CommitPlan =
+        run(*events).second.filterIsInstance<SetupEffect.Commit>().single().plan
+
+    @Test
+    fun `accepting the offer carries it into the commit plan`() {
+        val plan = planFrom(
+            *signedInAndLoaded,
+            SetupEvent.ModeChosen(RoutingMode.EXISTING_CALENDARS),
+            SetupEvent.CalendarChosen("work"),
+            SetupEvent.MakeVisibleChosen(true),
+            SetupEvent.NextRequested,
+            SetupEvent.FinishRequested,
+        )
+
+        assertTrue(plan.makeChosenCalendarVisible)
+    }
+
+    @Test
+    fun `declining the offer leaves the calendar alone`() {
+        val plan = planFrom(
+            *signedInAndLoaded,
+            SetupEvent.ModeChosen(RoutingMode.EXISTING_CALENDARS),
+            SetupEvent.CalendarChosen("work"),
+            SetupEvent.NextRequested,
+            SetupEvent.FinishRequested,
+        )
+
+        assertFalse(plan.makeChosenCalendarVisible)
+    }
+
+    @Test
+    fun `an answer given for one calendar does not follow the user to another`() {
+        val plan = planFrom(
+            *signedInAndLoaded,
+            SetupEvent.ModeChosen(RoutingMode.EXISTING_CALENDARS),
+            SetupEvent.CalendarChosen("work"),
+            SetupEvent.MakeVisibleChosen(true),
+            // primary is already ticked, so there is nothing to offer and nothing to patch.
+            SetupEvent.CalendarChosen("primary"),
+            SetupEvent.NextRequested,
+            SetupEvent.FinishRequested,
+        )
+
+        assertFalse(plan.makeChosenCalendarVisible)
+    }
+
+    @Test
+    fun `a stale answer cannot patch a calendar that was never hidden`() {
+        val plan = planFrom(
+            *signedInAndLoaded,
+            SetupEvent.ModeChosen(RoutingMode.EXISTING_CALENDARS),
+            SetupEvent.CalendarChosen("primary"),
+            SetupEvent.MakeVisibleChosen(true),
+            SetupEvent.NextRequested,
+            SetupEvent.FinishRequested,
+        )
+
+        assertFalse(plan.makeChosenCalendarVisible)
+    }
+
+    @Test
+    fun `option B never patches one of the user's own calendars`() {
+        val plan = planFrom(
+            *signedInAndLoaded,
+            SetupEvent.MakeVisibleChosen(true),
+            SetupEvent.NextRequested,
+            SetupEvent.FinishRequested,
+        )
+
+        assertEquals(RoutingMode.LATCH_CALENDAR, plan.mode)
+        assertFalse(plan.makeChosenCalendarVisible)
     }
 
     // ----- FR-906: Option A cannot leave step 2 without a calendar the user has seen -----

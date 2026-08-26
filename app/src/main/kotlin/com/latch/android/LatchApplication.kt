@@ -1,12 +1,13 @@
 package com.latch.android
 
 import android.app.Application
+import com.latch.android.setup.AuthResolutionBridge
+import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
-import com.latch.android.setup.StubAuthClient
-import com.latch.android.setup.StubCalendarApi
-import com.latch.android.setup.StubTasksApi
 import com.latch.data.AccountDefaults
 import com.latch.data.EncryptedAccountDefaultsStore
+import com.latch.data.googleCalendarApi
+import com.latch.data.googleTasksApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -59,11 +60,23 @@ class LatchApplication : Application() {
      * must not restart it, and this is the way to get that without a retained ViewModel,
      * which would mean a dependency the app does not carry yet (NFR-501).
      */
+    /**
+     * Held here, not on MainActivity, because a consent screen must survive the rotation
+     * that destroys the Activity which launched it. MainActivity attaches and detaches.
+     */
+    val authResolution = AuthResolutionBridge()
+
+    /**
+     * The OAuth grant and the token supply are the same object: the REST clients draw tokens
+     * from the grant setup obtained. Nothing persists a token — see [GoogleAuthClient].
+     */
+    private val authClient by lazy { GoogleAuthClient(this, authResolution) }
+
     val setupCoordinator: SetupCoordinator by lazy {
         SetupCoordinator(
-            auth = StubAuthClient(),
-            calendarApi = StubCalendarApi(),
-            tasksApi = StubTasksApi(),
+            auth = authClient,
+            calendarApi = googleCalendarApi(authClient),
+            tasksApi = googleTasksApi(authClient),
             defaultsStore = accountDefaults,
             scope = appScope,
             latchCalendarSummary = getString(R.string.latch_calendar_summary),

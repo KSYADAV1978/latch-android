@@ -1,0 +1,17 @@
+{
+  "kind": "tasks#taskLists",
+  "items": [
+    {
+      "kind": "tasks#taskList",
+      "id": "MTQ0NzQyMTU4Mzk2",
+      "title": "Work",
+      "updated": "2026-08-20T10:14:02.000Z"
+    },
+    {
+      "kind": "tasks#taskList",
+      "id": "QUJDRUZHSElKS0xN",
+      "title": "My Tasks",
+      "updated": "2026-08-25T07:31:44.000Z"
+    }
+  ]
+}

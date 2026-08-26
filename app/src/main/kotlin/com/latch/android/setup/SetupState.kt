@@ -50,6 +50,12 @@ data class SetupState(
     val calendars: Async<List<WritableCalendar>> = Async.Idle,
     /** FR-901 Option A choice. Defaults to the primary calendar so FR-108 costs no taps. */
     val chosenCalendarId: String? = null,
+    /**
+     * FR-903 / AC-09: whether the user accepted the offer to tick a hidden calendar. Only
+     * ever meaningful for an Option A choice, and reset whenever the choice changes — an
+     * answer given about one calendar says nothing about the next.
+     */
+    val makeChosenVisible: Boolean = false,
     val taskLists: Async<List<TaskList>> = Async.Idle,
     val chosenTaskListId: String? = null,
     val commit: Async<Unit> = Async.Idle,
@@ -98,6 +104,11 @@ data class CommitPlan(
     val mode: RoutingMode,
     val existingCalendarId: String?,
     val taskListId: String,
+    /**
+     * FR-903 / AC-09. True only where the user chose one of their own calendars, it was
+     * unticked, and they accepted the offer to turn it on.
+     */
+    val makeChosenCalendarVisible: Boolean = false,
 ) {
     val createsCalendar: Boolean get() = existingCalendarId == null
 }
@@ -111,6 +122,9 @@ sealed interface SetupEvent {
     data object CalendarsFailed : SetupEvent
     data class ModeChosen(val mode: RoutingMode) : SetupEvent
     data class CalendarChosen(val calendarId: String) : SetupEvent
+
+    /** FR-903 / AC-09: the user's answer to the offer to unhide their chosen calendar. */
+    data class MakeVisibleChosen(val makeVisible: Boolean) : SetupEvent
 
     data class TaskListsLoaded(val taskLists: List<TaskList>) : SetupEvent
     data object TaskListsFailed : SetupEvent
@@ -145,11 +159,19 @@ private fun SetupState.then(vararg effects: SetupEffect) = Reduction(this, effec
 
 fun reduce(state: SetupState, event: SetupEvent): Reduction = when (event) {
 
-    SetupEvent.SignInRequested ->
+    SetupEvent.SignInRequested -> when {
         // Already signed in: this is the Continue button on a step 1 the user walked back
         // to, and re-authenticating would put a pointless second chooser in their way.
-        if (state.account != null) state.copy(step = SetupStep.DESTINATION).then()
-        else state.copy(signIn = Async.Loading).then(SetupEffect.SignIn)
+        state.account != null -> state.copy(step = SetupStep.DESTINATION).then()
+
+        // A grant is already in flight. A second one strands the first: the consent
+        // resolution holds a single waiter, so the orphan never completes, and step 1 has
+        // no Retry and no Back — the screen would be dead but for quitting the app. The
+        // same shape as the guard on a second Finish during commit.
+        state.signIn is Async.Loading -> state.then()
+
+        else -> state.copy(signIn = Async.Loading).then(SetupEffect.SignIn)
+    }
 
     is SetupEvent.SignInSucceeded ->
         // Both lists are fetched the moment auth lands, while the user reads step 2. Step 3
@@ -180,7 +202,11 @@ fun reduce(state: SetupState, event: SetupEvent): Reduction = when (event) {
         state.copy(mode = event.mode).then()
 
     is SetupEvent.CalendarChosen ->
-        state.copy(chosenCalendarId = event.calendarId).then()
+        // The FR-903 answer is about the calendar it was given for, so a new choice clears it.
+        state.copy(chosenCalendarId = event.calendarId, makeChosenVisible = false).then()
+
+    is SetupEvent.MakeVisibleChosen ->
+        state.copy(makeChosenVisible = event.makeVisible).then()
 
     is SetupEvent.TaskListsLoaded ->
         state.copy(
@@ -268,5 +294,13 @@ private fun SetupState.commitPlan(): CommitPlan? {
         RoutingMode.LATCH_CALENDAR -> adoptableLatchCalendar?.id
         RoutingMode.EXISTING_CALENDARS -> chosenCalendar?.id ?: return null
     }
-    return CommitPlan(account, mode, existingCalendarId, taskListId)
+    return CommitPlan(
+        account = account,
+        mode = mode,
+        existingCalendarId = existingCalendarId,
+        taskListId = taskListId,
+        // Guarded by chosenCalendarIsHidden as well as the answer, so a calendar that was
+        // ticked all along is never patched on the strength of a stale toggle.
+        makeChosenCalendarVisible = chosenCalendarIsHidden && makeChosenVisible,
+    )
 }

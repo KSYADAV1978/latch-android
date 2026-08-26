@@ -1,0 +1,53 @@
+{
+  "kind": "calendar#calendarList",
+  "nextPageToken": "PAGE2",
+  "items": [
+    {
+      "id": "you@example.com",
+      "summary": "you@example.com",
+      "backgroundColor": "#4285f4",
+      "accessRole": "owner",
+      "primary": true,
+      "selected": true
+    },
+    {
+      "id": "work@example.com",
+      "summary": "Work (shared by Priya)",
+      "summaryOverride": "Work",
+      "backgroundColor": "#0b8043",
+      "accessRole": "writer",
+      "selected": true
+    },
+    {
+      "id": "family@example.com",
+      "summary": "Family",
+      "backgroundColor": "#8e24aa",
+      "accessRole": "writer"
+    },
+    {
+      "id": "en.indian#holiday@group.v.calendar.google.com",
+      "summary": "Holidays in India",
+      "backgroundColor": "#616161",
+      "accessRole": "reader",
+      "selected": true
+    },
+    {
+      "id": "colleague@example.com",
+      "summary": "Colleague",
+      "accessRole": "freeBusyReader"
+    },
+    {
+      "id": "restricted@example.com",
+      "summary": "Restricted",
+      "backgroundColor": "#616161",
+      "accessRole": "writerWithoutPrivateAccess",
+      "selected": true
+    },
+    {
+      "id": "removed@example.com",
+      "summary": "Removed",
+      "accessRole": "owner",
+      "deleted": true
+    }
+  ]
+}

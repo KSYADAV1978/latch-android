@@ -13,6 +13,10 @@ composeBom = "2026.08.00"
 # Pinned to what androidx already resolves onto the app classpath. Naming a higher version
 # here would upgrade the whole graph as a side effect of a :data declaration.
 coroutines = "1.9.0"
+# The OAuth grant only; see docs/DEPENDENCIES.md. Measured at +135 KB.
+playServicesAuth = "22.0.0"
+# Test-only. The real org.json, standing in for the android.jar stub under JVM unit tests.
+orgJson = "20260814"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -25,6 +29,10 @@ compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+
+org-json = { module = "org.json:json", version.ref = "orgJson" }
 
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 # The framework-bound variant. :parser gets it implicitly from the Kotlin JVM plugin;

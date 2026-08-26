@@ -21,9 +21,11 @@ baselines is not.
 |---|---|---|---|---|
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB | +118 KB | **Approved** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
+| `com.google.android.gms:play-services-auth` | 22.0.0 | +135 KB | +135 KB | **Approved** |
 | `androidx.room` | 2.8.4 | +36 KB | +36 KB | **Deferred** |
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
 | `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
+| `org.json:json` | 20260814 | test-only, 0 | test-only, 0 | **Approved** |
 | All three together | | +7.47 MB | ~2.2 MB | — |
 
 SQLCipher's weight is one native library per ABI: arm64-v8a 2.00 MB, armeabi-v7a 1.00 MB,
@@ -84,6 +86,41 @@ Note for whoever adds the next Android module: this is `-core`, not `-android`.
 `Dispatchers.Main` comes from the `-android` artifact, which `:app` already has
 transitively. `:data` does not touch the main dispatcher and should not start.
 
+### `com.google.android.gms:play-services-auth` — the OAuth grant (FR-002, FR-101)
+
+Setup cannot reach Google without an access token, and this is the library that produces one
+on Android. Used for the grant and nothing else: `AuthorizationRequest` with the four FR-002
+scopes, `Identity.getAuthorizationClient(...).authorize(...)`, and the `PendingIntent`
+resolution when the user has not yet consented. Every Google call the app makes is
+hand-written REST on top of the token it returns.
+
+**Measured impact: +138,330 bytes, ~135 KB.** Release APK 892,134 → 1,030,464 bytes with R8
+and resource shrinking on, against a baseline re-measured on `main` immediately before the
+spike. Uncompressed dex 1,506,464 → 1,743,560; APK entries 81 → 95. The spike used realistic
+usage — a reachable `authorize()` call — so R8 could not strip what was being measured, per
+the methodology above.
+
+**Universal and per-device are the same figure**: play-services-auth ships no native code.
+The four `libandroidx.graphics.path.so` files in the APK are Compose's, present byte-identical
+before and after, and traceable to `androidx.compose.ui:ui-graphics`. There is no ABI split to
+account for here, unlike SQLCipher below.
+
+The alternative is a hand-rolled authorization-code flow with PKCE over Custom Tabs: a
+redirect scheme, a token exchange, and a refresh token we would then have to store under
+NFR-203 and rotate ourselves. That is more security-critical code that we own, in a place
+where a mistake is an account compromise rather than a crash, and it gives up the package-name
+plus SHA-1 binding that makes the Android OAuth client hard to impersonate. 135 KB is a good
+price for not writing that.
+
+Two notes for whoever implements it. **The Android OAuth client ID is a Cloud-console fact and
+must never appear in source** — `AuthorizationRequest.builder()` takes scopes only, and a
+client ID is an argument solely to `requestOfflineAccess(serverClientId)`, which takes a *Web*
+client and which this app must never call: there is no backend to exchange the resulting code
+at (design principle 3). GMS resolves the Android client from the package name and signing
+fingerprint at `authorize()` time. And **`kotlinx-coroutines-play-services` is deliberately not
+taken** — bridging `Task<AuthorizationResult>` to a suspend function is about ten lines of
+`suspendCancellableCoroutine`, which is not worth a fourth runtime dependency.
+
 ### `org.jetbrains.kotlin:kotlin-test-junit5` — unit tests in `:app` (test-only)
 
 Not a third-party dependency in any meaningful sense: it is the framework-bound variant of
@@ -98,6 +135,30 @@ recording so the next person does not re-diagnose it.
 The tests it carries are the ones that hold FR-105 in place: AC-15 (the Latch calendar is
 created on completion of setup) and AC-16 (abandoning setup creates nothing) are plain JVM
 tests, because the setup state machine has no Android types.
+
+### `org.json:json` — JSON parsing in `:data` unit tests (test-only)
+
+Like `kotlin-test-junit5`, barely a dependency: it is the reference implementation of the
+`org.json` API that **already ships inside `android.jar`**, so the app itself pulls in nothing
+and the APK does not move. It is `testImplementation` on `:data` only.
+
+It has to be named because of how AGP builds unit tests. The `android.jar` on the unit-test
+classpath is a stub whose every method throws `RuntimeException("Stub!")`, `org.json` included.
+Without a real implementation the response mappers in `GoogleRest.kt` cannot be tested off a
+device at all — and those mappers are where a silent defect lives, exactly as the stored record
+format was in `EncryptedPreferences.kt`. FR-901's role filter, FR-902's colour and FR-903's
+`selected` are all decided in that code.
+
+The alternative is `testOptions.unitTests.isReturnDefaultValues = true`, and it is worse. It
+silences the stub by making it return `null` and `0` rather than throwing, so a mapper reading
+a field would quietly see nothing and the test would pass on an empty result. It converts the
+bug class we are trying to catch into a green build.
+
+**On the licence**, since it has a history: `org.json:json` carried the JSON License — the one
+with the "shall be used for Good, not Evil" clause that Apache, Debian and the FSF all refused
+— up to version 20220924, at which point it was **released into the public domain**. This entry
+pins 20260814, long past that change, so the clause does not apply. Worth recording because
+anyone who remembers the old objection will otherwise raise it again.
 
 ## Deferred
 

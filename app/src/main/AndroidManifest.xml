@@ -2,14 +2,30 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      No INTERNET permission yet. It will be needed for the Google write (FR-801), but until
-      that lands the app cannot reach the network at all, which is the strongest possible
-      form of AC-17 ("no outbound request to any non-Google endpoint").
+      INTERNET, for the Google APIs first-run setup calls (FR-101, FR-901, FR-106) and, when
+      the write path lands, FR-801.
+
+      Until this line existed the app could not reach the network at all, which was the
+      strongest possible form of AC-17 ("no outbound request to any non-Google endpoint").
+      That guarantee is now a property of the code, not of the manifest, and it rests on two
+      things a reviewer has to check rather than one they could take for granted:
+
+        - Every request this app makes goes through GoogleHttp in :data, which refuses any
+          host outside an explicit allowlist and does not follow redirects. It is the single
+          place outbound traffic can originate, in the same way SetupEffect.Commit is the
+          single place a calendar can be created (FR-105).
+        - Play services makes its own calls for the OAuth grant. Those go to Google, so
+          AC-17 holds, but they are not ours to route and will appear on a network monitor.
+
+      A networkSecurityConfig would not add anything: it constrains trust anchors and
+      cleartext, and cannot deny a host. Cleartext is already off by default at this
+      targetSdk.
 
       Deliberately absent, and to stay absent (§5.2):
         - MediaProjection screen capture (FR-217)
         - AccessibilityService (FR-218)
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".LatchApplication"

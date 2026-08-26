@@ -17,7 +17,7 @@ requirement ID in your summary so work can be traced back.
 | `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1 |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
-| `:data` | Android library | Storage contracts — Inbox, write queue, secret store, account defaults — and the Google API contracts the setup and write paths call |
+| `:data` | Android library | Storage — Inbox, write queue and secret store contracts, account defaults persisted — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
 Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes` → `:core-model`.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
@@ -73,10 +73,18 @@ Skeleton only. Working: the five-module structure, the parser (87-case corpus, a
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
 confirmation screen, and first-run setup (FR-100 series) end to end.
 
-Setup runs against `StubGoogle.kt`, not Google. The screens, the state machine and the commit
-sequence are finished and tested; the four API calls behind them are stubs, because how this
-app talks to Google is an open NFR-501 decision (hand-written REST against the endpoints, or
-a Google client library). Replacing the stubs changes nothing above them.
+Setup runs against real Google. `StubGoogle.kt` is gone. The NFR-501 question it was waiting
+on is settled: `play-services-auth` for the OAuth grant and nothing else (+135 KB, measured),
+and every API call hand-written REST over `HttpURLConnection` and the platform's `org.json`.
+`GoogleAuthClient` in `:app` is the only class that touches Play services; `GoogleRest.kt` and
+`GoogleHttp.kt` in `:data` are the calls.
+
+Two things there are worth knowing before changing them. **No access token is persisted** —
+Play services caches its own, they last an hour, and re-authorizing a granted scope set
+returns one with no UI, so NFR-203 is satisfied by there being nothing at rest. And the
+account's identity comes from `calendars/primary`, whose id is the user's email address,
+because `AuthorizationClient` grants authorization and not identity; `AccountDefaults.accountId`
+is a SHA-256 of that address, so the preference key stays opaque.
 
 Account defaults persist. `EncryptedAccountDefaultsStore` in `:data` writes them to
 app-private preferences, each record encrypted with AES-GCM under an Android Keystore key
@@ -85,15 +93,25 @@ would have done and it is deprecated in favour of these platform APIs. The secre
 (NFR-203) should reuse `KeystoreCipher`. Setup therefore runs once: a second launch reads
 the stored account and goes straight to the home screen.
 
-One thing the stubs hide. `StubCalendarApi` mints a fresh `latch-N` id every process, so a
-persisted `destinationCalendarId` names a calendar the next launch has never heard of.
-Nothing reads it yet, so nothing breaks — but it is exactly the case FR-908 exists for
-(re-validate a stored destination on launch, fall back to primary, tell the user), and that
-is not built.
+**AC-17 is no longer structural.** The app holds `INTERNET` now, so "no outbound request to
+any non-Google endpoint" is a property of the code rather than of the manifest. It rests on
+`ALLOWED_HOSTS` in `data/.../GoogleHttp.kt` — three exact hostnames, checked on the parsed
+host, HTTPS only, redirects refused — which every request in the app goes through.
+`GoogleEndpointGuardTest` tests it by name. Play services also calls Google for the grant;
+that traffic is Google's and will show on a network monitor, but it is not ours to route.
+Widening that set is an AC-17 decision, not a refactor.
 
-Not built: any real Google API call (FR-800 series), the Capture Inbox (FR-700 series),
-Settings (FR-1000 series), OCR (FR-215) and the notification listener (FR-208). The app holds
-no `INTERNET` permission yet, which is the strongest possible form of AC-17.
+Not built: the FR-800 write path (`events.insert`, FR-803 dedup, FR-806 queue, FR-807 undo),
+the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
+notification listener (FR-208). FR-908 is not built either — the calendar list is not
+refreshed on launch and a stored destination that has been deleted or has lost write access
+is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where it goes. NFR-205's
+revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op.
+
+Sign-in works only on builds whose signing certificate is registered against the Android
+OAuth client. There is no release signing config, so that means debug builds from a machine
+whose debug keystore fingerprint is registered. All four FR-002 scopes are Sensitive, so
+until OAuth verification (SRS §8.6) only test users on the consent screen can sign in.
 
 FR-105 is load-bearing and structural, not a matter of care: `com.latch.android.setup` is
 pure Kotlin, `SetupEffect.Commit` is the only effect that can reach `calendars.insert`, and

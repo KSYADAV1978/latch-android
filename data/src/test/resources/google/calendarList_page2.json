@@ -1,0 +1,21 @@
+{
+  "kind": "calendar#calendarList",
+  "items": [
+    {
+      "id": "latch123@group.calendar.google.com",
+      "summary": "Latch",
+      "description": "Dates and deadlines captured by Latch.\n\nlatch.calendar.v1",
+      "backgroundColor": "#d50000",
+      "accessRole": "owner",
+      "selected": true
+    },
+    {
+      "id": "impostor@group.calendar.google.com",
+      "summary": "Latch",
+      "description": "A calendar someone happened to name Latch.",
+      "backgroundColor": "#d50000",
+      "accessRole": "owner",
+      "selected": true
+    }
+  ]
+}

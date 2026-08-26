@@ -63,6 +63,18 @@ interface AuthClient {
     suspend fun signOut(accountId: String)
 }
 
+/**
+ * The user dismissed the consent screen. A distinct type because it is not a failure and
+ * must not be reported as one — `SetupFailure.SIGN_IN_CANCELLED` has always had its own
+ * wording, and until there was a real consent screen nothing could produce it.
+ *
+ * Deliberately not a `CancellationException`. `SetupCoordinator` rethrows those to let
+ * structured concurrency work, so signalling a dismissal that way would kill the coroutine
+ * without dispatching any event, and leave step 1 spinning on a screen that has no Retry
+ * and no Back.
+ */
+class SignInCancelledException : Exception("Sign-in was cancelled by the user")
+
 interface CalendarApi {
     /** `calendarList.list`, filtered to accessRole owner or writer (FR-901). */
     suspend fun listWritableCalendars(): List<WritableCalendar>
@@ -72,14 +84,29 @@ interface CalendarApi {
      * user's Google account. It must not be reachable from entry to step 2 — only from
      * the completion of setup. The caller carries that guarantee; this contract only
      * names it so the obligation travels with the method.
+     *
+     * Returns the new calendar's id, not a [WritableCalendar], because `calendars.insert`
+     * answers with a **Calendar** resource — id, summary, description, location, timeZone.
+     * `backgroundColor`, `selected`, `primary` and `accessRole` belong to a
+     * **CalendarListEntry**, which is a different resource. Returning a `WritableCalendar`
+     * here would mean inventing three of its five fields, and FR-902 exists precisely so
+     * that the colour shown is the real one.
      */
-    suspend fun createLatchCalendar(summary: String, description: String): WritableCalendar
+    suspend fun createLatchCalendar(summary: String, description: String): String
 
     /**
      * `calendarList.patch`. Used at commit to give the Latch calendar its colour — the
      * "one colour" FR-104 promises — and to ensure it is ticked, per FR-903.
      */
     suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean)
+
+    /**
+     * `calendarList.patch`, visibility only (FR-903, AC-09). Separate from
+     * [setColourAndVisibility] because this one is applied to a calendar the **user already
+     * owns and uses**: taking the opportunity to recolour it would be an edit they did not
+     * ask for. Only the tick changes.
+     */
+    suspend fun makeVisible(calendarId: String)
 }
 
 interface TasksApi {

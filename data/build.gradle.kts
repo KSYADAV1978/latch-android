@@ -25,6 +25,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.kotlin.test.junit5)
+    // org.json ships in android.jar, but the unit-test stub of it throws. See
+    // docs/DEPENDENCIES.md — test-only, no APK impact.
+    testImplementation(libs.org.json)
 }
 
 // The stored-record format is pure Kotlin, so its round trip is a plain JVM test — the

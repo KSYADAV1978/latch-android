@@ -34,6 +34,10 @@ android {
 
     buildFeatures {
         compose = true
+        // GoogleAuthClient logs the Play services status code on debug builds only. Status
+        // 10 (DEVELOPER_ERROR) carries no message and is the likeliest failure during
+        // bring-up; without this it reaches the developer as nothing at all.
+        buildConfig = true
     }
 
     compileOptions {
@@ -47,6 +51,10 @@ dependencies {
     implementation(project(":parser"))
     implementation(project(":recipes"))
     implementation(project(":data"))
+
+    // The OAuth grant only (FR-002). Every Google call is hand-written REST on the token
+    // this returns; see docs/DEPENDENCIES.md for why the library stops there.
+    implementation(libs.play.services.auth)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

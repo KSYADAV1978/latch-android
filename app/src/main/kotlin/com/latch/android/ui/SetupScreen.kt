@@ -1,6 +1,7 @@
 package com.latch.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -191,6 +193,24 @@ private fun DestinationStep(state: SetupState, onEvent: (SetupEvent) -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
+                    // FR-903 / AC-09: the offer to turn it on. Off by default — this edits a
+                    // calendar the user already owns, so it is theirs to opt into, and
+                    // FR-105 means nothing happens until Finish either way.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onEvent(SetupEvent.MakeVisibleChosen(!state.makeChosenVisible)) },
+                    ) {
+                        Checkbox(
+                            checked = state.makeChosenVisible,
+                            onCheckedChange = { onEvent(SetupEvent.MakeVisibleChosen(it)) },
+                        )
+                        Text(
+                            stringResource(R.string.setup_destination_hidden_offer),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
         }

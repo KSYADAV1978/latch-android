@@ -71,7 +71,8 @@
     <string name="setup_destination_error">Could not load your calendars.</string>
     <!-- FR-903: writing to an unticked calendar is indistinguishable from a failed write. -->
     <string name="setup_destination_hidden_badge">Hidden</string>
-    <string name="setup_destination_hidden_warning">This calendar is unticked in Google Calendar, so anything saved to it will be invisible until you tick it. Latch will offer to turn it on.</string>
+    <string name="setup_destination_hidden_warning">This calendar is unticked in Google Calendar, so anything saved to it will be invisible until you tick it.</string>
+    <string name="setup_destination_hidden_offer">Turn it on when I finish setup</string>
 
     <!-- Step 3. FR-106 the list, FR-107 the disclosure. -->
     <string name="setup_tasks_title">Which task list?</string>
