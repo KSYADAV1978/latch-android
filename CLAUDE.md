@@ -60,6 +60,14 @@ Do not violate these without asking first:
   which requirement forces a shape. They do not restate the code.
 - Parser rules take `ParseContext.now` and never read the clock, so every case is reproducible.
 
+## Commits
+Commit directly to `main`. This is a single-developer repository with no CI and no review
+step, so a feature branch adds ceremony without adding safety — there is nothing for it to
+gate. This overrides the default habit of branching before committing to the default branch.
+
+Subject line in the present tense, imperative, one line. The body carries the reasoning:
+which requirements the change serves, and any decision the code cannot state for itself.
+
 ## State of the build
 Skeleton only. Working: the five-module structure, the parser (87-case corpus, all passing),
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
