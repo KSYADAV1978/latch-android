@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.7 (draft for developer handover)"
+author: "Version 1.8 (draft for developer handover)"
 date: "26 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "26 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.7 — draft for developer handover |
+| Version | 1.8 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -28,6 +28,7 @@ date: "26 August 2026"
 | 1.5 | 26 Aug 2026 | Recorded four parser rules established during the Android build: year resolution (FR-513), the Hinglish heuristics and their confidence treatment (FR-514), the parse-context requirement (FR-515) and the `java.time` decision, which also fixes the minimum SDK (FR-516). Recorded the reading of NFR-204 under which platform encryption satisfies encryption at rest. No existing requirement changed. |
 | 1.6 | 26 Aug 2026 | Recorded the reading of NFR-203 under which the Android Keystore is used directly and no encryption library is required, established when account defaults were first persisted. Names the restore-unreadability consequence and requires it be treated as absence rather than error. No existing requirement changed. |
 | 1.7 | 26 Aug 2026 | Specified §7.2 in full ahead of the first write of the FR-800 path. §7.2 previously gave six key names and nothing else; it now fixes every value's format, the hash normalisation, the task-notes encoding, the version-skew rule and the Google platform limits, and is marked normative as a cross-client wire contract. Adds `latch.item_key`, without which FR-804 and AC-08 are unsatisfiable — a reschedule has different source text, so FR-803's hash can never find the item being rescheduled. Points at normative conformance vectors for AC-07. FR-802 now defers to §7.2, resolving a five-versus-six element discrepancy. §2.4 widens "chain" from a Recipe expansion to the items produced by one save, so FR-807 undo has a group identity in every case. No existing requirement changed in substance. |
+| 1.8 | 26 Aug 2026 | Resolved the conflict between FR-805 and FR-210/NFR-206, before any write path exists to embed it. FR-805 required the source text in every item; NFR-206 forbids notification content reaching persistent storage. A reading recorded against NFR-206 settles that a Google item is persistent storage, and FR-805a excludes the source text for notification-sourced captures only, on the same reasoning as FR-210a. Records what is deliberately still written for that layer — a derived title, and the FR-803 hash — and the brute-force caveat on hashing short messages. AC-22 added. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -333,7 +334,11 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **FR-804 [MUST]** Where a capture appears to be a rescheduling of an existing item (matching title and identifiers, different date), the app shall offer to **update** the existing item and its chain rather than create a new one. The user shall confirm; the app shall not update silently.
 
-**FR-805 [MUST]** The item's source text and, where available, a link back to the source (URL, or source app and timestamp) shall be stored in the item description or notes.
+**FR-805 [MUST]** The item's source text and, where available, a link back to the source (URL, or source app and timestamp) shall be stored in the item description or notes. **Subject to FR-805a.**
+
+**FR-805a [MUST]** Where a capture originated from the notification listener (FR-208), the item's source text **shall not** be stored in the item description, notes or extended properties. FR-805 is satisfied for that layer by the source link alone — the source application and the capture timestamp, which the item already carries under §7.2.
+
+> Rationale. A Google item is persistent storage (see the reading recorded against NFR-206), and NFR-206 forbids notification content reaching it. This is the same reasoning that suppresses webhook delivery for this layer under FR-210a, and it applies with more force here: a webhook is an endpoint the user chose, whereas the calendar entry is written by default and syncs to every device on the account. The exclusion shall be stated in the notification-access disclosure screen alongside FR-210a's.
 
 **FR-806 [MUST]** All writes shall be queued locally when offline and retried on reconnection, with the queue visible to the user.
 
@@ -420,6 +425,12 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 **NFR-205 [MUST]** The app shall provide a single action to revoke access and delete all local data.
 
 **NFR-206 [MUST]** Notification content accessed under FR-208 shall never be written to persistent storage.
+
+> **How this requirement is read, recorded so the decision is visible rather than implied.** A calendar event or task in the user's Google account **is** persistent storage for the purposes of this requirement — more so than local disk, since Google retains it, backs it up and synchronises it to every device on the account. NFR-206 therefore reaches the Google write, not only the local database, and this is what resolves its conflict with FR-805.
+>
+> It does **not** forbid the item. FR-210 says "Only a user-confirmed item is persisted", which sanctions the item itself: a title and a date the user has read and confirmed on screen are the product of the capture, not a copy of the notification. What NFR-206 forbids is storing the notification's content **verbatim**, and the only place FR-805 would have done so is the source text. FR-805a removes it for this layer.
+>
+> Two consequences are deliberate and narrow, and are recorded rather than left to be discovered. A notification-derived item still carries a **title** derived from the message, because an item without one would not be an item; that is the minimum the feature cannot work without, and it is what the user confirmed. And it still carries `latch.source_hash`, because FR-803 deduplication depends on it and a SHA-256 digest is not the content. Note that a digest of a short message is not beyond a brute-force search of likely messages; the exposure is small and the alternative is that captures from this layer cannot be deduplicated at all, but the trade is stated here rather than assumed.
 
 ## 6.3 Reliability
 
@@ -602,6 +613,7 @@ Each scenario below shall pass on a physical device before sign-off.
 | AC-19 | Configure a webhook, then confirm an item captured via the notification listener | No webhook request is made; the item is written to Google only |
 | AC-20 | Configure a webhook pointing at an unreachable endpoint, then save an item | Item is written to Google normally; no blocking error; undo still works |
 | AC-21 | Configure a reachable webhook, save an item while offline, then reconnect | Google write completes from the queue; no webhook request is sent for that item; behaviour is documented, not reported as an error |
+| AC-22 | Confirm an item captured via the notification listener, then inspect the created item in Google | Title and date are present; the notification's text appears nowhere — not in the description, the notes, or the extended properties |
 
 ---
 
