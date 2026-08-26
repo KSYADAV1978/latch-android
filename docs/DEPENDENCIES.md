@@ -11,9 +11,16 @@ against a re-measured baseline of **773,448 bytes**. The measurement used realis
 an entity, DAO and database for Room; a worker enqueued at startup for WorkManager — so that
 R8 could not strip what was being measured. NFR-103 budget: 40 MB.
 
+The 773,448-byte baseline is from that measuring session and is not re-derivable now — the
+app has grown since. Later rows say which baseline they were taken against; the coroutines
+row was measured against 892,134 bytes, the app as it stood when first-run setup was
+persisted. Comparing a later row's delta to an earlier row's is fine; comparing the
+baselines is not.
+
 | Dependency | Version | Universal APK | Per device (App Bundle) | Decision |
 |---|---|---|---|---|
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB | +118 KB | **Approved** |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
 | `androidx.room` | 2.8.4 | +36 KB | +36 KB | **Deferred** |
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
 | `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
@@ -44,6 +51,38 @@ it does not commit the project to Room. And webhook delivery (FR-1004) must **ne
 this queue: FR-1004b makes it a single best-effort attempt at save time, and AC-21 tests
 exactly the consequence — an item saved offline reaches Google on reconnection and no
 webhook is ever sent for it.
+
+### `org.jetbrains.kotlinx:kotlinx-coroutines-core` — main-safe storage in `:data`
+
+`:data`'s contracts are `suspend` throughout, which the stdlib alone supports — a module can
+declare `suspend fun` with no coroutines dependency at all, and `:data` did. What it cannot
+do is honour the promise. `SharedPreferences.commit()` and every Keystore call are blocking,
+so those functions blocked whichever thread called them while advertising, by their
+signature, that they were safe to call from anywhere. That is worse than a plain blocking
+function, which at least looks like one.
+
+The alternative was to leave the dispatcher to callers and document it, which is what the
+first version did. It does not survive contact with a second caller: the guarantee lives in
+a comment, the compiler cannot check it, and the failure mode is a main-thread disk write
+that shows up as jank on someone else's device. `withContext(Dispatchers.IO)` inside each
+method moves it into the type system's reach and makes cancellation work as a caller would
+expect.
+
+**Measured impact: zero.** Release APK 892,134 bytes before and after, R8 and resource
+shrinking on. The library was already on the release runtime classpath at this exact
+version, pulled in transitively by `androidx.activity:activity-compose` through
+`lifecycle-runtime-ktx`, so the declaration ships no code that was not already shipping.
+The only real growth is 208 bytes of uncompressed dex, which is the `withContext` call
+sites in `:data` and not the library. That is also why the version is pinned to 1.9.0 in
+`gradle/libs.versions.toml`: it is what androidx already resolves, and naming a higher one
+would upgrade the whole graph as a side effect of a `:data` declaration.
+
+`implementation`, not `api`. Nothing in the storage contracts exposes a coroutines type;
+only the implementations need a dispatcher to move to.
+
+Note for whoever adds the next Android module: this is `-core`, not `-android`.
+`Dispatchers.Main` comes from the `-android` artifact, which `:app` already has
+transitively. `:data` does not touch the main dispatcher and should not start.
 
 ### `org.jetbrains.kotlin:kotlin-test-junit5` — unit tests in `:app` (test-only)
 

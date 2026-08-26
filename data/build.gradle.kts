@@ -20,6 +20,10 @@ android {
 dependencies {
     api(project(":core-model"))
 
+    // implementation, not api: the storage contracts are `suspend` and nothing more, which
+    // the stdlib already covers. Only the implementations need a dispatcher to move to.
+    implementation(libs.kotlinx.coroutines.core)
+
     testImplementation(libs.kotlin.test.junit5)
 }
 
@@ -39,6 +43,10 @@ tasks.withType<Test>().configureEach {
 //     an Android Keystore key, written to app-private preferences. No dependency: this is
 //     what androidx.security-crypto would have done, and that library is deprecated in
 //     favour of the platform APIs it wraps.
+//   - Storage work off the caller's thread: kotlinx-coroutines-core, approved. A `suspend`
+//     function that blocks is a trap, and this module needs a dispatcher to keep the
+//     promise its own contracts make. Already on the app classpath transitively, so the
+//     APK is unchanged.
 //   - OAuth token and webhook URL storage (NFR-203): unbuilt, but no longer an open
 //     question — SecretStore reuses KeystoreCipher rather than minting a second scheme.
 //   - Capture Inbox persistence (FR-701): Room is deferred — it needs KSP, which AGP 9's

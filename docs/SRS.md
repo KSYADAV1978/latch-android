@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.5 (draft for developer handover)"
+author: "Version 1.6 (draft for developer handover)"
 date: "25 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "25 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.5 — draft for developer handover |
+| Version | 1.6 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -25,6 +25,7 @@ date: "25 August 2026"
 | 1.2 | 25 Aug 2026 | Completed the webhook amendment: §2.3 vision qualified; FR-210 now suppresses webhook delivery for notification-sourced captures (AC-19 added); FR-1004 payload schema defined and phased; FR-1001 settings list and FR-1103 Data Safety obligation updated. |
 | 1.4 | 25 Aug 2026 | Closing corrections: classification note now lists FR-1004b; the offline no-webhook consequence of FR-1004b stated explicitly and given an acceptance test (AC-21). |
 | 1.5 | 26 Aug 2026 | Recorded four parser rules established during the Android build: year resolution (FR-513), the Hinglish heuristics and their confidence treatment (FR-514), the parse-context requirement (FR-515) and the `java.time` decision, which also fixes the minimum SDK (FR-516). Recorded the reading of NFR-204 under which platform encryption satisfies encryption at rest. No existing requirement changed. |
+| 1.6 | 26 Aug 2026 | Recorded the reading of NFR-203 under which the Android Keystore is used directly and no encryption library is required, established when account defaults were first persisted. Names the restore-unreadability consequence and requires it be treated as absence rather than error. No existing requirement changed. |
 | 1.3 | 25 Aug 2026 | Closed the webhook thread. §12 no longer justifies a scope exclusion by a deferrable feature; the privacy-policy obligation moved into FR-1102 as a hard clause; the conditional `[MUST, if X ships]` modality added to the legend; NFR-203 extended to cover the webhook endpoint as a secret; FR-1004b defines failure semantics (AC-20 added). |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
@@ -400,6 +401,14 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 **NFR-202 [MUST]** No analytics SDK shall collect message content, image content, or parsed values. Crash reporting shall be limited to stack traces with no user content, and shall be opt-out.
 
 **NFR-203 [MUST]** OAuth tokens shall be stored in the platform secure store (Android Keystore / Windows DPAPI or Credential Manager), never in plain preferences. The FR-1004 webhook endpoint shall be stored the same way and treated as a secret, because such URLs commonly embed a bearer token in the path or query string. It shall be masked in the Settings UI once saved.
+
+> **How this requirement is read on Android, recorded so the decision is visible rather than implied.** "The platform secure store" is satisfied by using the Android Keystore **directly**, and **no encryption library is required for v1.0**. The mechanism is an AES-256-GCM key generated in the Keystore under a fixed alias, where the key material is never readable by the app process — only usable through it — with a per-write initialisation vector stored alongside the ciphertext in app-private preferences. It is written out in `data/src/main/kotlin/com/latch/data/EncryptedPreferences.kt` and is approximately fifty lines using only `javax.crypto` and `android.security.keystore`.
+>
+> `androidx.security:security-crypto` was the alternative and was rejected on NFR-501 grounds. It was deprecated in 2025 in favour of the platform APIs it wraps, so adopting it would mean taking on a maintenance obligation (FR-1107) to a library already being withdrawn, in exchange for code the app can own outright. The decision and its measurement are recorded in `docs/DEPENDENCIES.md`.
+>
+> One consequence is worth stating because it is a behaviour, not an implementation detail. A Keystore key does not survive transfer to another device, and the app disables backup and device transfer in any case (see NFR-204 below). Anything encrypted under it is therefore unreadable after a restore, and shall be treated as absent rather than as an error — for stored account defaults this means first-run setup runs again (FR-101), which is the only recovery that does not invent a configuration. **This is the correct behaviour for secrets and shall not be worked around** by moving key material somewhere it would survive a device transfer.
+>
+> The same mechanism is intended for the secret store when it is built: OAuth tokens and the FR-1004 webhook endpoint shall reuse it rather than introduce a second scheme.
 
 **NFR-204 [MUST]** The Capture Inbox database shall be stored in app-private storage and encrypted at rest.
 

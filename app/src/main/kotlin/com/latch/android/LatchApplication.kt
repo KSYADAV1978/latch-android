@@ -33,14 +33,20 @@ class LatchApplication : Application() {
      * a state the UI has to have — an empty list and "not read yet" mean opposite things,
      * and treating them alike would show setup to a user who has already finished it.
      *
-     * Read once per process, off the main thread. The store's suspend functions block on
-     * their caller's thread (`:data` has no coroutines dependency), and this scope is not
-     * the main one.
+     * Read once per process. The store moves itself to `Dispatchers.IO`, so where this is
+     * launched from carries no obligation.
      */
     val configuredAccounts: StateFlow<List<AccountDefaults>?> = _configuredAccounts.asStateFlow()
 
     override fun onCreate() {
         super.onCreate()
+        // TODO(FR-908): this is where the stored destination first comes back into the app,
+        //  and so where re-validation belongs once CalendarApi is real. FR-908 requires the
+        //  calendar list to be refreshed on launch, and a `destinationCalendarId` that has
+        //  gone missing or lost write access to fall back to the primary calendar with the
+        //  user told. Nothing reads the id yet, which is the only reason this is a comment
+        //  rather than a defect: StubCalendarApi mints a fresh latch-N id every process, so
+        //  a stored id already fails to name anything the next launch can see.
         appScope.launch { _configuredAccounts.value = accountDefaults.allAccounts() }
     }
 

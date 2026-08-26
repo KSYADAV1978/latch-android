@@ -10,6 +10,9 @@ targetSdk = "37"
 androidxCore = "1.19.0"
 activityCompose = "1.13.0"
 composeBom = "2026.08.00"
+# Pinned to what androidx already resolves onto the app classpath. Naming a higher version
+# here would upgrade the whole graph as a side effect of a :data declaration.
+coroutines = "1.9.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -20,6 +23,8 @@ compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 # The framework-bound variant. :parser gets it implicitly from the Kotlin JVM plugin;

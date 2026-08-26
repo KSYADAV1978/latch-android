@@ -13,6 +13,8 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * AES-256-GCM under a key held in the Android Keystore, where the key material is not
@@ -90,10 +92,10 @@ internal class KeystoreCipher(private val alias: String) {
  * Not Room. The seven §7.1 entities may justify it later, but four strings and an enum per
  * account do not, and Room is deferred on build-configuration grounds in docs/DEPENDENCIES.md.
  *
- * **These `suspend` functions block on the thread that calls them.** `:data` carries no
- * coroutines dependency (NFR-501), so there is no `Dispatchers.IO` to switch to here and
- * the dispatcher is the caller's to choose. Both current callers are already off the main
- * thread. If `:data` ever gains coroutines, this is the first thing to fix.
+ * Every method moves to [Dispatchers.IO] itself. Preferences and the Keystore are both
+ * blocking, and a `suspend` function that blocks its caller is worse than a plain one: it
+ * reads as safe to call from anywhere. Callers may treat these as main-safe, and they
+ * cancel where a caller's scope does.
  */
 class EncryptedAccountDefaultsStore(context: Context) : AccountDefaultsStore {
 
@@ -102,25 +104,33 @@ class EncryptedAccountDefaultsStore(context: Context) : AccountDefaultsStore {
 
     private val cipher = KeystoreCipher(KEY_ALIAS)
 
-    override suspend fun defaultsFor(accountId: String): AccountDefaults? = read(keyFor(accountId))
+    override suspend fun defaultsFor(accountId: String): AccountDefaults? =
+        withContext(Dispatchers.IO) { read(keyFor(accountId)) }
 
-    override suspend fun allAccounts(): List<AccountDefaults> =
+    override suspend fun allAccounts(): List<AccountDefaults> = withContext(Dispatchers.IO) {
         prefs.all.keys.filter { it.startsWith(ACCOUNT_PREFIX) }.sorted().mapNotNull(::read)
+    }
 
     /**
      * `commit`, not `apply`. SetupCoordinator turns a failure here into
      * `DEFAULTS_NOT_SAVED`, and `apply` cannot report one — it would return having written
      * nothing, and setup would declare itself complete over a calendar nothing points at.
+     *
+     * `commit` is what makes moving off the caller's thread necessary rather than tidy: it
+     * is a synchronous write to disk, and `apply` — the version that would not block — is
+     * the one that cannot fail loudly.
      */
     override suspend fun save(defaults: AccountDefaults) {
-        val written = prefs.edit()
-            .putString(keyFor(defaults.accountId), cipher.encrypt(encodeDefaults(defaults)))
-            .commit()
-        check(written) { "Account defaults for ${defaults.accountId} were not written to disk." }
+        withContext(Dispatchers.IO) {
+            val written = prefs.edit()
+                .putString(keyFor(defaults.accountId), cipher.encrypt(encodeDefaults(defaults)))
+                .commit()
+            check(written) { "Account defaults for ${defaults.accountId} were not written to disk." }
+        }
     }
 
     override suspend fun remove(accountId: String) {
-        prefs.edit().remove(keyFor(accountId)).commit()
+        withContext(Dispatchers.IO) { prefs.edit().remove(keyFor(accountId)).commit() }
     }
 
     private fun read(key: String): AccountDefaults? {
