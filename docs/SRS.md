@@ -2,7 +2,7 @@
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
 author: "Version 1.6 (draft for developer handover)"
-date: "25 August 2026"
+date: "26 August 2026"
 ---
 
 # 1. Document control
@@ -23,10 +23,10 @@ date: "25 August 2026"
 | 1.0 | 25 Aug 2026 | Initial draft |
 | 1.1 | 25 Aug 2026 | Resolved a contradiction between the outbound webhook (FR-1004) and the no-external-traffic acceptance test (AC-17). FR-1004 reclassified to [SHOULD] and made off-by-default; design principle 2 and NFR-201 qualified; AC-17 scoped to the default configuration; AC-18 added. |
 | 1.2 | 25 Aug 2026 | Completed the webhook amendment: §2.3 vision qualified; FR-210 now suppresses webhook delivery for notification-sourced captures (AC-19 added); FR-1004 payload schema defined and phased; FR-1001 settings list and FR-1103 Data Safety obligation updated. |
+| 1.3 | 25 Aug 2026 | Closed the webhook thread. §12 no longer justifies a scope exclusion by a deferrable feature; the privacy-policy obligation moved into FR-1102 as a hard clause; the conditional `[MUST, if X ships]` modality added to the legend; NFR-203 extended to cover the webhook endpoint as a secret; FR-1004b defines failure semantics (AC-20 added). |
 | 1.4 | 25 Aug 2026 | Closing corrections: classification note now lists FR-1004b; the offline no-webhook consequence of FR-1004b stated explicitly and given an acceptance test (AC-21). |
 | 1.5 | 26 Aug 2026 | Recorded four parser rules established during the Android build: year resolution (FR-513), the Hinglish heuristics and their confidence treatment (FR-514), the parse-context requirement (FR-515) and the `java.time` decision, which also fixes the minimum SDK (FR-516). Recorded the reading of NFR-204 under which platform encryption satisfies encryption at rest. No existing requirement changed. |
 | 1.6 | 26 Aug 2026 | Recorded the reading of NFR-203 under which the Android Keystore is used directly and no encryption library is required, established when account defaults were first persisted. Names the restore-unreadability consequence and requires it be treated as absence rather than error. No existing requirement changed. |
-| 1.3 | 25 Aug 2026 | Closed the webhook thread. §12 no longer justifies a scope exclusion by a deferrable feature; the privacy-policy obligation moved into FR-1102 as a hard clause; the conditional `[MUST, if X ships]` modality added to the legend; NFR-203 extended to cover the webhook endpoint as a secret; FR-1004b defines failure semantics (AC-20 added). |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
