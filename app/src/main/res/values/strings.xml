@@ -28,7 +28,68 @@
     <string name="capture_nothing_shared">Nothing was shared with Latch</string>
     <string name="capture_clipboard_empty">The clipboard is empty. Copy some text, then tap the tile.</string>
 
+
+    <!-- ===== First-run setup, FR-101 to FR-110 ===== -->
+
+    <string name="setup_step_counter">Step %1$d of %2$d</string>
+    <string name="setup_back">Back</string>
+    <string name="setup_next">Next</string>
+    <string name="setup_finish">Finish</string>
+    <string name="setup_retry">Try again</string>
+    <!-- FR-109: every setup choice is editable afterwards, and the screens must say so. -->
+    <string name="setup_changeable_later">You can change this later in Settings.</string>
+
+    <!-- Step 1. FR-102 requires the privacy statement to be on the screen itself. -->
+    <string name="setup_signin_title">Connect your Google account</string>
+    <string name="setup_signin_blurb">Latch turns dates you find in any app into calendar events and tasks.</string>
+    <string name="setup_signin_privacy_mail">Latch does not read your mail or your messages.</string>
+    <string name="setup_signin_privacy_servers">Nothing you capture is stored on our servers. Parsing happens on this phone.</string>
+    <string name="setup_signin_scopes_heading">Latch asks Google for permission to:</string>
+    <string name="setup_signin_scope_events">create and update calendar events</string>
+    <string name="setup_signin_scope_calendars">see your calendar list, and create the Latch calendar</string>
+    <string name="setup_signin_scope_tasks">create tasks and see your task lists</string>
+    <string name="setup_signin_scopes_footer">Nothing else. Not Gmail, not Drive, not Contacts.</string>
+    <string name="setup_signin_action">Continue with Google</string>
+    <string name="setup_signin_continue_as">Continue as %1$s</string>
+    <string name="setup_signin_working">Signing in…</string>
+    <string name="setup_signin_error">Could not sign in to Google.</string>
+    <string name="setup_signin_cancelled">Sign-in was cancelled.</string>
+
+    <!-- Step 2. FR-103 two options, Option B pre-selected; FR-104 the benefit in the user's terms. -->
+    <string name="setup_destination_title">Where should captures go?</string>
+    <string name="setup_destination_recommended">Recommended</string>
+    <string name="setup_destination_latch_title">Create a Latch calendar</string>
+    <string name="setup_destination_latch_benefit">Everything Latch saves lands in one calendar of its own. One colour, one tick box to show or hide it all in Google Calendar, and a whole batch can be undone at once.</string>
+    <!-- FR-105 made visible: the calendar is created on Finish, not on reaching this screen. -->
+    <string name="setup_destination_latch_when">The calendar is created when you finish setup. Leave now and nothing is added to your Google account.</string>
+    <!-- Another Latch client may have created it already (SRS §4.1). -->
+    <string name="setup_destination_latch_exists">You already have a Latch calendar. Latch will use it rather than making another.</string>
+    <string name="setup_destination_existing_title">Use my existing calendars</string>
+    <string name="setup_destination_existing_benefit">Captures go to a calendar you already have. You can add rules later to send different sources to different calendars.</string>
+    <string name="setup_destination_pick">Pick the calendar to start with</string>
+    <string name="setup_destination_loading">Loading your calendars…</string>
+    <string name="setup_destination_error">Could not load your calendars.</string>
+    <!-- FR-903: writing to an unticked calendar is indistinguishable from a failed write. -->
+    <string name="setup_destination_hidden_badge">Hidden</string>
+    <string name="setup_destination_hidden_warning">This calendar is unticked in Google Calendar, so anything saved to it will be invisible until you tick it. Latch will offer to turn it on.</string>
+
+    <!-- Step 3. FR-106 the list, FR-107 the disclosure. -->
+    <string name="setup_tasks_title">Which task list?</string>
+    <string name="setup_tasks_blurb">Deadlines without a time of day are saved as tasks.</string>
+    <string name="setup_tasks_loading">Loading your task lists…</string>
+    <string name="setup_tasks_error">Could not load your task lists.</string>
+    <string name="setup_tasks_disclosure">Google shows every task list inside a single Tasks layer in Google Calendar. Unlike calendars, task lists cannot be given their own colour or hidden one at a time.</string>
+
+    <!-- Commit. NFR-303: a failure says what happened and what to do about it. -->
+    <string name="setup_commit_working">Finishing setup…</string>
+    <string name="setup_commit_error_calendar">Could not create the Latch calendar. Check your connection and try again — nothing has been saved.</string>
+    <string name="setup_commit_error_save">Could not save your settings on this phone. Try again.</string>
+
+    <!-- The calendar as it appears in the user's Google Calendar (NFR-402). -->
+    <string name="latch_calendar_summary">Latch</string>
+    <string name="latch_calendar_description">Created by Latch. Dates and deadlines captured on your devices are saved here.</string>
+
     <string name="home_headline">Latch</string>
-    <string name="home_setup_pending">First-run setup is not built yet. Capture works — nothing is written to Google.</string>
+    <string name="home_setup_pending">Setup is done. Writing to Google is not built yet, so captures are parsed and shown but not saved.</string>
     <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text to Latch.</string>
 </resources>

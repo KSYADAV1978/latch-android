@@ -13,11 +13,11 @@ requirement ID in your summary so work can be traced back.
 ## Module structure
 | Module | Type | Holds |
 |---|---|---|
-| `:app` | Android application | Capture entry points, Compose confirmation UI |
+| `:app` | Android application | Capture entry points, first-run setup, Compose confirmation UI |
 | `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1 |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
-| `:data` | Android library | Storage contracts — Inbox, write queue, secret store |
+| `:data` | Android library | Storage contracts — Inbox, write queue, secret store, account defaults — and the Google API contracts the setup and write paths call |
 
 Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes` → `:core-model`.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
@@ -61,10 +61,21 @@ Do not violate these without asking first:
 - Parser rules take `ParseContext.now` and never read the clock, so every case is reproducible.
 
 ## State of the build
-Skeleton only. Working: the four-module structure, the parser (87-case corpus, all passing),
-working-day arithmetic and recipe expansion, and capture layers 1, 2 and 4 as far as the
-confirmation screen.
+Skeleton only. Working: the five-module structure, the parser (87-case corpus, all passing),
+working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
+confirmation screen, and first-run setup (FR-100 series) end to end.
 
-Not built: first-run setup (FR-100 series), any Google API call (FR-800 series), the Capture
-Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the notification listener
-(FR-208). The app holds no `INTERNET` permission yet.
+Setup runs against `StubGoogle.kt`, not Google. The screens, the state machine and the commit
+sequence are finished and tested; the four API calls behind them are stubs, because how this
+app talks to Google is an open NFR-501 decision (hand-written REST against the endpoints, or
+a Google client library). Replacing the stubs changes nothing above them. Defaults are held
+in memory, so every launch runs setup again.
+
+Not built: any real Google API call (FR-800 series), the Capture Inbox (FR-700 series),
+Settings (FR-1000 series), OCR (FR-215) and the notification listener (FR-208). The app holds
+no `INTERNET` permission yet, which is the strongest possible form of AC-17.
+
+FR-105 is load-bearing and structural, not a matter of care: `com.latch.android.setup` is
+pure Kotlin, `SetupEffect.Commit` is the only effect that can reach `calendars.insert`, and
+`SetupEvent.FinishRequested` is the only event that produces one. AC-15 and AC-16 are JVM
+unit tests over that reducer. Keep it that way.

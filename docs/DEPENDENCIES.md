@@ -16,6 +16,7 @@ R8 could not strip what was being measured. NFR-103 budget: 40 MB.
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB | +118 KB | **Approved** |
 | `androidx.room` | 2.8.4 | +36 KB | +36 KB | **Deferred** |
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
+| `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
 | All three together | | +7.47 MB | ~2.2 MB | — |
 
 SQLCipher's weight is one native library per ABI: arm64-v8a 2.00 MB, armeabi-v7a 1.00 MB,
@@ -43,6 +44,21 @@ it does not commit the project to Room. And webhook delivery (FR-1004) must **ne
 this queue: FR-1004b makes it a single best-effort attempt at save time, and AC-21 tests
 exactly the consequence — an item saved offline reaches Google on reconnection and no
 webhook is ever sent for it.
+
+### `org.jetbrains.kotlin:kotlin-test-junit5` — unit tests in `:app` (test-only)
+
+Not a third-party dependency in any meaningful sense: it is the framework-bound variant of
+`kotlin-test`, which `:parser` and `:recipes` already use, shipped by Kotlin at the same
+version as the compiler. `testImplementation` only, so **zero APK impact**.
+
+It has to be named explicitly here because the Kotlin JVM plugin picks the variant from the
+test task and AGP does not. Without it, `kotlin.test.Test` does not resolve in an Android
+module's unit tests, while the assertion functions do — a confusing half-failure worth
+recording so the next person does not re-diagnose it.
+
+The tests it carries are the ones that hold FR-105 in place: AC-15 (the Latch calendar is
+created on completion of setup) and AC-16 (abandoning setup creates nothing) are plain JVM
+tests, because the setup state machine has no Android types.
 
 ## Deferred
 

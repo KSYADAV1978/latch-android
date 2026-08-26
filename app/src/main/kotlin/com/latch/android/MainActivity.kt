@@ -2,6 +2,7 @@ package com.latch.android
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,23 +12,48 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.latch.android.setup.SetupEvent
+import com.latch.android.setup.SetupOutcome
 import com.latch.android.ui.LatchTheme
+import com.latch.android.ui.SetupFlow
 
 /**
- * Placeholder home screen. First-run setup (FR-101 to FR-110), the Capture Inbox (FR-701)
- * and Settings (FR-1001) all belong here and none of them is built yet.
+ * FR-101: first launch runs setup. It is not "first launch" that is tested, but whether an
+ * account has been configured — which is what makes an abandoned setup indistinguishable
+ * from never having run one (AC-16).
+ *
+ * The Capture Inbox (FR-701) and Settings (FR-1001) still belong here and are not built.
  */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val coordinator = (application as LatchApplication).setupCoordinator
+
         setContent {
             LatchTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Home()
+                    val outcome by coordinator.outcome.collectAsState()
+                    val setupState by coordinator.state.collectAsState()
+
+                    LaunchedEffect(outcome) {
+                        // Backing out of step 1 leaves the app rather than stranding the
+                        // user on a screen they have just declined.
+                        if (outcome == SetupOutcome.ABANDONED) finish()
+                    }
+
+                    if (outcome == SetupOutcome.COMPLETED) {
+                        Home()
+                    } else {
+                        BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
+                        SetupFlow(state = setupState, onEvent = coordinator::dispatch)
+                    }
                 }
             }
         }

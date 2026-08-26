@@ -2,6 +2,7 @@ package com.latch.data
 
 import com.latch.core.model.Capture
 import com.latch.core.model.Item
+import com.latch.core.model.RoutingMode
 
 /**
  * FR-701 to FR-703: the Capture Inbox holds items that are undated, incomplete, or below
@@ -60,4 +61,38 @@ interface SecretStore {
     suspend fun put(key: String, value: String)
     suspend fun get(key: String): String?
     suspend fun clear()
+}
+
+/**
+ * What first-run setup produces (FR-101 to FR-110), and what Settings later edits (FR-1001).
+ *
+ * Keyed by account because FR-110 stores calendar and task list defaults per account. That
+ * costs nothing now and stops the account switcher being a refactor later.
+ *
+ * [destinationCalendarId] is the Latch calendar under Option B and the user's chosen
+ * calendar under Option A; FR-1002 is why switching mode later must not clear the other
+ * mode's choice, and FR-908 is why a stored id must be re-validated on launch.
+ */
+data class AccountDefaults(
+    val accountId: String,
+    val email: String,
+    val routingMode: RoutingMode,
+    val destinationCalendarId: String,
+    val taskListId: String,
+)
+
+interface AccountDefaultsStore {
+    suspend fun defaultsFor(accountId: String): AccountDefaults?
+
+    /** FR-110: more than one account may be set up. */
+    suspend fun allAccounts(): List<AccountDefaults>
+
+    /**
+     * Written once, at the end of setup. Until this succeeds the app has no configured
+     * account and first launch runs setup again (FR-101) — which, with FR-105, is what
+     * makes an abandoned setup leave nothing behind either locally or in Google (AC-16).
+     */
+    suspend fun save(defaults: AccountDefaults)
+
+    suspend fun remove(accountId: String)
 }

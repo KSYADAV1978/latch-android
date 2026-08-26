@@ -55,4 +55,17 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui.tooling.preview)
     debugImplementation(libs.compose.ui.tooling)
+
+    testImplementation(libs.kotlin.test.junit5)
+}
+
+// The setup state machine (FR-101 to FR-110) has no Android types, so AC-15 and AC-16 are
+// plain JVM tests here rather than instrumented ones — the same reason :parser runs without
+// a device.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events("failed")
+        showStandardStreams = false
+    }
 }
