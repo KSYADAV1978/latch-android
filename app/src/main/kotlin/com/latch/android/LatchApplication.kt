@@ -25,7 +25,13 @@ class LatchApplication : Application() {
 
     private val appScope = CoroutineScope(SupervisorJob())
 
-    val accountDefaults = EncryptedAccountDefaultsStore(this)
+    /**
+     * `by lazy`, not a property initializer. A property initializer runs inside the
+     * Application *constructor*, which is before `attachBaseContext`, so `this` has no base
+     * context yet and any `getApplicationContext` off it throws. Every context-touching
+     * field here has to be deferred to first use or to `onCreate` for the same reason.
+     */
+    val accountDefaults by lazy { EncryptedAccountDefaultsStore(this) }
 
     private val _configuredAccounts = MutableStateFlow<List<AccountDefaults>?>(null)
 
