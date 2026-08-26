@@ -31,6 +31,10 @@ components download on first run; `local.properties` needs `sdk.dir` and is not 
 ./gradlew build                # everything: compile, unit tests, lint, debug + release APK
 ./gradlew :parser:test         # the parser corpus alone — seconds, no emulator
 ./gradlew :app:assembleDebug   # debug APK
+
+# The launch canary. Needs a connected device and is NOT part of `build`, so a green
+# build says nothing about whether the app starts — that gap is what it exists for.
+./gradlew :app:connectedDebugAndroidTest
 ```
 
 ## Hard constraints

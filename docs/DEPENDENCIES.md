@@ -26,6 +26,9 @@ baselines is not.
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
 | `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
 | `org.json:json` | 20260814 | test-only, 0 | test-only, 0 | **Approved** |
+| `androidx.test:core` | 1.6.1 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
+| `androidx.test:runner` | 1.6.2 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
+| `androidx.test.ext:junit` | 1.2.1 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
 | All three together | | +7.47 MB | ~2.2 MB | — |
 
 SQLCipher's weight is one native library per ABI: arm64-v8a 2.00 MB, armeabi-v7a 1.00 MB,
@@ -159,6 +162,43 @@ with the "shall be used for Good, not Evil" clause that Apache, Debian and the F
 — up to version 20220924, at which point it was **released into the public domain**. This entry
 pins 20260814, long past that change, so the clause does not apply. Worth recording because
 anyone who remembers the old objection will otherwise raise it again.
+
+### `androidx.test:core`, `androidx.test:runner`, `androidx.test.ext:junit` — the launch canary
+
+Three artifacts for one test, on `androidTestImplementation`. They build the separate
+androidTest APK and are **never linked into the app's**, so the release APK is unmoved —
+the same standing as the two test-only entries above, one step further out.
+
+They exist because of a defect that shipped through three commits: `LatchApplication` built a
+`Context`-dependent field in a property initializer, which runs before `attachBaseContext`,
+so the app could not start at all. The build was green and 84 unit tests passed throughout.
+That is not a gap in the tests, it is a gap no JVM test can close — a unit test never
+instantiates `Application`, never calls `attachBaseContext` and never resolves a `Context`,
+which is precisely the property that lets the parser corpus and the FR-105 reducer tests run
+in milliseconds without a device. Android's initialisation order is invisible from there, and
+only a device can see it.
+
+So: `app/src/androidTest/.../LaunchCanaryTest.kt`, one test, asserting `MainActivity` reaches
+RESUMED. **Verified to fail on the bug it was written for** — reintroducing the initializer
+turns the run red with `Unable to instantiate application`, before any test body executes.
+
+`androidx.test:core` supplies `ActivityScenario`, `runner` supplies `AndroidJUnitRunner`, and
+`ext:junit` supplies the `AndroidJUnit4` runner class. `core` is named explicitly rather than
+taken transitively through `ext:junit`, for the reason recorded under `kotlin-test-junit5`
+below: a dependency whose classes we import should be one we declare.
+
+**This is a canary, not a test layer, and the distinction is the justification.** Espresso,
+Compose UI test and a fixture harness are all deliberately absent, and adding them is a new
+NFR-501 decision rather than an extension of this one. Assertions about behaviour belong in
+the reducer tests, where they are free and cannot flake — `SetupStateTest` already holds
+AC-15 and AC-16 that way. The only thing bought here is the knowledge that the app gets off
+the ground.
+
+Two operational notes. It does **not** run under `./gradlew build`; it needs a device and the
+task is `connectedDebugAndroidTest`, so it catches nothing unless someone runs it — there is
+no CI in this repo to run it for us. And it requires no network and no Google account: the
+activity renders either setup step 1 or the home screen, and neither touches the network
+until a tap.
 
 ## Deferred
 

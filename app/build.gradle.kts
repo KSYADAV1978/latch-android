@@ -15,6 +15,10 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1
         versionName = "0.1.0"
+        // For the launch canary in src/androidTest. Instrumented tests are JUnit4 — the
+        // runner requires it — while the JVM tests here run on the JUnit 5 platform. The
+        // two do not meet: they are different source sets and different Gradle tasks.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     androidResources {
@@ -65,6 +69,12 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.kotlin.test.junit5)
+
+    // The launch canary, and deliberately nothing more — no Espresso, no Compose UI test.
+    // See docs/DEPENDENCIES.md. These build the androidTest APK and never the app's.
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 // The setup state machine (FR-101 to FR-110) has no Android types, so AC-15 and AC-16 are

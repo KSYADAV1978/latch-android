@@ -58,15 +58,6 @@ class LatchApplication : Application() {
     }
 
     /**
-     * FR-105: setup state is held here, for the life of the process and nowhere else, so
-     * that abandoning setup — or losing the process partway through it — leaves nothing in
-     * the user's Google account and nothing on disk (AC-16).
-     *
-     * The coordinator outlives MainActivity on purpose. A rotation partway through setup
-     * must not restart it, and this is the way to get that without a retained ViewModel,
-     * which would mean a dependency the app does not carry yet (NFR-501).
-     */
-    /**
      * Held here, not on MainActivity, because a consent screen must survive the rotation
      * that destroys the Activity which launched it. MainActivity attaches and detaches.
      */
@@ -78,6 +69,15 @@ class LatchApplication : Application() {
      */
     private val authClient by lazy { GoogleAuthClient(this, authResolution) }
 
+    /**
+     * FR-105: setup state is held here, for the life of the process and nowhere else, so
+     * that abandoning setup — or losing the process partway through it — leaves nothing in
+     * the user's Google account and nothing on disk (AC-16).
+     *
+     * The coordinator outlives MainActivity on purpose. A rotation partway through setup
+     * must not restart it, and this is the way to get that without a retained ViewModel,
+     * which would mean a dependency the app does not carry yet (NFR-501).
+     */
     val setupCoordinator: SetupCoordinator by lazy {
         SetupCoordinator(
             auth = authClient,
