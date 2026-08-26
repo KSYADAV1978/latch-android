@@ -177,6 +177,6 @@ class SetupCoordinator(
  * palette's numbering; it was inert only because the stub's patch did nothing.
  *
  * Chosen to be distinct from the default colour of a personal calendar; FR-1001 lets the
- * user change it. Confirm the rendered colour against a live `colors.get` on the device pass.
+ * user change it. Verified on a device on 26 Aug 2026: renders red in Google Calendar.
  */
 private const val LATCH_CALENDAR_COLOR_ID = "3"
