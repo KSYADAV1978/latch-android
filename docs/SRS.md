@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.6 (draft for developer handover)"
+author: "Version 1.7 (draft for developer handover)"
 date: "26 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "26 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.6 — draft for developer handover |
+| Version | 1.7 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -27,6 +27,7 @@ date: "26 August 2026"
 | 1.4 | 25 Aug 2026 | Closing corrections: classification note now lists FR-1004b; the offline no-webhook consequence of FR-1004b stated explicitly and given an acceptance test (AC-21). |
 | 1.5 | 26 Aug 2026 | Recorded four parser rules established during the Android build: year resolution (FR-513), the Hinglish heuristics and their confidence treatment (FR-514), the parse-context requirement (FR-515) and the `java.time` decision, which also fixes the minimum SDK (FR-516). Recorded the reading of NFR-204 under which platform encryption satisfies encryption at rest. No existing requirement changed. |
 | 1.6 | 26 Aug 2026 | Recorded the reading of NFR-203 under which the Android Keystore is used directly and no encryption library is required, established when account defaults were first persisted. Names the restore-unreadability consequence and requires it be treated as absence rather than error. No existing requirement changed. |
+| 1.7 | 26 Aug 2026 | Specified §7.2 in full ahead of the first write of the FR-800 path. §7.2 previously gave six key names and nothing else; it now fixes every value's format, the hash normalisation, the task-notes encoding, the version-skew rule and the Google platform limits, and is marked normative as a cross-client wire contract. Adds `latch.item_key`, without which FR-804 and AC-08 are unsatisfiable — a reschedule has different source text, so FR-803's hash can never find the item being rescheduled. Points at normative conformance vectors for AC-07. FR-802 now defers to §7.2, resolving a five-versus-six element discrepancy. §2.4 widens "chain" from a Recipe expansion to the items produced by one save, so FR-807 undo has a group identity in every case. No existing requirement changed in substance. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -55,7 +56,7 @@ One capture gesture on every surface the user touches; one calendar at the other
 | **Event** | A Google Calendar event. Has a start time, and may have end time, location, attendees, reminders |
 | **Task** | A Google Tasks entry. Has a title, optional due **date** (no time — see §9.1), optional notes |
 | **Recipe** | A user-selectable template that expands one captured date into a set of related items |
-| **Chain** | The set of items produced by applying a Recipe to one capture |
+| **Chain** | The set of items produced by one save. Usually a Recipe expansion (FR-601), but a multi-date capture (FR-511) and a save of a single item are also chains, of several and of one — FR-807 undoes "all items created by that save", so every save needs a group identity, not only those a Recipe produced |
 | **Capture Inbox** | Local holding area for captures that are incomplete, undated, or low-confidence |
 | **Latch calendar** | A dedicated Google Calendar created by the app at setup (the default destination) |
 | **Source** | The application a capture originated from (mail client, messaging app, browser, etc.) |
@@ -326,7 +327,7 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **FR-801 [MUST]** Events shall be created via the Google Calendar API. Tasks shall be created via the Google Tasks API.
 
-**FR-802 [MUST]** Each created item shall carry, in `extendedProperties.private` (events) or notes (tasks): a hash of the source text, the source application identifier, the capture timestamp, the recipe applied, and a chain identifier where applicable.
+**FR-802 [MUST]** Each created item shall carry, in `extendedProperties.private` (events) or notes (tasks), the metadata specified in **§7.2**, which governs its keys, values, encoding and normalisation. In summary: a hash of the source text, a date-independent item key, the capture timestamp, a chain identifier, and — where known — the source application identifier and the recipe applied.
 
 **FR-803 [MUST]** Before writing, the app shall check for an existing item with a matching source hash and shall not create a duplicate.
 
@@ -464,16 +465,59 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 ## 7.2 Remote metadata
 
-Written to `extendedProperties.private` on events and appended to notes on tasks:
+Written to `extendedProperties.private` on events, and appended to notes on tasks.
 
-| Key | Purpose |
-|---|---|
-| `latch.source_hash` | Deduplication (FR-803) |
-| `latch.source_app` | Routing learning and display |
-| `latch.chain_id` | Group identity for undo and update |
-| `latch.recipe` | Recipe applied |
-| `latch.captured_at` | Capture timestamp |
-| `latch.version` | Schema version for forward compatibility |
+> **This section is a cross-client wire contract and is normative.** §4.1 has three clients writing to one Google account with no backend, so the remote item *is* the shared state — there is no other channel through which clients can agree (FR-1006, which would have added one, is [LATER]). AC-07 requires a message captured on the phone to be recognised as a duplicate by the PC, which means both clients must derive a **byte-identical** `latch.source_hash` from the same text, each having been written independently in a different language. Every value below is therefore specified exactly rather than left to the implementer.
+>
+> **It also cannot be corrected later.** Items already written into a user's account cannot be rewritten, and FR-803, FR-804 and FR-807 all read these keys back. An item written without a key is permanently unmanageable by the feature that would have used it. This section must therefore be settled before the first item is written, not after.
+
+| Key | Required | Value |
+|---|---|---|
+| `latch.version` | yes | `1` |
+| `latch.source_hash` | yes | 64 lowercase hex characters — SHA-256 of the normalised **whole capture text** (FR-803) |
+| `latch.item_key` | yes | 64 lowercase hex characters — SHA-256 of the normalised **item title** (FR-804) |
+| `latch.chain_id` | yes | Lowercase UUID, e.g. `3f2504e0-4f89-41d3-9a0c-0305e82c3301` |
+| `latch.captured_at` | yes | RFC 3339, UTC, whole seconds — `2026-08-26T14:03:22Z` |
+| `latch.source_app` | no | `android:<package>`, `windows:<executable>` or `web:<host>` |
+| `latch.recipe` | no | A `Recipe.id`, e.g. `builtin.meeting_prep` |
+
+An optional key that has no value shall be **omitted**, never written empty. An empty value cannot be distinguished from a value that is genuinely the empty string, and a reader cannot then tell "unknown" from "known to be nothing".
+
+**`latch.source_hash` covers the whole capture, not the individual item.** Every item produced by one capture therefore carries the same value, and FR-803's question is "has this message already been saved", not "has this item already been created".
+
+**`latch.item_key` exists because FR-803's hash cannot satisfy FR-804.** A rescheduled message has different source text, so its `source_hash` differs and the item being rescheduled can never be found by it. `item_key` is the identity that survives a date change: the **same `item_key` with a different `source_hash` is a reschedule**, the same `source_hash` is a duplicate, and neither is a new item. It is hashed from the title alone — it must not incorporate `latch.source_app`, which is optional and may begin being populated part-way through the product's life, which would give the same meeting different keys either side of that change.
+
+### Normalisation
+
+The following is applied to any text before it is hashed, in this order. It is the AC-07 contract, and each step exists because of a way the same message reaches two platforms differently.
+
+1. Unicode normalisation to **NFC**.
+2. Remove U+200B, U+200C, U+200D, U+FEFF and U+202A–U+202E.
+3. Replace CRLF and lone CR with LF.
+4. Replace every run of whitespace — ASCII whitespace and the Unicode separator categories, which include the non-breaking space — with a single space (U+0020).
+5. Trim leading and trailing whitespace.
+6. Lowercase using the **root** locale. Never the default locale: Turkish lowercases `I` to a dotless `ı`, which would silently desync two clients on identical text.
+7. Encode as UTF-8, take SHA-256, and render as lowercase hexadecimal. The digest is **not** truncated.
+
+**Conformance vectors are held at `data/src/test/resources/metadata/hash_vectors.tsv`** and are normative. A client that does not reproduce every digest in that file does not satisfy AC-07. The file is deliberately pure ASCII with escaped inputs, so that an editor normalising Unicode on save cannot silently turn one case into another.
+
+### Encoding on tasks
+
+A task has no `extendedProperties`; `notes` is its only free-text field, is capped by Google at 8192 characters, and is shown to and editable by the user. The metadata is therefore a single line, appended after the FR-805 source text and separated from it by a blank line:
+
+```
+[latch]v=1;sh=<hex>;ik=<hex>;ch=<uuid>;at=<rfc3339>;ap=<scheme:id>;rc=<recipe id>
+```
+
+Fields are separated by `;` and named by the short forms above; omitted keys are absent. No value may contain `;` or `=`, which hexadecimal digests, UUIDs, RFC 3339 timestamps, package names and recipe ids all satisfy, so no escaping is required. A reader shall take the **last** line beginning `[latch]`. A line that does not parse shall yield no metadata and the item shall be treated as unmanaged: task notes are user-editable, so corruption is a matter of when rather than whether, and it shall degrade quietly rather than fail a write.
+
+### Version handling
+
+A client encountering a `latch.version` it does not know shall treat the item as Latch-created, shall interpret no key it does not recognise, and **shall neither modify nor delete it**. Guessing at a newer client's keys is how one client corrupts another's items.
+
+### Platform limits
+
+Google caps an event property key at 44 characters and a value at 1024, with at most 300 properties totalling 32 KB per event. The schema above uses seven properties, a longest key of 17 characters and a longest value of 64. These limits are recorded because the SRS otherwise never acknowledges that they exist.
 
 ---
 

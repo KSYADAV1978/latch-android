@@ -1,0 +1,33 @@
+# Golden vectors for SRS 7.2 latch.source_hash / latch.item_key.
+#
+# THIS FILE IS A CROSS-CLIENT CONFORMANCE SUITE. The Android, Windows and Chrome
+# clients are written independently, and AC-07 requires all three to derive the same
+# digest from the same message. Prose will not hold three codebases byte-identical;
+# this table will. A client that cannot reproduce every digest below fails AC-07.
+#
+# Columns: name <TAB> input <TAB> expected sha-256 of the normalised input
+# The input column is escaped and the file is pure ASCII by design, so that an editor
+# normalising Unicode on save cannot silently turn one case into another.
+# Escapes: \n \t \r \uXXXX \UXXXXXXXX \\ -- decode before hashing.
+# Blank lines and lines beginning # are ignored.
+#
+# Each case is a way the same message reaches two platforms differently. Every case
+# from crlf_vs_lf to mixed_case must produce the SAME digest as plain; nfc_cafe and
+# nfd_cafe must match each other; whitespace_only must match empty.
+
+plain	Team sync 5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+crlf_vs_lf	Team sync\r\n5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+lf_baseline	Team sync\n5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+trailing_space	Team sync 5 Sep at 3pm   	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+leading_space	   Team sync 5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+tabs_and_runs	Team\tsync   5  Sep\tat 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+nbsp	Team\u00A0sync 5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+zero_width_joiner	Team\u200D sync 5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+bom_prefix	\uFEFFTeam sync 5 Sep at 3pm	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+mixed_case	TEAM Sync 5 SEP at 3PM	6c5177d7730812e4fd6add42e726e000069204eca989e3852e2c55adee0752e1
+nfc_cafe	Caf\u00E9 meeting	98633afd56519541f46c078a8a9bf0b9f2c0c00689c21708485dde0984222aec
+nfd_cafe	Cafe\u0301 meeting	98633afd56519541f46c078a8a9bf0b9f2c0c00689c21708485dde0984222aec
+emoji	Standup \U0001F680 tomorrow	d15646e73f98893ecf7f0d679360b6f9122d35c6a8f0ee30b5349c7b97208ec4
+devanagari	\u0915\u0932 \u092E\u0940\u091F\u093F\u0902\u0917	9e00fd804d165c7ee25a71afed1de19c7042ab7bcfd0152e971e432b96fae9e3
+empty		e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+whitespace_only	   \t\n  	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

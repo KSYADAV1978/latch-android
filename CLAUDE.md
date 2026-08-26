@@ -134,6 +134,17 @@ host, HTTPS only, redirects refused — which every request in the app goes thro
 that traffic is Google's and will show on a network monitor, but it is not ours to route.
 Widening that set is an AC-17 decision, not a refactor.
 
+The §7.2 remote metadata schema is pinned, ahead of the write path rather than behind it.
+`RemoteMetadata.kt` in `:data` encodes and decodes it for both transports — `extendedProperties`
+on events, an appended `[latch]` line on tasks, which have no metadata field at all. **Nothing
+writes it yet, deliberately**: items in a user's account cannot be rewritten, so the schema had
+to settle first. SRS §7.2 is now normative and fully specified, because §4.1's three clients
+share only the Google account and AC-07 needs all three to derive the same hash from the same
+text; `data/src/test/resources/metadata/hash_vectors.tsv` is the conformance suite they must
+pass, and is pure ASCII so an editor cannot normalise a case away. `latch.item_key` was added
+there: FR-803's source hash can never find a rescheduled item, because a reschedule *is*
+different source text, so FR-804 and AC-08 would have been unsatisfiable without it.
+
 Not built: the FR-800 write path (`events.insert`, FR-803 dedup, FR-806 queue, FR-807 undo),
 the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
 notification listener (FR-208). FR-908 is not built either — the calendar list is not
