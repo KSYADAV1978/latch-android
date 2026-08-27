@@ -117,15 +117,20 @@ to end (so the debug SHA-1 is registered and the account is a test user), `Keyst
 encrypts against a real Keystore, a completed setup survives a cold start, and the stored
 preference key is a hex digest rather than an email address.
 
-**`latch.item_key` is not yet doing its job, found while verifying the above.** It came back
-byte-identical to `latch.source_hash`, because `TitleExtractor` implements FR-509 — "use the
-selection verbatim if under 60 characters" — and strips salutations and sign-offs but never
-dates. So for a short capture the title *is* the whole text, both hashes cover the same
-string, and a reschedule changes both. That is precisely the case `item_key` was added to
-FR-804 to catch, so FR-804 and AC-08 remain unsatisfiable in the common case. The parser
-already has what a fix needs: `Field.span` carries the `IntRange` the date matched, so the
-date can be cut from the title before hashing. Changing it alters what is written, so it is a
-§7.2 amendment rather than a quiet fix.
+**`latch.item_key` now survives a reschedule**, after two attempts that did not. It first came
+back byte-identical to `latch.source_hash`, because `TitleExtractor` implements FR-509 — "use
+the selection verbatim if under 60 characters" — and strips salutations and sign-offs but never
+dates, so for a short capture the title *is* the whole text. Stripping the date span fixed that
+and left a second hole: the span for "Monday 31 August" covers only "31 August", so the weekday
+stayed in the identity and moved with the meeting.
+
+The parser already knew about that case and was throwing the answer away. `collectDates`
+detects a bare weekday beside an explicit date and drops it as corroboration — "in 'PTM on
+Friday 12 September' the weekday is the writer corroborating their own date" — and now absorbs
+its span into the date it corroborates instead. One change, covering every date format rather
+than one rule's regex, and it improves FR-504's highlight too. §7.2 specifies the derivation as
+of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
+where a second client is most likely to drift.
 
 Not yet run on a device: **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
 **AC-17** (network monitor over a full cycle), and the consent-bridge cases — rotation and

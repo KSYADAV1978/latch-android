@@ -1,8 +1,8 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.10 (draft for developer handover)"
-date: "26 August 2026"
+author: "Version 1.11 (draft for developer handover)"
+date: "27 August 2026"
 ---
 
 # 1. Document control
@@ -11,7 +11,7 @@ date: "26 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.10 — draft for developer handover |
+| Version | 1.11 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -31,6 +31,7 @@ date: "26 August 2026"
 | 1.8 | 26 Aug 2026 | Resolved the conflict between FR-805 and FR-210/NFR-206, before any write path exists to embed it. FR-805 required the source text in every item; NFR-206 forbids notification content reaching persistent storage. A reading recorded against NFR-206 settles that a Google item is persistent storage, and FR-805a excludes the source text for notification-sourced captures only, on the same reasoning as FR-210a. Records what is deliberately still written for that layer — a derived title, and the FR-803 hash — and the brute-force caveat on hashing short messages. AC-22 added. |
 | 1.9 | 26 Aug 2026 | Recorded how FR-803 is met and where it is bounded, as the write path was built. Events are matched server-side and are exact; tasks have no content filter in the Google API at all, so the check is a scan bounded to D±1 day — a day wider than correctness needs, to absorb time-zone boundary differences between two devices, which is where AC-07 would otherwise fail silently. An undated task falls back to a ten-page capped scan that reports when it gives up rather than returning a false negative, with the residual duplicate risk accepted for v1.0 and the cure named. Also records that FR-806's queue is deliberately deferred, that a failed or offline write is surfaced under NFR-303 and lost, and that AC-10 does not pass until it lands. No requirement changed. |
 | 1.10 | 26 Aug 2026 | Recorded two readings as the Save button was built. FR-512 gains an **interim** reading, in force only until the FR-700 Inbox exists: with nowhere to route to, a user-confirmed item is saved whatever its confidence, with the confidence surfaced rather than the save blocked — refusing would lose the capture entirely and would make an undated item unsaveable, which design principle 1 contradicts. FR-512 is superseded the moment the Inbox lands. FR-807 records that a save cannot yet be undone from the app, that `latch.chain_id` is already written so undo has a group to act on, and alongside it that FR-506 row 3, FR-507, FR-510 and FR-511 are unmet because the UI each needs is not built. No requirement changed. |
+| 1.11 | 27 Aug 2026 | Specified §7.2's `latch.item_key` properly, after the first real writes showed it coming back byte-identical to `latch.source_hash` and therefore inert. It is now defined as the title with every date and time expression removed, with the derivation given step by step, including that a corroborating weekday is part of the date phrase and must be removed with it — omitting it leaves the day name in the identity, which moves on exactly the reschedule FR-804 exists to catch. Records that this clause is the one part of §7.2 resting on parser behaviour rather than arithmetic over text, that it is where three clients are most likely to drift, that the existing conformance vectors cannot pin it, and that FR-804 is therefore reliable within a client and unproven across them until a second one exists. No requirement changed. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -518,7 +519,7 @@ Written to `extendedProperties.private` on events, and appended to notes on task
 |---|---|---|
 | `latch.version` | yes | `1` |
 | `latch.source_hash` | yes | 64 lowercase hex characters — SHA-256 of the normalised **whole capture text** (FR-803) |
-| `latch.item_key` | yes | 64 lowercase hex characters — SHA-256 of the normalised **item title** (FR-804) |
+| `latch.item_key` | yes | 64 lowercase hex characters — SHA-256 of the normalised **date-free title**, defined below (FR-804) |
 | `latch.chain_id` | yes | Lowercase UUID, e.g. `3f2504e0-4f89-41d3-9a0c-0305e82c3301` |
 | `latch.captured_at` | yes | RFC 3339, UTC, whole seconds — `2026-08-26T14:03:22Z` |
 | `latch.source_app` | no | `android:<package>`, `windows:<executable>` or `web:<host>` |
@@ -528,7 +529,22 @@ An optional key that has no value shall be **omitted**, never written empty. An 
 
 **`latch.source_hash` covers the whole capture, not the individual item.** Every item produced by one capture therefore carries the same value, and FR-803's question is "has this message already been saved", not "has this item already been created".
 
-**`latch.item_key` exists because FR-803's hash cannot satisfy FR-804.** A rescheduled message has different source text, so its `source_hash` differs and the item being rescheduled can never be found by it. `item_key` is the identity that survives a date change: the **same `item_key` with a different `source_hash` is a reschedule**, the same `source_hash` is a duplicate, and neither is a new item. It is hashed from the title alone — it must not incorporate `latch.source_app`, which is optional and may begin being populated part-way through the product's life, which would give the same meeting different keys either side of that change.
+**`latch.item_key` exists because FR-803's hash cannot satisfy FR-804.** A rescheduled message has different source text, so its `source_hash` differs and the item being rescheduled can never be found by it. `item_key` is the identity that survives a date change: the **same `item_key` with a different `source_hash` is a reschedule**, the same `source_hash` is a duplicate, and neither is a new item. It must not incorporate `latch.source_app`, which is optional and may begin being populated part-way through the product's life, giving the same meeting different keys either side of that change.
+
+### The date-free title
+
+`latch.item_key` is hashed from **the item's title with every date and time expression removed**, not from the title as displayed. The distinction is the whole requirement, and getting it wrong is silent: hashing the displayed title makes `item_key` identical to `source_hash` on any capture short enough for FR-509 to take verbatim, both values then move together when the date changes, and FR-804 has nothing left to match on. An implementation that produces `item_key == source_hash` is wrong even though every value is well-formed.
+
+A client shall derive it as follows.
+
+1. Where the item's title came from a subject line (FR-206), use that subject **unchanged**. Date expressions are located by their position in the captured body, and those positions do not apply to a subject. A subject carrying its own date is a known residual case and is accepted: a subject is normally the standing name of the thing, not a statement of when it happens.
+2. Otherwise, take the captured text and **blank** every span matched as a date, a time or an end time — replace those characters with spaces rather than deleting them. Deleting shifts every later position and can weld two words together; blanking does neither, and the normalisation collapses the spaces.
+3. Apply FR-509's title extraction to the blanked text.
+4. Normalise and hash the result exactly as `latch.source_hash` is normalised and hashed.
+
+**A date expression includes a weekday that corroborates it.** In "PTM on Friday 12 September" the whole phrase is one date, and the span removed at step 2 shall cover all of it. A weekday is corroborating where it sits within a short distance of an explicit date; beyond that distance it is a date in its own right, and "Gym Friday, and the review on 12 September" is two dates and not one phrase. Removing only "12 September" leaves "Friday" in the identity, and a reschedule to another weekday moves it — which is precisely the failure `item_key` exists to prevent, so this clause is load-bearing rather than a refinement.
+
+This clause is the one part of §7.2 that depends on parser behaviour rather than on arithmetic over the text, and it is therefore where three independently written clients are most likely to drift. Two consequences follow. A client whose date rules match a different extent of the same phrase will compute a different `item_key` from the same message, which degrades FR-804 across devices without failing anything visibly. And the conformance vectors at `data/src/test/resources/metadata/hash_vectors.tsv` pin the normalisation only — they cannot pin this, because the input to it is whatever that client's parser matched. **A vector file for date-free titles should be added when the second client is built**, and until then FR-804 should be understood as reliable within a client and unproven across them.
 
 ### Normalisation
 
