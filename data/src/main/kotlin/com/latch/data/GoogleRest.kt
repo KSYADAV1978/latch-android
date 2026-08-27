@@ -393,6 +393,31 @@ internal fun alreadyGone(rejected: GoogleRejected): Boolean =
     rejected.status == HttpURLConnection.HTTP_NOT_FOUND ||
         rejected.status == HttpURLConnection.HTTP_GONE
 
+/**
+ * Whether FR-806 should try this write again, or stop and tell the user (NFR-303).
+ *
+ * The distinction matters because the two wrong answers fail in opposite directions. Giving
+ * up on a recoverable failure loses the capture, which is what NFR-302 forbids. Retrying an
+ * unrecoverable one burns the battery on a request that will never succeed, and leaves the
+ * queue count sitting on the home screen with nothing the user can do about it — a 403 for
+ * an insufficient scope needs them to sign in again, and no amount of backoff supplies that.
+ *
+ * [GoogleUnreachable] is the offline case and always retries. [GoogleUnreadable] is a 2xx we
+ * could not parse: the write may well have happened, so retrying risks a duplicate — but
+ * FR-803 runs again before each insert, which is what makes that safe.
+ *
+ * Public because both callers are in `:app` — the saver, deciding whether a failed write
+ * becomes a queue entry or an error, and the worker, deciding whether to come back.
+ */
+fun isWorthRetrying(failure: Throwable): Boolean = when (failure) {
+    is GoogleUnreachable -> true
+    is GoogleUnreadable -> true
+    is GoogleRejected -> failure.status == 429 || failure.status in 500..599
+    // Not one of ours — a bug in the mapping rather than an answer from Google. Retrying a
+    // bug just repeats it.
+    else -> false
+}
+
 internal fun firstEventId(page: JSONObject): String? =
     page.optJSONArray("items")
         ?.optJSONObject(0)

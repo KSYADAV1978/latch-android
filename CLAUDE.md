@@ -136,9 +136,10 @@ where a second client is most likely to drift.
 Not yet run on a device: **`tasks.delete`** — FR-807 was watched on an event, so the Tasks
 half of undo has still only ever run against a fake; **AC-15**, **AC-09** (hidden calendar
 offered and actually ticked),
-**AC-17** (network monitor over a full cycle), and the consent-bridge cases — rotation and
-process death with the consent screen up, which are the only part of this app with no
-automated cover at all.
+**AC-17** (network monitor over a full cycle), **AC-10** — the queue has never been watched
+draining on a real device, and aeroplane mode is the only way to see it — and the
+consent-bridge cases: rotation and process death with the consent screen up, which are the
+only part of this app with no automated cover at all.
 
 AC-15 is half-observed and deliberately not recorded as passing. A setup run on 26 Aug 2026
 took **43 seconds** from launch to the defaults record being written, measured off the
@@ -206,10 +207,35 @@ protected from the capture window itself — that window closes on a tap outside
 closes the window when it lapses. Every decision about the offer is a pure function
 (`undoOffer`, `saveIsOffered`) for the same reason `saveBlocker` is.
 
-Not built: FR-806's queue — deliberately, and recorded as such in the SRS. Writes go straight
-to Google, so an offline capture cannot be saved and a failed write is surfaced under NFR-303
-and then lost. **AC-10 does not pass until that lands.** Also not built, and user-visible now
-that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
+**The write queue is built.** FR-806, on WorkManager. Four things about it are decisions
+rather than mechanics, and each is written up against the requirement in the SRS.
+
+The queue is a **fallback, not the path**: a save still writes directly and enqueues only on a
+failure that waiting can fix, because routing everything through the queue would cost FR-803
+its immediate "Already saved" answer, which AC-07 depends on. `isWorthRetrying` in `:data` is
+the classifier, and a 403 or a 400 is still a reported failure rather than an entry that would
+never drain.
+
+**The payload is not in WorkManager.** Its database is unencrypted and its input data is capped
+around 10 KB, so entries live in `EncryptedWriteQueueStore` under `KeystoreCipher` and the
+worker carries nothing but the instruction to drain. Records are JSON there, not the
+unit-separated format `EncryptedPreferences.kt` uses, because an FR-805 body is free user text
+with newlines in it — the file says why.
+
+**FR-803 runs again at drain**, per entry, immediately before the insert. Without it two
+offline captures of one message become two items, which is AC-07 failing inside AC-10.
+
+**A queued entry is not drained inside its FR-807 undo window** — `drainable` is that rule, and
+it exists so an undo is never a race between dropping a queue entry and chasing an item that
+has just been written. `CreatedItem` is a sealed type for the same reason: `Written` is undone
+by a delete, `Queued` by dropping the entry.
+
+Two limits are recorded rather than hidden: a queued capture does not survive a device transfer
+(Keystore), and an entry given up on stays visible but has no manual retry until Settings
+(FR-1000). Adding `androidx.work` also merges four permissions into the manifest — the manifest
+comment names them, because that file is where the app's promises are read.
+
+Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
 cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
 is saved — which is also why an undo chain is one item on every path reachable today;
 FR-507's type override; and FR-510's past-date follow-up. Each is recorded against

@@ -17,12 +17,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
+import com.latch.data.QueueStatus
 
 /**
  * FR-101: first launch runs setup. It is not "first launch" that is tested, but whether an
@@ -53,6 +55,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         latchApplication.authResolution.attach(consentResult)
+        // FR-806: the queue may have drained while this screen was away — the worker runs
+        // whether or not anything is on screen — so the count is re-read rather than trusted
+        // to be whatever it was when the process started.
+        latchApplication.refreshQueueStatus()
     }
 
     override fun onStop() {
@@ -90,7 +96,8 @@ class MainActivity : ComponentActivity() {
 
                         // The outcome covers the account configured moments ago in this
                         // process; the stored list covers every earlier launch.
-                        outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true -> Home()
+                        outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true ->
+                            Home(queue = app.queueStatus.collectAsState().value)
 
                         else -> {
                             BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
@@ -104,7 +111,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Home() {
+private fun Home(queue: QueueStatus) {
     Column(
         modifier = Modifier.padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -112,5 +119,23 @@ private fun Home() {
         Text(stringResource(R.string.home_headline), style = MaterialTheme.typography.headlineMedium)
         Text(stringResource(R.string.home_setup_pending), style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(R.string.home_try_it), style = MaterialTheme.typography.bodyMedium)
+
+        // FR-806's "visible to the user", and the whole of it for now — this is the only
+        // screen the app has until Settings (FR-1000) lands. Nothing is drawn when the queue
+        // is empty: a permanent "0 waiting" is noise, and NFR-104's habit of not nagging
+        // applies to a count as much as to a notification.
+        if (queue.waiting > 0) {
+            Text(
+                text = pluralStringResource(R.plurals.home_queue_waiting, queue.waiting, queue.waiting),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (queue.givenUp > 0) {
+            Text(
+                text = pluralStringResource(R.plurals.home_queue_given_up, queue.givenUp, queue.givenUp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }

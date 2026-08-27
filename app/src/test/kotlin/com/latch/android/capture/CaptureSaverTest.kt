@@ -8,12 +8,20 @@ import com.latch.data.AccountDefaultsStore
 import com.latch.data.CalendarApi
 import com.latch.data.DuplicateSearch
 import com.latch.data.EventWrite
+import com.latch.data.GoogleRejected
+import com.latch.data.GoogleUnreachable
+import com.latch.data.PendingWrite
+import com.latch.data.QueueStatus
+import com.latch.data.QueuedWrite
 import com.latch.data.TaskList
 import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
 import com.latch.data.WritableCalendar
+import com.latch.data.WriteQueue
+import com.latch.data.sourceHashOf
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -78,7 +86,7 @@ class CaptureSaverTest {
         runToSaved(saver)
 
         val window = assertNotNull(undoOffer(saver.state.value, Instant.now()))
-        val created = window.created.single()
+        val created = assertIs<CreatedItem.Written>(window.created.single())
         assertEquals(ItemType.EVENT, created.type)
         assertEquals("latch-cal", created.containerId)
         assertEquals("event-1", created.remoteId)
@@ -220,7 +228,94 @@ class CaptureSaverTest {
         assertFalse(saveIsOffered(SaveState.UndoFailed(removed = 0, total = 1)))
     }
 
+    // ----- FR-806: offline -----
+
+    @Test
+    fun `a capture with no network is queued, not failed`() = runTest {
+        val queue = RecordingQueue()
+        val saver = saver(calendar = RecordingCalendarApi(failInsert = offline()), queue = queue)
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+
+        // Not Failed: nothing was lost, and telling the user it was would send them to
+        // recapture something the app is already holding.
+        assertIs<SaveState.Queued>(saver.state.value)
+        assertEquals(1, queue.entries.size)
+        assertEquals(1, queue.drainsRequested, "a queued write must ask for a drain")
+    }
+
+    @Test
+    fun `a queued write carries everything the worker needs`() = runTest {
+        val queue = RecordingQueue()
+        val saver = saver(calendar = RecordingCalendarApi(failInsert = offline()), queue = queue)
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+
+        val write = queue.entries.values.single()
+        // §7.2 cannot be corrected after the write, so it has to survive the wait.
+        assertEquals(sourceHashOf(eventText), write.metadata.sourceHash)
+        assertTrue(write.metadata.itemKey.isNotBlank())
+        assertEquals("Asia/Kolkata", write.timeZone)
+        assertEquals("latch-cal", write.item.calendarId)
+        assertEquals(ItemType.EVENT, write.item.type)
+    }
+
+    @Test
+    fun `a failure that is not offline is still a failure`() = runTest {
+        val queue = RecordingQueue()
+        val rejected = GoogleRejected(403, "ACCESS_TOKEN_SCOPE_INSUFFICIENT", "Forbidden")
+        val saver = saver(calendar = RecordingCalendarApi(failInsert = rejected), queue = queue)
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+
+        // Queueing this would put it on the home screen for ever: no amount of waiting
+        // supplies a scope the user has not granted.
+        assertEquals(SaveState.Failed(SaveFailure.WRITE_FAILED), saver.state.value)
+        assertTrue(queue.entries.isEmpty())
+    }
+
+    @Test
+    fun `undo of a queued write drops the entry and deletes nothing`() = runTest {
+        val queue = RecordingQueue()
+        val calendar = RecordingCalendarApi(failInsert = offline())
+        val saver = saver(calendar = calendar, queue = queue)
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+        saver.undo()
+        advanceUntilIdle()
+
+        assertEquals(SaveState.Undone, saver.state.value)
+        assertTrue(queue.entries.isEmpty(), "the queue entry should be gone")
+        // There was never anything in the account, so nothing may be sent to Google.
+        assertTrue(calendar.deleted.isEmpty())
+    }
+
+    @Test
+    fun `a queued write offers an undo for the same ten seconds`() = runTest {
+        val saver = saver(calendar = RecordingCalendarApi(failInsert = offline()))
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+        assertNotNull(undoOffer(saver.state.value, Instant.now()))
+
+        advanceTimeBy(UNDO_WINDOW.toMillis() + 1)
+
+        val state = assertIs<SaveState.Queued>(saver.state.value)
+        assertNull(state.undo, "the offer should have closed itself")
+    }
+
+    @Test
+    fun `the Save button is gone once a capture has been queued`() {
+        assertFalse(saveIsOffered(SaveState.Queued()))
+    }
+
     // ----- fixtures -----
+
+    private fun offline() = GoogleUnreachable("no network", IOException())
 
     private fun captured(text: String) =
         CapturedText(text = text, layer = CaptureLayer.SHARE_SHEET)
@@ -230,10 +325,13 @@ class CaptureSaverTest {
     private fun TestScope.saver(
         calendar: CalendarApi = RecordingCalendarApi(),
         tasks: TasksApi = RecordingTasksApi(),
+        queue: RecordingQueue = RecordingQueue(),
     ) = CaptureSaver(
         defaultsStore = FixedDefaults(defaults),
         calendarApi = calendar,
         tasksApi = tasks,
+        writeQueue = queue,
+        requestDrain = { queue.drainsRequested++ },
         scope = this,
         sourceLinkTemplate = "Captured from %1\$s",
     )
@@ -251,6 +349,34 @@ class CaptureSaverTest {
     }
 }
 
+/**
+ * An in-memory [WriteQueue]. Deliberately not the encrypted store: that one needs a Context
+ * and a real Android Keystore, and its record format is tested on its own in `:data`.
+ */
+private class RecordingQueue : WriteQueue {
+    val entries = linkedMapOf<String, PendingWrite>()
+    var drainsRequested = 0
+    private var next = 0
+
+    override suspend fun enqueue(write: PendingWrite): String {
+        val id = "queue-${next++}"
+        entries[id] = write
+        return id
+    }
+
+    override suspend fun pending(): List<QueuedWrite> = emptyList()
+
+    override suspend fun status() = QueueStatus(waiting = entries.size, givenUp = 0)
+
+    override suspend fun markWritten(queueId: String, remoteId: String) {
+        entries.remove(queueId)
+    }
+
+    override suspend fun markFailed(queueId: String, error: String, permanent: Boolean) = Unit
+
+    override suspend fun drop(queueId: String): Boolean = entries.remove(queueId) != null
+}
+
 private class FixedDefaults(private val defaults: AccountDefaults) : AccountDefaultsStore {
     override suspend fun defaultsFor(accountId: String) = defaults
     override suspend fun allAccounts() = listOf(defaults)
@@ -261,10 +387,14 @@ private class FixedDefaults(private val defaults: AccountDefaults) : AccountDefa
 private class RecordingCalendarApi(
     private val existingEventId: String? = null,
     private val failDelete: Boolean = false,
+    private val failInsert: Exception? = null,
 ) : CalendarApi {
     val deleted = mutableListOf<Pair<String, String>>()
 
-    override suspend fun insertEvent(calendarId: String, event: EventWrite) = "event-1"
+    override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
+        failInsert?.let { throw it }
+        return "event-1"
+    }
 
     override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String) =
         DuplicateSearch(existingEventId)

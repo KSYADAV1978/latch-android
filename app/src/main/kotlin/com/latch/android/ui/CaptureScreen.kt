@@ -76,7 +76,11 @@ fun CaptureScreen(
     // FR-807's countdown. The saver decides when the offer actually ends — this only reads
     // the clock often enough for the number beside Undo to look like it is running out, and
     // stops entirely when there is no window, so an idle screen costs nothing.
-    val hasWindow = (saveState as? SaveState.Saved)?.undo != null
+    val hasWindow = when (saveState) {
+        is SaveState.Saved -> saveState.undo != null
+        is SaveState.Queued -> saveState.undo != null
+        else -> false
+    }
     val now by produceState(Instant.now(), hasWindow) {
         while (hasWindow) {
             value = Instant.now()
@@ -233,6 +237,14 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
                     (destination as? DestinationState.Ready)?.defaults?.destinationCalendarName.orEmpty(),
                 )
             }
+        )
+
+        // FR-806. Not phrased as a save: the item is on this phone and not in the account.
+        is SaveState.Queued -> Note(
+            stringResource(
+                R.string.capture_queued,
+                (destination as? DestinationState.Ready)?.defaults?.destinationCalendarName.orEmpty(),
+            )
         )
 
         SaveState.AlreadySaved -> Note(stringResource(R.string.capture_already_saved))

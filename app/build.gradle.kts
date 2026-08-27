@@ -60,6 +60,10 @@ dependencies {
     // this returns; see docs/DEPENDENCIES.md for why the library stops there.
     implementation(libs.play.services.auth)
 
+    // FR-806's queue: persisted work, a connectivity constraint, survival across reboot.
+    // NFR-302 is its contract; see docs/DEPENDENCIES.md.
+    implementation(libs.androidx.work)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.compose.bom))

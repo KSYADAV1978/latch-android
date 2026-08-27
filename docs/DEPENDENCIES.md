@@ -19,7 +19,7 @@ baselines is not.
 
 | Dependency | Version | Universal APK | Per device (App Bundle) | Decision |
 |---|---|---|---|---|
-| `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB | +118 KB | **Approved** |
+| `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB (see note) | +118 KB | **Approved, now in use** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
 | `com.google.android.gms:play-services-auth` | 22.0.0 | +135 KB | +135 KB | **Approved** |
 | `androidx.room` | 2.8.4 | +36 KB | +36 KB | **Deferred** |
@@ -43,6 +43,21 @@ item this app will ever ship. Measure it before treating the 40 MB as comfortabl
 ## Approved
 
 ### `androidx.work` — the offline write queue (FR-806, NFR-302)
+
+**Re-measured on adoption, 27 Aug 2026.** The release APK went from **1,064,828 bytes**
+(the tree with FR-807 undo and no queue) to **1,186,254** — **+121,426**.
+
+That figure is WorkManager **plus** the queue code it was added for: the encrypted store, the
+JSON record, the worker and the two new UI surfaces. It cannot be split further by
+measurement, because removing the dependency does not leave a tree that compiles, and
+measuring the library against a stub would measure whatever R8 could strip rather than what
+ships. It is quoted as a combined number for that reason.
+
+It is consistent with the +118 KB measured for the library alone in the original session,
+which suggests the queue code is close to free once R8 has run — plausible, since it adds no
+new transitive dependency and reuses `KeystoreCipher`, `org.json` and the existing REST
+clients rather than bringing its own of anything.
+
 
 NFR-302 requires that no capture is lost to network failure, app termination or device
 restart while queued. That is precisely WorkManager's contract: persisted work, a constraint

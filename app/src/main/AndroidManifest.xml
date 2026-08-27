@@ -27,6 +27,28 @@
     -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      NOT DECLARED HERE, BUT PRESENT IN THE MERGED MANIFEST. Adding androidx.work for FR-806's
+      write queue brings four permissions in from its own manifest, and they are named here
+      because this file is the place a reviewer comes to find out what the app can do. Verify
+      with:
+
+        ./gradlew :app:processDebugMainManifest
+        app/build/intermediates/merged_manifest/debug/.../AndroidManifest.xml
+
+        - ACCESS_NETWORK_STATE   the connectivity constraint the drain waits on
+        - RECEIVE_BOOT_COMPLETED reschedules unfinished work after a restart, which is
+                                 literally NFR-302's "device restart while queued"
+        - WAKE_LOCK              holds the device awake for the duration of a drain
+        - FOREGROUND_SERVICE     WorkManager's expedited path
+
+      None of them widens AC-17: that rests on ALLOWED_HOSTS in GoogleHttp, and every request
+      the queue makes goes through it like any other. None of them is a runtime permission, so
+      none produces a prompt. FOREGROUND_SERVICE is the one worth watching — NFR-104 forbids a
+      persistent background service, and WorkManager satisfies that only so long as work stays
+      one-shot and constrained. A periodic worker would be a new NFR-104 decision.
+    -->
+
     <application
         android:name=".LatchApplication"
         android:allowBackup="false"

@@ -2,11 +2,15 @@ package com.latch.android
 
 import android.app.Application
 import com.latch.android.capture.CaptureSaver
+import com.latch.android.capture.WriteQueueWorker
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
 import com.latch.data.AccountDefaults
 import com.latch.data.EncryptedAccountDefaultsStore
+import com.latch.data.EncryptedWriteQueueStore
+import com.latch.data.QueueStatus
+import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
 import com.latch.data.googleTasksApi
 import kotlinx.coroutines.CoroutineScope
@@ -70,6 +74,12 @@ class LatchApplication : Application() {
         //  rather than a defect: StubCalendarApi mints a fresh latch-N id every process, so
         //  a stored id already fails to name anything the next launch can see.
         refreshAccounts()
+        refreshQueueStatus()
+        // FR-806: a queue that outlived the process — killed mid-drain, or the device
+        // restarted — has nothing scheduled to drain it. WorkManager keeps its own record of
+        // unfinished work, but an entry queued by a process that died before it could
+        // schedule anything would otherwise wait for the next capture to be noticed.
+        WriteQueueWorker.schedule(this)
     }
 
     /**
@@ -84,8 +94,34 @@ class LatchApplication : Application() {
      */
     private val authClient by lazy { GoogleAuthClient(this, authResolution) }
 
-    private val calendarApi by lazy { googleCalendarApi(authClient) }
-    private val tasksApi by lazy { googleTasksApi(authClient) }
+    /**
+     * Internal rather than private: `WriteQueueWorker` is constructed by WorkManager, not by
+     * this class, so it has nowhere to be handed its dependencies from and reaches back here
+     * for them. That is the whole reason these are visible.
+     */
+    internal val calendarApi by lazy { googleCalendarApi(authClient) }
+    internal val tasksApi by lazy { googleTasksApi(authClient) }
+
+    /** FR-806, NFR-302. See [EncryptedWriteQueueStore] for why the payload lives here. */
+    val writeQueue: WriteQueue by lazy { EncryptedWriteQueueStore(this) }
+
+    private val _queueStatus = MutableStateFlow(QueueStatus(waiting = 0, givenUp = 0))
+
+    /**
+     * FR-806's "visible to the user". Null is not a state here, unlike
+     * [configuredAccounts]: an unread queue and an empty one both mean "nothing to say",
+     * and the home screen draws nothing either way.
+     */
+    val queueStatus: StateFlow<QueueStatus> = _queueStatus.asStateFlow()
+
+    /**
+     * Anything that adds to or drains the queue must call this. The count is on the home
+     * screen, and a queue that empties without the screen hearing about it would sit there
+     * claiming captures are still waiting.
+     */
+    fun refreshQueueStatus() {
+        appScope.launch { _queueStatus.value = writeQueue.status() }
+    }
 
     /**
      * Held here rather than by `CaptureActivity`, because the capture window is a floating
@@ -97,6 +133,11 @@ class LatchApplication : Application() {
             defaultsStore = accountDefaults,
             calendarApi = calendarApi,
             tasksApi = tasksApi,
+            writeQueue = writeQueue,
+            requestDrain = {
+                WriteQueueWorker.schedule(this)
+                refreshQueueStatus()
+            },
             scope = appScope,
             sourceLinkTemplate = getString(R.string.capture_source_link),
         )

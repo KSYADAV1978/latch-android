@@ -13,6 +13,8 @@ composeBom = "2026.08.00"
 # Pinned to what androidx already resolves onto the app classpath. Naming a higher version
 # here would upgrade the whole graph as a side effect of a :data declaration.
 coroutines = "1.9.0"
+# FR-806's write queue; see docs/DEPENDENCIES.md.
+work = "2.11.2"
 # The OAuth grant only; see docs/DEPENDENCIES.md. Measured at +135 KB.
 playServicesAuth = "22.0.0"
 # Test-only. The real org.json, standing in for the android.jar stub under JVM unit tests.
@@ -35,6 +37,8 @@ compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview"
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 # Test-only. Virtual time, so FR-807's ten-second window is tested without waiting ten seconds.
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+
+androidx-work = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 

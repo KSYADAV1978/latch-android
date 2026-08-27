@@ -9,7 +9,10 @@ import com.latch.data.CalendarApi
 import com.latch.data.EventWrite
 import com.latch.data.RemoteMetadata
 import com.latch.data.TaskWrite
+import com.latch.data.PendingWrite
 import com.latch.data.TasksApi
+import com.latch.data.WriteQueue
+import com.latch.data.isWorthRetrying
 import com.latch.data.itemKeyOf
 import com.latch.data.sourceBlock
 import com.latch.data.sourceHashOf
@@ -87,16 +90,32 @@ fun saveBlocker(
 }
 
 /**
- * One item a save created, and the whole of what is needed to remove it again.
+ * One item a save produced, and the whole of what is needed to take it back again.
  *
- * [containerId] is the calendar id for an event and the task list id for a task — both APIs
- * address an item by its container and its own id, and neither can be deleted by id alone.
+ * Two shapes, because FR-806 gave a save two possible outcomes. A write that reached Google
+ * is undone by deleting it; a write that was queued because there was no network is undone by
+ * dropping the queue entry, and there is no remote id to delete because nothing was created.
+ * Collapsing the two would mean undo guessing, and the wrong guess either leaves an item in
+ * the account or sends a delete for an id that does not exist.
  */
-data class CreatedItem(
-    val type: ItemType,
-    val containerId: String,
-    val remoteId: String,
-)
+sealed interface CreatedItem {
+    /**
+     * [containerId] is the calendar id for an event and the task list id for a task — both
+     * APIs address an item by its container and its own id, and neither can be deleted by
+     * id alone.
+     */
+    data class Written(
+        val type: ItemType,
+        val containerId: String,
+        val remoteId: String,
+    ) : CreatedItem
+
+    /**
+     * FR-806: still in the queue. `WriteQueueWorker` will not drain an entry inside its undo
+     * window, so this stays droppable for as long as the offer stands — see [drainable].
+     */
+    data class Queued(val queueId: String) : CreatedItem
+}
 
 /** FR-807: not less than ten seconds. */
 val UNDO_WINDOW: Duration = Duration.ofSeconds(10)
@@ -149,6 +168,16 @@ sealed interface SaveState {
         val undo: UndoWindow? = null,
     ) : SaveState
 
+    /**
+     * FR-806: there was no network, so the capture is on disk and will be written when there
+     * is one. Deliberately **not** [Saved] — nothing is in the user's account yet, and saying
+     * otherwise would be the swallowed failure NFR-303 forbids, dressed up as success.
+     *
+     * It carries its own undo window: a queued save is as undoable as a written one, and for
+     * the user it is the same act.
+     */
+    data class Queued(val undo: UndoWindow? = null) : SaveState
+
     /** FR-803: an item with this source hash is already in the account. Nothing was written. */
     data object AlreadySaved : SaveState
 
@@ -177,8 +206,11 @@ sealed interface SaveState {
  * and [CaptureSaver.undo] all ask this rather than each reading the state their own way.
  * Same arrangement as [saveBlocker], and for the same reason.
  */
-fun undoOffer(state: SaveState, now: Instant): UndoWindow? =
-    (state as? SaveState.Saved)?.undo?.takeIf { it.isOpen(now) }
+fun undoOffer(state: SaveState, now: Instant): UndoWindow? = when (state) {
+    is SaveState.Saved -> state.undo
+    is SaveState.Queued -> state.undo
+    else -> null
+}?.takeIf { it.isOpen(now) }
 
 /**
  * Whether the Save button belongs on screen at all.
@@ -191,6 +223,7 @@ fun undoOffer(state: SaveState, now: Instant): UndoWindow? =
 fun saveIsOffered(state: SaveState): Boolean = when (state) {
     SaveState.Idle, SaveState.Saving, is SaveState.Failed -> true
     is SaveState.Saved,
+    is SaveState.Queued,
     SaveState.AlreadySaved,
     SaveState.Undoing,
     SaveState.Undone,
@@ -213,6 +246,13 @@ class CaptureSaver(
     private val defaultsStore: AccountDefaultsStore,
     private val calendarApi: CalendarApi,
     private val tasksApi: TasksApi,
+    private val writeQueue: WriteQueue,
+    /**
+     * FR-806: asks for a drain. A function rather than the `WorkManager` itself, so this
+     * class stays free of Android — everything else it touches is a `:data` contract, and
+     * `CaptureSaverTest` runs on the JVM.
+     */
+    private val requestDrain: () -> Unit,
     private val scope: CoroutineScope,
     /**
      * FR-805's link back to the source, as a format string taking the source application.
@@ -311,7 +351,14 @@ class CaptureSaver(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            SaveState.Failed(SaveFailure.WRITE_FAILED)
+            // FR-806: offline is a delay, not a failure. Anything that will not come right
+            // on its own still is one, and is reported rather than hidden in a queue the
+            // user would watch never drain.
+            if (isWorthRetrying(failure)) {
+                queue(items.first(), metadata, body, context)
+            } else {
+                SaveState.Failed(SaveFailure.WRITE_FAILED)
+            }
         }
         _state.value = outcome
 
@@ -319,12 +366,42 @@ class CaptureSaver(
         // coroutine rather than a job of its own, because the check below is what actually
         // decides — anything that has moved the state on since (a new capture's reset, or
         // the user taking the offer) has already ended this window, and finds nothing to do.
-        val window = (outcome as? SaveState.Saved)?.undo ?: return
+        val window = undoWindowOf(outcome) ?: return
         delay(UNDO_WINDOW.toMillis())
         val current = _state.value
-        if (current is SaveState.Saved && current.undo?.chainId == window.chainId) {
-            _state.value = current.copy(undo = null)
+        if (undoWindowOf(current)?.chainId != window.chainId) return
+        _state.value = when (current) {
+            is SaveState.Saved -> current.copy(undo = null)
+            is SaveState.Queued -> current.copy(undo = null)
+            else -> return
         }
+    }
+
+    /**
+     * FR-806: the write could not go now, so it goes later.
+     *
+     * The drain is asked for here rather than by the caller, so a capture cannot be put on
+     * disk by one path and left there by another. WorkManager holds the request behind a
+     * connectivity constraint, so this means "when there is a network", not "now".
+     */
+    private suspend fun queue(
+        item: Item,
+        metadata: RemoteMetadata,
+        body: String,
+        context: ParseContext,
+    ): SaveState {
+        val queueId = writeQueue.enqueue(
+            PendingWrite(
+                item = item,
+                metadata = metadata,
+                body = body,
+                timeZone = context.zone.id,
+            )
+        )
+        requestDrain()
+        return SaveState.Queued(
+            undo = undoWindowFor(metadata, listOf(CreatedItem.Queued(queueId)))
+        )
     }
 
     private suspend fun remove(window: UndoWindow) {
@@ -335,9 +412,20 @@ class CaptureSaver(
         // than one that is wholly there or wholly gone, so every item still gets its delete.
         for (item in window.created) {
             try {
-                when (item.type) {
-                    ItemType.EVENT -> calendarApi.deleteEvent(item.containerId, item.remoteId)
-                    ItemType.TASK -> tasksApi.deleteTask(item.containerId, item.remoteId)
+                when (item) {
+                    is CreatedItem.Written -> when (item.type) {
+                        ItemType.EVENT -> calendarApi.deleteEvent(item.containerId, item.remoteId)
+                        ItemType.TASK -> tasksApi.deleteTask(item.containerId, item.remoteId)
+                    }
+
+                    // FR-806: nothing was written, so there is nothing to delete — the entry
+                    // stops existing. A false here would mean the worker drained it first,
+                    // which `drainable` exists to prevent; if it ever happens the item is in
+                    // the account and this undo did not remove it, so it counts as a failure
+                    // rather than as a quiet success.
+                    is CreatedItem.Queued -> check(writeQueue.drop(item.queueId)) {
+                        "Queue entry was already drained"
+                    }
                 }
                 removed++
             } catch (cancelled: CancellationException) {
@@ -352,6 +440,13 @@ class CaptureSaver(
         } else {
             SaveState.Undone
         }
+    }
+
+    /** The offer, on whichever outcome carries one. */
+    private fun undoWindowOf(state: SaveState): UndoWindow? = when (state) {
+        is SaveState.Saved -> state.undo
+        is SaveState.Queued -> state.undo
+        else -> null
     }
 
     /**
@@ -399,7 +494,7 @@ class CaptureSaver(
                     undo = undoWindowFor(
                         metadata,
                         listOf(
-                            CreatedItem(
+                            CreatedItem.Written(
                                 type = ItemType.EVENT,
                                 containerId = defaults.destinationCalendarId,
                                 remoteId = remoteId,
@@ -433,7 +528,7 @@ class CaptureSaver(
                     undo = undoWindowFor(
                         metadata,
                         listOf(
-                            CreatedItem(
+                            CreatedItem.Written(
                                 type = ItemType.TASK,
                                 containerId = defaults.taskListId,
                                 remoteId = remoteId,

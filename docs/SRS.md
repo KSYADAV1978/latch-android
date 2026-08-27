@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.12 (draft for developer handover)"
+author: "Version 1.13 (draft for developer handover)"
 date: "27 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "27 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.12 — draft for developer handover |
+| Version | 1.13 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -33,6 +33,7 @@ date: "27 August 2026"
 | 1.10 | 26 Aug 2026 | Recorded two readings as the Save button was built. FR-512 gains an **interim** reading, in force only until the FR-700 Inbox exists: with nowhere to route to, a user-confirmed item is saved whatever its confidence, with the confidence surfaced rather than the save blocked — refusing would lose the capture entirely and would make an undated item unsaveable, which design principle 1 contradicts. FR-512 is superseded the moment the Inbox lands. FR-807 records that a save cannot yet be undone from the app, that `latch.chain_id` is already written so undo has a group to act on, and alongside it that FR-506 row 3, FR-507, FR-510 and FR-511 are unmet because the UI each needs is not built. No requirement changed. |
 | 1.11 | 27 Aug 2026 | Specified §7.2's `latch.item_key` properly, after the first real writes showed it coming back byte-identical to `latch.source_hash` and therefore inert. It is now defined as the title with every date and time expression removed, with the derivation given step by step, including that a corroborating weekday is part of the date phrase and must be removed with it — omitting it leaves the day name in the identity, which moves on exactly the reschedule FR-804 exists to catch. Records that this clause is the one part of §7.2 resting on parser behaviour rather than arithmetic over text, that it is where three clients are most likely to drift, that the existing conformance vectors cannot pin it, and that FR-804 is therefore reliable within a client and unproven across them until a second one exists. No requirement changed. |
 | 1.12 | 27 Aug 2026 | Recorded how FR-807 undo is met and where it is bounded, as it was built. Undo removes the ids the save recorded rather than re-querying `latch.chain_id`: the chain id is the group identity and is on every item, but the Tasks API has no content filter — the same limitation that makes FR-803 a bounded scan — so finding a task chain by it would be a scan that is allowed to give up, and undo would be exact for events and best-effort for tasks. Records the three consequences: the offer does not survive process death, a new capture ends it, and a cross-device undo would be a different feature, events only. Records the reading under which the capture window suppresses its own touch-outside dismissal while the offer stands, without which "not less than 10 seconds" is met on paper and not in the hand. No requirement changed. |
+| 1.13 | 27 Aug 2026 | Recorded how FR-806's write queue is met and where it is bounded, as it was built. Records that the payload is held in an app-private encrypted store and **not** in WorkManager, whose own database is unencrypted and whose input data is capped; that FR-803's duplicate check therefore runs a second time at drain, without which two offline captures of one message become two items and AC-07 fails inside AC-10; and that a queued entry is not drained inside its FR-807 undo window, which removes the race between an undo and a drain rather than trying to win it. Records two limits: a queued capture does not survive a device transfer, and an entry that has been given up on stays visible but has no manual retry until Settings (FR-1000) exists. §7.1's `WriteQueue` row is corrected — an `Item` cannot carry a write, because §7.2's metadata, the FR-805 body and the time zone are not on it. No requirement changed.
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -364,11 +365,19 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **FR-806 [MUST]** All writes shall be queued locally when offline and retried on reconnection, with the queue visible to the user.
 
-> **Implementation status, recorded so this reads as deferred rather than overlooked.** The write path was built without the queue: `events.insert` and `tasks.insert` go straight to Google. This requirement is **not met**, deliberately and temporarily, and the consequences are stated here rather than discovered.
+> **How this requirement is met, and where it is bounded.**
 >
-> Until the queue lands: a capture cannot be saved while offline, and a write that fails is surfaced to the user under NFR-303 and then lost — there is no retry and nothing survives app termination. **AC-10 does not pass**, and neither does the queue half of AC-21.
+> **The queue is a fallback, not the path.** A save still attempts the write directly and enqueues only where the failure is one that waiting can fix — which is what "queued locally **when offline**" says. Routing every save through the queue would have been simpler and would have cost FR-803 its immediate answer: "Already saved. Nothing was written again." is a synchronous reply today, and AC-07 depends on the user seeing it. A failure that waiting cannot fix — a 400, a 403 for a scope the user has not granted — is still reported under NFR-303 rather than queued, because an entry that can never drain would sit in the user's count for ever with nothing said about why.
 >
-> This is a sequencing decision, not a change of intent. The requirement stands as written, WorkManager is already approved for it in `docs/DEPENDENCIES.md`, and the `WriteQueue` contract is already defined in the data layer. Nothing in the write path assumes the absence of a queue, so introducing one moves where the insert is called from and changes nothing about what is sent.
+> **The payload is not in WorkManager.** WorkManager keeps its own SQLite database and it is not encrypted; its input data is also capped at roughly 10 KB, which a capture can exceed. A queue entry contains the user's own text, so entries live in an app-private store, one record per entry, encrypted under an Android Keystore key — the mechanism NFR-203's reading says to reuse rather than introduce a second scheme — and the worker carries no payload at all. This also keeps `androidx.room` deferred: nothing here needs a query language, only "read them all, oldest first".
+>
+> **FR-803 runs a second time, at drain.** The check the saver would have run could not run at all; there was no network, which is why the entry exists. Without repeating it per entry immediately before the insert, capturing the same message twice offline produces two items on reconnection — AC-07 failing inside precisely the situation AC-10 creates. The worker, not the saver, is therefore the last line for FR-803.
+>
+> **A queued entry is not drained inside its FR-807 undo window.** Undo of a queued save means dropping the entry; undo of a written one means deleting it from the account. If a drain could happen inside the ten seconds, an undo would sometimes be one and sometimes the other, and the losing side of that race is a delete the user did not watch happen. Skipping entries younger than the undo window removes the race instead of trying to win it, at a cost of at most ten seconds on a write that is already late.
+>
+> **Two limits, stated rather than discovered.** A Keystore key does not survive transfer to another device, so a queued capture is unreadable after a restore and is dropped as absent — which here means the capture is lost. NFR-302 names network failure, app termination and device restart, and the key survives all three, so this is inside the requirement; it is nonetheless the one way a queued capture can disappear. And an entry that has been given up on **stays in the queue and is shown as stuck, but has no manual retry or dismissal**, because the screen that would offer one is Settings (FR-1000) and that is not built. The recourse today is to capture the text again.
+>
+> **AC-21's webhook half remains unmet**, and not for want of the queue: FR-1004 webhooks do not exist. What the queue can already guarantee is the part FR-1004b names — a webhook cannot travel through it, structurally rather than by remembering to check, because every request a drain makes goes through the same `ALLOWED_HOSTS` guard that AC-17 rests on and would be refused for any non-Google host.
 
 **FR-807 [MUST]** Every save shall offer an undo for a period of not less than 10 seconds, removing all items created by that save.
 
@@ -514,7 +523,9 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 | `RecipeStep` | offset_value, offset_unit (calendar_days / working_days), direction, item_type, title_template, reminder_offsets[] |
 | `RoutingRule` | id, match_type (source_app / recipe / keyword), match_value, calendar_id, priority |
 | `Holiday` | date, name, source (bundled / user) |
-| `WriteQueue` | id, item_id, operation, attempts, last_error |
+| `WriteQueue` | id, pending_write (item + §7.2 metadata + FR-805 body + time zone), operation, attempts, last_error, given_up, queued_at |
+
+> **`item_id` was wrong and is corrected here.** An `Item` cannot carry a write. §7.2's metadata — the source hash, the item key, the capture time, the source application — is not on it, nor is the FR-805 description, nor the time zone that `start` resolves against. An entry built from an item id alone would write an item with no metadata, which §7.2 records as permanently unmanageable by FR-803, FR-804 and FR-807 afterwards. The queue therefore stores the whole write. `given_up` and `queued_at` are the two fields the implementation added: the first separates "not yet" from "not ever" so the user can be told which they are looking at, and the second is what keeps a drain out of FR-807's undo window.
 
 ## 7.2 Remote metadata
 

@@ -38,6 +38,9 @@
     <!-- NFR-303: an undo that failed says the item is still there, and where to go for it. -->
     <string name="capture_undo_failed">Could not remove this from Google. It is still there — remove it in Google Calendar or Google Tasks.</string>
     <string name="capture_undo_failed_partial">Removed %1$d of %2$d items. The rest are still in your Google account — remove them in Google Calendar or Google Tasks.</string>
+    <!-- FR-806: no network, so the capture is on disk and goes to Google when there is one.
+         Deliberately does not say "saved" — nothing is in the account yet. -->
+    <string name="capture_queued">No connection. Saved on this phone and will go to %1$s when you are back online.</string>
     <!-- NFR-303: a failure says what happened and what was not saved. -->
     <string name="capture_save_error">Could not save to Google. Check your connection and try again — nothing was saved.</string>
     <string name="capture_save_no_destination">Finish setting up Latch before saving.</string>
@@ -49,6 +52,18 @@
     <string name="capture_nothing_shared">Nothing was shared with Latch</string>
     <string name="capture_clipboard_empty">The clipboard is empty. Copy some text, then tap the tile.</string>
 
+
+    <!-- FR-806: the queue, visible to the user. -->
+    <plurals name="home_queue_waiting">
+        <item quantity="one">%1$d capture waiting to be saved to Google</item>
+        <item quantity="other">%1$d captures waiting to be saved to Google</item>
+    </plurals>
+    <!-- NFR-303: an entry that will not come right on its own says so rather than sitting
+         in the count looking like it is still on its way. -->
+    <plurals name="home_queue_given_up">
+        <item quantity="one">%1$d could not be saved. Open it again to retry.</item>
+        <item quantity="other">%1$d could not be saved. Open them again to retry.</item>
+    </plurals>
 
     <!-- ===== First-run setup, FR-101 to FR-110 ===== -->
 

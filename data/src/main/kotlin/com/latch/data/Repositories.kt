@@ -3,6 +3,7 @@ package com.latch.data
 import com.latch.core.model.Capture
 import com.latch.core.model.Item
 import com.latch.core.model.RoutingMode
+import java.time.Instant
 
 /**
  * FR-701 to FR-703: the Capture Inbox holds items that are undated, incomplete, or below
@@ -34,21 +35,89 @@ interface CaptureInbox {
  * for it (AC-21).
  */
 interface WriteQueue {
-    suspend fun enqueue(item: Item)
+    /** Returns the queue id, which is what FR-807 undo needs to drop the entry again. */
+    suspend fun enqueue(write: PendingWrite): String
+
     suspend fun pending(): List<QueuedWrite>
+
+    /** FR-806: the queue as the user is shown it. */
+    suspend fun status(): QueueStatus
+
     suspend fun markWritten(queueId: String, remoteId: String)
 
-    /** NFR-303: a failure surfaces a clear, actionable message. Silent failure is a defect. */
-    suspend fun markFailed(queueId: String, error: String)
+    /**
+     * NFR-303: a failure surfaces a clear, actionable message. Silent failure is a defect.
+     *
+     * [permanent] separates "not yet" from "not ever". A lost network is the first and must
+     * be retried until it comes back; a 403 for a scope the user has not granted is the
+     * second, and retrying it forever spends battery on a request that cannot succeed while
+     * leaving the entry on screen with nothing said about why it is stuck.
+     */
+    suspend fun markFailed(queueId: String, error: String, permanent: Boolean)
+
+    /**
+     * FR-807: an undo of a write that has not drained yet. Returns true where the entry was
+     * still there to remove — false means the worker got to it first and the item is in the
+     * account, so the caller has a remote delete to do instead.
+     */
+    suspend fun drop(queueId: String): Boolean
 }
+
+/**
+ * Everything needed to perform a write later, when there was no network to perform it now.
+ *
+ * **Not an `Item`.** This contract used to take one, and an `Item` cannot carry a write:
+ * §7.2's metadata — the source hash, the item key, the capture time, the source application
+ * — is not on it, and neither is the FR-805 description nor the time zone the start resolves
+ * against. A queue entry built from an `Item` alone would write an item with no metadata,
+ * which §7.2 records as permanently unmanageable by FR-803, FR-804 and FR-807.
+ *
+ * **[body] is the composed FR-805 block, never the raw capture text**, and that is what keeps
+ * NFR-206 structural rather than careful. The queue is persistent storage; `sourceBlock` has
+ * already dropped the source text for the notification layer by the time anything reaches
+ * here, so there is no raw capture on this type for a future call site to store by accident.
+ */
+data class PendingWrite(
+    val item: Item,
+    val metadata: RemoteMetadata,
+    val body: String,
+    /** An IANA zone id. `Item.start` is a `LocalDateTime` and needs one to resolve. */
+    val timeZone: String,
+)
 
 data class QueuedWrite(
     val id: String,
-    val item: Item,
+    val write: PendingWrite,
     val operation: WriteOperation,
     val attempts: Int,
     val lastError: String?,
+    /**
+     * Set where the failure will not come right on its own. The entry stays — dropping it
+     * would lose the capture, which is the one thing NFR-302 forbids — but it is no longer
+     * retried, and it is counted separately so the home screen can say that it is stuck
+     * rather than showing it as merely waiting.
+     */
+    val givenUp: Boolean = false,
+    /**
+     * When this entry was queued. FR-807's undo window is open for ten seconds after a save,
+     * and a queued write inside that window must not drain — see `WriteQueueWorker`, which
+     * skips young entries so that an undo cannot race a drain it would then have to chase
+     * into the account.
+     */
+    val queuedAt: Instant,
 )
+
+/**
+ * FR-806's "visible to the user", as two numbers rather than one.
+ *
+ * A capture waiting for the network and a capture that will never be written are not the
+ * same fact, and a single count would show them alike — which is the silent failure NFR-303
+ * forbids, dressed up as a queue that simply never drains.
+ */
+data class QueueStatus(val waiting: Int, val givenUp: Int) {
+    val total: Int get() = waiting + givenUp
+    val isEmpty: Boolean get() = total == 0
+}
 
 enum class WriteOperation { CREATE, UPDATE, DELETE }
 
