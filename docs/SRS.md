@@ -377,6 +377,8 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 >
 > **Two limits, stated rather than discovered.** A Keystore key does not survive transfer to another device, so a queued capture is unreadable after a restore and is dropped as absent — which here means the capture is lost. NFR-302 names network failure, app termination and device restart, and the key survives all three, so this is inside the requirement; it is nonetheless the one way a queued capture can disappear. And an entry that has been given up on **stays in the queue and is shown as stuck, but has no manual retry or dismissal**, because the screen that would offer one is Settings (FR-1000) and that is not built. The recourse today is to capture the text again.
 >
+> **AC-10 passes**, verified on a device on 27 Aug 2026: a capture made in aeroplane mode was held locally, shown as pending, and written to Google Calendar on reconnection. NFR-302's other two limbs — app termination and device restart while queued — are what WorkManager is here for and have not been watched.
+>
 > **AC-21's webhook half remains unmet**, and not for want of the queue: FR-1004 webhooks do not exist. What the queue can already guarantee is the part FR-1004b names — a webhook cannot travel through it, structurally rather than by remembering to check, because every request a drain makes goes through the same `ALLOWED_HOSTS` guard that AC-17 rests on and would be refused for any non-Google host.
 
 **FR-807 [MUST]** Every save shall offer an undo for a period of not less than 10 seconds, removing all items created by that save.

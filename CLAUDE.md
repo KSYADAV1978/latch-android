@@ -112,6 +112,7 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-801, FR-802, FR-904** — a capture becomes an event | 27 Aug 2026 | **Pass.** Destination chip showed the Latch calendar in its own colour, Save wrote the event, and it appeared in Google Calendar at the parsed time. §7.2 verified against the live API by logging what `events.insert` returned: all six mandatory keys stored under `extendedProperties.private`, `latch.recipe` correctly absent, `captured_at` correct in UTC, and `latch.source_app` populated for the first time from `getReferrer()`. |
 | **AC-07** — duplicate detection | 27 Aug 2026 | **Mechanism verified; cross-device half still owed.** Capturing identical text a second time returned "Already saved. Nothing was written again." and created nothing. That is Google's own index answering a `privateExtendedProperty=latch.source_hash=…` query, so the hash was written, is stored in `private`, and round-trips deterministically through the normalisation. But AC-07 reads "capture the same message **on phone and PC**", and the Windows client does not exist — this was phone-to-phone. The criterion is not met until two clients do it. |
 | **AC-11** — undo removes what a save wrote | 27 Aug 2026 | **Mechanism verified; the four-item half still owed.** Save swapped the button for a counting-down Undo, a tap outside the window did **not** dismiss it while the offer stood, the window closed itself when the offer lapsed, and Undo removed the event from Google Calendar. That covers every part of FR-807 no JVM test can see — the `setFinishOnTouchOutside` suppression above all, which is a real dialog-window behaviour and the piece most likely to have differed on a device. But AC-11 reads "save a **four-item** chain, then press undo", and a chain is one item on every path reachable today: `draftItems` drafts only `ParseResult.primary` until FR-511's per-date checkboxes exist, and FR-601 recipe expansion is not wired to this path either. The removal loop is written for a chain of any size and reports how far it got, and none of that has been run against more than one item. The criterion is not met until a real four-item chain is undone.
+| **AC-10** — offline capture reaches Google | 27 Aug 2026 | **Pass.** Aeroplane mode on, capture saved, screen said "No connection" rather than "Saved" — the distinction the Queued state exists for, since nothing was in the account yet. Home showed the pending count, and on reconnecting the item appeared in Google Calendar. That is the criterion as written, met in full: queued locally, written on reconnection, no loss. What it does **not** cover is the rest of NFR-302 — app termination and device restart while queued are the other two cases it names, and neither has been watched. Nor has the FR-803 re-check at drain, which is the defect that would stay invisible until a user queued the same message twice offline and got two items. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
@@ -134,12 +135,12 @@ of v1.11; the clause is the only part of that schema resting on parser behaviour
 where a second client is most likely to drift.
 
 Not yet run on a device: **`tasks.delete`** — FR-807 was watched on an event, so the Tasks
-half of undo has still only ever run against a fake; **AC-15**, **AC-09** (hidden calendar
-offered and actually ticked),
-**AC-17** (network monitor over a full cycle), **AC-10** — the queue has never been watched
-draining on a real device, and aeroplane mode is the only way to see it — and the
-consent-bridge cases: rotation and process death with the consent screen up, which are the
-only part of this app with no automated cover at all.
+half of undo has still only ever run against a fake; **the FR-803 re-check at drain**, and
+**NFR-302's other two limbs** — app termination and device restart while queued — none of which
+AC-10's run exercised; **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
+**AC-17** (network monitor over a full cycle), and the consent-bridge cases: rotation and
+process death with the consent screen up, which are the only part of this app with no
+automated cover at all.
 
 AC-15 is half-observed and deliberately not recorded as passing. A setup run on 26 Aug 2026
 took **43 seconds** from launch to the defaults record being written, measured off the
