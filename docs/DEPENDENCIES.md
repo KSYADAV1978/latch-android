@@ -26,6 +26,7 @@ baselines is not.
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
 | `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
 | `org.json:json` | 20260814 | test-only, 0 | test-only, 0 | **Approved** |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-test` | 1.9.0 | test-only, 0 | test-only, 0 | **Approved** |
 | `androidx.test:core` | 1.6.1 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
 | `androidx.test:runner` | 1.6.2 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
 | `androidx.test.ext:junit` | 1.2.1 | instrumented-only, 0 | instrumented-only, 0 | **Approved** |
@@ -162,6 +163,33 @@ with the "shall be used for Good, not Evil" clause that Apache, Debian and the F
 — up to version 20220924, at which point it was **released into the public domain**. This entry
 pins 20260814, long past that change, so the clause does not apply. Worth recording because
 anyone who remembers the old objection will otherwise raise it again.
+
+### `org.jetbrains.kotlinx:kotlinx-coroutines-test` — virtual time for FR-807 (test-only)
+
+`testImplementation` on `:app` only. **Measured impact: zero.** The release APK is
+1,064,828 bytes with this dependency declared and 1,064,828 bytes with the line removed and
+nothing else changed — byte for byte identical, measured against that build rather than
+asserted from the configuration name. (That 1,064,828 is the app *with* FR-807 undo in it;
+the same tree before the feature was 1,047,872, so the feature is +16,956 and the dependency
+is none of it.)
+
+It exists for one thing: FR-807 requires an undo offer of **not less than ten seconds**, and
+`CaptureSaver` closes that offer with a `delay`. `runTest` runs that delay on a virtual
+clock, so `CaptureSaverTest` waits the window out in microseconds and can assert what
+happens on both sides of it — that the offer lapses on its own, that lapsing deletes nothing,
+and that an undo arriving after it does nothing. Without virtual time the honest version of
+those three tests takes ten seconds each and the dishonest version shortens the window for
+tests, which would mean the constant the requirement names is not the one under test.
+
+It is the same artifact family as `kotlinx-coroutines-core`, already approved and already on
+the app classpath, published by JetBrains at the version this project pins — so this is a
+test-scoped sibling of an existing dependency rather than a new supplier.
+
+**What it should not become.** This buys a clock, not a test framework. `runTest` also brings
+`TestDispatcher` injection and `Turbine`-shaped flow assertions are a short step away; both
+are a new NFR-501 decision, not an extension of this one. The saver's decisions are pure
+functions — `undoOffer`, `saveIsOffered`, `saveBlocker` — precisely so that most of what is
+worth asserting needs no coroutine machinery at all.
 
 ### `androidx.test:core`, `androidx.test:runner`, `androidx.test.ext:junit` — the launch canary
 

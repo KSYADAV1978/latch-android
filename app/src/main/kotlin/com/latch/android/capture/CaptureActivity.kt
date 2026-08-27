@@ -4,8 +4,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.latch.android.LatchApplication
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
@@ -41,6 +46,8 @@ class CaptureActivity : ComponentActivity() {
                 val destinations by app.configuredAccounts.collectAsState()
                 val saveState by app.captureSaver.state.collectAsState()
 
+                HoldWindowOpenForUndo(saveState)
+
                 CaptureScreen(
                     captured = captured,
                     result = result,
@@ -63,8 +70,41 @@ class CaptureActivity : ComponentActivity() {
                             app.captureSaver.save(captured, result, context)
                         }
                     },
+                    onUndo = { app.captureSaver.undo() },
                     fromEmptyClipboard = intent.getBooleanExtra(EXTRA_READ_CLIPBOARD, false),
                 )
+            }
+        }
+    }
+
+    /**
+     * What makes FR-807's ten seconds real, given the window this screen lives in.
+     *
+     * The capture window is a floating dialog with `windowCloseOnTouchOutside` set, so a
+     * stray tap anywhere outside it finishes the activity. An undo offer that lived only on
+     * this screen could therefore be gone in well under a second, through no deliberate act
+     * of the user — "shall offer an undo for a period of not less than 10 seconds" would be
+     * met on paper and not in the hand. So the dismissal is suppressed while the offer
+     * stands. The Close button and the back gesture still work: those are the user declining
+     * the offer, which is a different thing from brushing it away.
+     *
+     * When the offer lapses untaken the save stands and this window has nothing further to
+     * say, so it closes itself. Only on a lapse: an offer the user *took* moves the state to
+     * `Undoing`, and the outcome of that has to stay on screen (NFR-303).
+     *
+     * The offer itself lives in `CaptureSaver`, which is held by the application — so it
+     * also survives the rotation or the recreate that destroys this activity.
+     */
+    @Composable
+    private fun HoldWindowOpenForUndo(saveState: SaveState) {
+        val offerIsOpen = (saveState as? SaveState.Saved)?.undo != null
+        var offerWasOpen by remember { mutableStateOf(false) }
+
+        LaunchedEffect(saveState) {
+            setFinishOnTouchOutside(!offerIsOpen)
+            when {
+                offerIsOpen -> offerWasOpen = true
+                offerWasOpen && saveState is SaveState.Saved -> finish()
             }
         }
     }

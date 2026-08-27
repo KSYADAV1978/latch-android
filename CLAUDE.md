@@ -132,7 +132,9 @@ than one rule's regex, and it improves FR-504's highlight too. §7.2 specifies t
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-Not yet run on a device: **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
+Not yet run on a device: **FR-807 undo** — the deletes, the countdown, and the suppressed
+touch-outside dismissal are all covered by JVM tests and none of them has been watched on a
+phone; **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
 **AC-17** (network monitor over a full cycle), and the consent-bridge cases — rotation and
 process death with the consent screen up, which are the only part of this app with no
 automated cover at all.
@@ -191,13 +193,25 @@ FR-805a is structural rather than careful: call sites never compose an item's de
 themselves, `sourceBlock` does, and it drops the source text for `CaptureLayer.NOTIFICATION`.
 AC-22 is a unit test over it.
 
+**A save can be undone.** FR-807: ten seconds, `events.delete` and `tasks.delete`, and one
+thing worth knowing before touching it — **undo deletes the ids the save recorded, not the
+result of a `latch.chain_id` query**. The chain id is the group identity and is on every item,
+but the Tasks API has no content filter, so finding a task chain by it would be the same
+give-up-able scan as FR-803's, and undo would be exact for events and best-effort for tasks.
+Three limits follow, all in the SRS: the offer dies with the process, a new capture ends it,
+and undo from another device would be a different feature, events only. The ten seconds are
+protected from the capture window itself — that window closes on a tap outside, so
+`CaptureActivity` suppresses its own `setFinishOnTouchOutside` while the offer stands, and
+closes the window when it lapses. Every decision about the offer is a pure function
+(`undoOffer`, `saveIsOffered`) for the same reason `saveBlocker` is.
+
 Not built: FR-806's queue — deliberately, and recorded as such in the SRS. Writes go straight
 to Google, so an offline capture cannot be saved and a failed write is surfaced under NFR-303
-and then lost. **AC-10 does not pass until that lands.** Also not built, and now user-visible
-because saving is real: **FR-807 undo** — a save cannot be reversed from the app, and the
-recourse is Google Calendar; FR-506 row 3's date picker, so a capture with a time but no date
+and then lost. **AC-10 does not pass until that lands.** Also not built, and user-visible now
+that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
 cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
-is saved; FR-507's type override; and FR-510's past-date follow-up. Each is recorded against
+is saved — which is also why an undo chain is one item on every path reachable today;
+FR-507's type override; and FR-510's past-date follow-up. Each is recorded against
 its requirement in the SRS. Further out:
 the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
 notification listener (FR-208). FR-908 is not built either — the calendar list is not

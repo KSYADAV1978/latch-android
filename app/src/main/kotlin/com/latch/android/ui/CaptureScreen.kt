@@ -14,6 +14,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -26,23 +28,32 @@ import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.saveBlocker
+import com.latch.android.capture.saveIsOffered
+import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
 import com.latch.core.model.ItemType
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlinx.coroutines.delay
 
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
 private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+
+/**
+ * How often FR-807's countdown re-reads the clock. Under a second so the number never
+ * appears to skip one; the offer itself is timed by the saver, not by this.
+ */
+private const val UNDO_TICK_MS = 250L
 
 /**
  * The confirmation UI: what was captured, what the parser made of it, which way FR-506
  * classified it, where it will go (FR-904) and the save itself (FR-801).
  *
  * Still to come, and deliberately absent rather than faked: the Event/Task override
- * (FR-507), per-date checkboxes for multiple dates (FR-511), FR-506 row 3's date picker and
- * FR-807's undo.
+ * (FR-507), per-date checkboxes for multiple dates (FR-511) and FR-506 row 3's date picker.
  */
 @Composable
 fun CaptureScreen(
@@ -55,10 +66,25 @@ fun CaptureScreen(
     /** FR-512, interim: shown rather than blocking the save until the Inbox exists. */
     lowConfidence: Boolean = false,
     onSave: () -> Unit = {},
+    /** FR-807: take back everything this save wrote. */
+    onUndo: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
 ) {
     val blocker = if (captured == null) SaveBlocker.NEEDS_A_DATE else saveBlocker(destination, result, saveState)
+
+    // FR-807's countdown. The saver decides when the offer actually ends — this only reads
+    // the clock often enough for the number beside Undo to look like it is running out, and
+    // stops entirely when there is no window, so an idle screen costs nothing.
+    val hasWindow = (saveState as? SaveState.Saved)?.undo != null
+    val now by produceState(Instant.now(), hasWindow) {
+        while (hasWindow) {
+            value = Instant.now()
+            delay(UNDO_TICK_MS)
+        }
+    }
+    val undo = undoOffer(saveState, now)
+
     Surface(
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
@@ -109,7 +135,7 @@ fun CaptureScreen(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
                 }
-                if (saveState !is SaveState.Saved && saveState !is SaveState.AlreadySaved) {
+                if (saveIsOffered(saveState)) {
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = onSave, enabled = blocker == null) {
                         Text(
@@ -118,6 +144,14 @@ fun CaptureScreen(
                                 else R.string.capture_save
                             )
                         )
+                    }
+                }
+                // FR-807. Takes the Save button's place rather than sitting beside it: the
+                // save has happened, and the only action left on this capture is undoing it.
+                if (undo != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onUndo) {
+                        Text(stringResource(R.string.capture_undo, undo.secondsRemaining(now)))
                     }
                 }
             }
@@ -211,6 +245,20 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
                     SaveFailure.WRITE_FAILED -> R.string.capture_save_error
                 }
             )
+        )
+
+        SaveState.Undoing -> Note(stringResource(R.string.capture_undoing))
+
+        SaveState.Undone -> Note(stringResource(R.string.capture_undone))
+
+        // A chain that went part way is a different sentence from one that did not move at
+        // all: the first tells the user how many items they still have to go and remove.
+        is SaveState.UndoFailed -> Note(
+            if (state.removed == 0) {
+                stringResource(R.string.capture_undo_failed)
+            } else {
+                stringResource(R.string.capture_undo_failed_partial, state.removed, state.total)
+            }
         )
     }
 }

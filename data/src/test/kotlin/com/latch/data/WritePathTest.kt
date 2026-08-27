@@ -255,4 +255,35 @@ class WritePathTest {
         assertFalse(DuplicateSearch(existingId = null, scanCapped = true).found)
         assertTrue(DuplicateSearch(existingId = "task_42").found)
     }
+
+    // ----- FR-807, the delete half -----
+
+    @Test
+    fun `a delete addresses the item by its container and its own id`() {
+        assertEquals(
+            "https://www.googleapis.com/calendar/v3/calendars/you%40example.com/events/ev_42",
+            eventDeleteUrl("you@example.com", "ev_42"),
+        )
+        assertEquals(
+            "https://tasks.googleapis.com/tasks/v1/lists/list_1/tasks/task_42",
+            taskDeleteUrl("list_1", "task_42"),
+        )
+        // Both ids reach the URL as path segments, so neither may carry a raw separator out
+        // of the account and into a path this code did not intend.
+        assertTrue(eventDeleteUrl("a/b", "c d").endsWith("/calendars/a%2Fb/events/c%20d"))
+    }
+
+    @Test
+    fun `an item that is already gone is a successful undo`() {
+        // 404 for an id the API no longer knows, 410 for one deleted since. FR-807 asked for
+        // the item not to be in the account, and it is not — reporting a failure would tell
+        // the user it survived, and send them looking for something that is not there.
+        assertTrue(alreadyGone(GoogleRejected(404, "notFound", "Not Found")))
+        assertTrue(alreadyGone(GoogleRejected(410, "deleted", "Gone")))
+
+        // Everything else did leave the item in place and has to reach the user.
+        assertFalse(alreadyGone(GoogleRejected(403, "forbidden", "Forbidden")))
+        assertFalse(alreadyGone(GoogleRejected(401, null, "Unauthorized")))
+        assertFalse(alreadyGone(GoogleRejected(500, null, "Internal Error")))
+    }
 }

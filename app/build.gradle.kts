@@ -69,6 +69,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.kotlin.test.junit5)
+    // Virtual time for CaptureSaverTest, so FR-807's undo window is exercised in
+    // milliseconds. testImplementation only; see docs/DEPENDENCIES.md.
+    testImplementation(libs.kotlinx.coroutines.test)
 
     // The launch canary, and deliberately nothing more — no Espresso, no Compose UI test.
     // See docs/DEPENDENCIES.md. These build the androidTest APK and never the app's.

@@ -112,6 +112,13 @@ internal class GoogleHttp(private val tokens: TokenProvider) {
         authorised(url, "POST", body, methodOverride = "PATCH")
 
     /**
+     * FR-807's undo. Unlike `PATCH`, `DELETE` needs no override header — every
+     * [HttpURLConnection] implementation accepts it — and both APIs answer with a 204 and an
+     * empty body, which [execute] already reads as a success with nothing in it.
+     */
+    suspend fun delete(url: String): JSONObject = authorised(url, "DELETE", body = null)
+
+    /**
      * One retry, on 401 only. A 401 means the token died; anything else means retrying with
      * a fresh token changes nothing — 403 `ACCESS_TOKEN_SCOPE_INSUFFICIENT` would loop
      * forever, and 403 `rateLimitExceeded` needs backoff, not immediacy. If a revoked grant

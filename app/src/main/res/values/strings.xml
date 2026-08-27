@@ -31,6 +31,13 @@
     <string name="capture_already_saved">Already saved. Nothing was written again.</string>
     <!-- The duplicate check gave up before reading every task; see the reading against FR-803. -->
     <string name="capture_saved_unchecked">Saved. Latch could not check every task for a duplicate, so this may be a second copy.</string>
+    <!-- FR-807: the undo offer, carrying the seconds it has left so it visibly runs out. -->
+    <string name="capture_undo">Undo (%1$d)</string>
+    <string name="capture_undoing">Removing…</string>
+    <string name="capture_undone">Removed. Nothing was left in your Google account.</string>
+    <!-- NFR-303: an undo that failed says the item is still there, and where to go for it. -->
+    <string name="capture_undo_failed">Could not remove this from Google. It is still there — remove it in Google Calendar or Google Tasks.</string>
+    <string name="capture_undo_failed_partial">Removed %1$d of %2$d items. The rest are still in your Google account — remove them in Google Calendar or Google Tasks.</string>
     <!-- NFR-303: a failure says what happened and what was not saved. -->
     <string name="capture_save_error">Could not save to Google. Check your connection and try again — nothing was saved.</string>
     <string name="capture_save_no_destination">Finish setting up Latch before saving.</string>

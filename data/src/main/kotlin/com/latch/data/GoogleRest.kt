@@ -1,5 +1,6 @@
 package com.latch.data
 
+import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.time.LocalDate
@@ -104,6 +105,10 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
         // not that we stopped looking.
         return DuplicateSearch(firstEventId(page))
     }
+
+    override suspend fun deleteEvent(calendarId: String, eventId: String) {
+        http.deleteWhateverIsThere(eventDeleteUrl(calendarId, eventId))
+    }
 }
 
 /** FR-106 — the task list half. */
@@ -171,6 +176,24 @@ internal class GoogleTasksApi(private val http: GoogleHttp) : TasksApi {
         // A token still in hand means there were more tasks than we were willing to read.
         // Reported rather than logged, so a caller cannot mistake it for "no duplicate".
         return DuplicateSearch(existingId = null, scanCapped = pageToken != null)
+    }
+
+    override suspend fun deleteTask(taskListId: String, taskId: String) {
+        http.deleteWhateverIsThere(taskDeleteUrl(taskListId, taskId))
+    }
+}
+
+/**
+ * A delete whose only obligation is that the item is not there afterwards (FR-807).
+ *
+ * Shared by both transports because the reasoning is the same on each, and it is the one
+ * place the [alreadyGone] rule is applied.
+ */
+private suspend fun GoogleHttp.deleteWhateverIsThere(url: String) {
+    try {
+        delete(url)
+    } catch (rejected: GoogleRejected) {
+        if (!alreadyGone(rejected)) throw rejected
     }
 }
 
@@ -351,6 +374,24 @@ internal fun taskDedupUrl(taskListId: String, due: LocalDate?, pageToken: String
         }
         pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
     }
+
+internal fun eventDeleteUrl(calendarId: String, eventId: String): String =
+    "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events/${encodePath(eventId)}"
+
+internal fun taskDeleteUrl(taskListId: String, taskId: String): String =
+    "$TASKS_V1/lists/${encodePath(taskListId)}/tasks/${encodePath(taskId)}"
+
+/**
+ * Whether a rejected delete has nonetheless left the account in the state FR-807 asked for.
+ *
+ * 404 is an id the API no longer knows; 410 is one deleted since. Both mean the item is not
+ * there, which is the whole of what undo promised. Anything else — a lost network, an
+ * expired grant, a 403 — leaves the item in place and must reach the user, because the
+ * recourse is to go and remove it in Google by hand.
+ */
+internal fun alreadyGone(rejected: GoogleRejected): Boolean =
+    rejected.status == HttpURLConnection.HTTP_NOT_FOUND ||
+        rejected.status == HttpURLConnection.HTTP_GONE
 
 internal fun firstEventId(page: JSONObject): String? =
     page.optJSONArray("items")

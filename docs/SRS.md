@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.11 (draft for developer handover)"
+author: "Version 1.12 (draft for developer handover)"
 date: "27 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "27 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.11 — draft for developer handover |
+| Version | 1.12 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -32,6 +32,7 @@ date: "27 August 2026"
 | 1.9 | 26 Aug 2026 | Recorded how FR-803 is met and where it is bounded, as the write path was built. Events are matched server-side and are exact; tasks have no content filter in the Google API at all, so the check is a scan bounded to D±1 day — a day wider than correctness needs, to absorb time-zone boundary differences between two devices, which is where AC-07 would otherwise fail silently. An undated task falls back to a ten-page capped scan that reports when it gives up rather than returning a false negative, with the residual duplicate risk accepted for v1.0 and the cure named. Also records that FR-806's queue is deliberately deferred, that a failed or offline write is surfaced under NFR-303 and lost, and that AC-10 does not pass until it lands. No requirement changed. |
 | 1.10 | 26 Aug 2026 | Recorded two readings as the Save button was built. FR-512 gains an **interim** reading, in force only until the FR-700 Inbox exists: with nowhere to route to, a user-confirmed item is saved whatever its confidence, with the confidence surfaced rather than the save blocked — refusing would lose the capture entirely and would make an undated item unsaveable, which design principle 1 contradicts. FR-512 is superseded the moment the Inbox lands. FR-807 records that a save cannot yet be undone from the app, that `latch.chain_id` is already written so undo has a group to act on, and alongside it that FR-506 row 3, FR-507, FR-510 and FR-511 are unmet because the UI each needs is not built. No requirement changed. |
 | 1.11 | 27 Aug 2026 | Specified §7.2's `latch.item_key` properly, after the first real writes showed it coming back byte-identical to `latch.source_hash` and therefore inert. It is now defined as the title with every date and time expression removed, with the derivation given step by step, including that a corroborating weekday is part of the date phrase and must be removed with it — omitting it leaves the day name in the identity, which moves on exactly the reschedule FR-804 exists to catch. Records that this clause is the one part of §7.2 resting on parser behaviour rather than arithmetic over text, that it is where three clients are most likely to drift, that the existing conformance vectors cannot pin it, and that FR-804 is therefore reliable within a client and unproven across them until a second one exists. No requirement changed. |
+| 1.12 | 27 Aug 2026 | Recorded how FR-807 undo is met and where it is bounded, as it was built. Undo removes the ids the save recorded rather than re-querying `latch.chain_id`: the chain id is the group identity and is on every item, but the Tasks API has no content filter — the same limitation that makes FR-803 a bounded scan — so finding a task chain by it would be a scan that is allowed to give up, and undo would be exact for events and best-effort for tasks. Records the three consequences: the offer does not survive process death, a new capture ends it, and a cross-device undo would be a different feature, events only. Records the reading under which the capture window suppresses its own touch-outside dismissal while the offer stands, without which "not less than 10 seconds" is met on paper and not in the hand. No requirement changed. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -371,11 +372,19 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **FR-807 [MUST]** Every save shall offer an undo for a period of not less than 10 seconds, removing all items created by that save.
 
-> **Implementation status, recorded so this reads as deferred rather than overlooked.** Saving from the confirmation screen now works and **cannot be undone from the app**. There is no `events.delete` or `tasks.delete`, and no undo window. A user who saves something they did not want must remove it in Google Calendar or Google Tasks.
+> **How this requirement is met, and where it is bounded.**
 >
-> This is the most user-visible gap the write path opens, and it is the first thing the FR-800 series should close. The groundwork is in place: `latch.chain_id` is written on every item and means the items produced by one save (§2.4), so undo has a group to act on and does not depend on anything held locally.
+> A save now offers an undo for ten seconds, and taking it deletes every item that save created — `events.delete` for events, `tasks.delete` for tasks. Both are treated as idempotent: an item already gone (404, or 410 for one deleted since) is a **success**, because the requirement asks for it not to be in the account and it is not. Reporting a failure there would tell the user their item survived an undo when it did not, which is the more damaging of the two possible lies. A delete that genuinely fails is reported under NFR-303, along with how many of the chain were removed, because the recourse is to go and remove the rest in Google by hand.
 >
-> Two other requirements are unmet in the same way and for the same reason — the UI they need is not built. **FR-506 row 3**: a capture with a time but no date cannot be saved at all, because completing it needs the date picker that row describes. **FR-511**: only the first date of a multi-date capture is saved; the others are counted on screen and wait for the per-date checkboxes. **FR-507**'s Event/Task override is likewise absent, so the parser's classification stands. **FR-510**'s past-date follow-up is not offered; a past date is saved as read.
+> **Undo deletes the ids the save recorded, not the result of a `latch.chain_id` query.** The chain id is what makes these items a group (§2.4) and is written on every one of them, and for events a `privateExtendedProperty` query on it would work. For tasks it cannot: the Tasks API has no content filter of any kind — the limitation recorded against FR-803 — so a task chain could only be recovered by a page scan, and an undated one by a scan that is allowed to give up. Undo would then be exact for events and best-effort for tasks, which is the wrong shape for a destructive operation. Inside the window, in the process that did the writing, what was created is known exactly and the delete is exact on both transports.
+>
+> Three consequences follow, and they are limits of this design rather than defects in it. **The offer does not survive the process**: it is held in memory by `CaptureSaver`, so a process death inside the ten seconds loses it and the save stands. Persisting it needs local storage this app does not yet have — the same storage FR-701 will bring. **A new capture ends the offer**, because the countdown belonged to a screen that no longer exists. And **undo from another device is a different feature**, which would have to go by chain id and would therefore be available for events only.
+>
+> **The ten seconds are protected from the capture window itself.** The confirmation screen is a floating dialog with `windowCloseOnTouchOutside` set, so a stray tap outside it finishes the activity; an offer that lived only on that screen could be gone in well under a second through no deliberate act of the user, and the requirement would be met on paper and not in the hand. The dismissal is therefore suppressed while the offer stands and restored when it lapses, at which point the window closes itself. The Close button and the back gesture still work throughout — those are the user declining the offer, which is a different thing from brushing it away.
+>
+> **Re-capturing after an undo works**, and needs no special handling: FR-803's event query excludes deleted events by the API's own default, and the task scan leaves `showDeleted` at false. An item the user undid does not prevent them capturing it again.
+>
+> Four other requirements remain unmet, because the UI each needs is not built. **FR-506 row 3**: a capture with a time but no date cannot be saved at all, because completing it needs the date picker that row describes. **FR-511**: only the first date of a multi-date capture is saved; the others are counted on screen and wait for the per-date checkboxes. That is also why a chain is one item on every path reachable today — the removal loop is written for a chain of any size and reports how far it got, but the multi-item case only becomes reachable with FR-511. **FR-507**'s Event/Task override is likewise absent, so the parser's classification stands. **FR-510**'s past-date follow-up is not offered; a past date is saved as read.
 
 ## 5.9 Calendar selection and routing (FR-900 series)
 

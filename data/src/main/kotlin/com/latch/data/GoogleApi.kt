@@ -177,6 +177,16 @@ interface CalendarApi {
      * the user undid under FR-807 must not block them capturing it again.
      */
     suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch
+
+    /**
+     * `events.delete` (FR-807).
+     *
+     * **Idempotent by contract**: an event that is already gone is a success, not a failure.
+     * The caller asked for it not to be in the account and it is not. Reporting a failure
+     * there would tell the user their item survived an undo when it did not, which is the
+     * more damaging of the two possible lies.
+     */
+    suspend fun deleteEvent(calendarId: String, eventId: String)
 }
 
 interface TasksApi {
@@ -202,4 +212,7 @@ interface TasksApi {
         sourceHash: String,
         due: LocalDate?,
     ): DuplicateSearch
+
+    /** `tasks.delete` (FR-807), idempotent in the same way as [CalendarApi.deleteEvent]. */
+    suspend fun deleteTask(taskListId: String, taskId: String)
 }
