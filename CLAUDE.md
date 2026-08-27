@@ -109,11 +109,23 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 |---|---|---|
 | **AC-16** — abandon setup at step 2 | 26 Aug 2026 | **Pass.** Signed in, reached step 2, backed out. No Latch calendar created in the Google account. FR-105 holds against the real `calendars.insert`, not just the stub. |
 | **FR-104** — the Latch calendar's one colour | 26 Aug 2026 | **Pass.** Renders red in Google Calendar, distinct from the user's own calendars. Confirms `colorId = "3"` is right for the **calendar** palette that `calendarList.patch` reads — the previous `"11"` was an id from the **event** palette, which is separately numbered, and was inert only while the stub's patch did nothing. |
+| **FR-801, FR-802, FR-904** — a capture becomes an event | 27 Aug 2026 | **Pass.** Destination chip showed the Latch calendar in its own colour, Save wrote the event, and it appeared in Google Calendar at the parsed time. §7.2 verified against the live API by logging what `events.insert` returned: all six mandatory keys stored under `extendedProperties.private`, `latch.recipe` correctly absent, `captured_at` correct in UTC, and `latch.source_app` populated for the first time from `getReferrer()`. |
+| **AC-07** — duplicate detection | 27 Aug 2026 | **Mechanism verified; cross-device half still owed.** Capturing identical text a second time returned "Already saved. Nothing was written again." and created nothing. That is Google's own index answering a `privateExtendedProperty=latch.source_hash=…` query, so the hash was written, is stored in `private`, and round-trips deterministically through the normalisation. But AC-07 reads "capture the same message **on phone and PC**", and the Windows client does not exist — this was phone-to-phone. The criterion is not met until two clients do it. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
 encrypts against a real Keystore, a completed setup survives a cold start, and the stored
 preference key is a hex digest rather than an email address.
+
+**`latch.item_key` is not yet doing its job, found while verifying the above.** It came back
+byte-identical to `latch.source_hash`, because `TitleExtractor` implements FR-509 — "use the
+selection verbatim if under 60 characters" — and strips salutations and sign-offs but never
+dates. So for a short capture the title *is* the whole text, both hashes cover the same
+string, and a reschedule changes both. That is precisely the case `item_key` was added to
+FR-804 to catch, so FR-804 and AC-08 remain unsatisfiable in the common case. The parser
+already has what a fix needs: `Field.span` carries the `IntRange` the date matched, so the
+date can be cut from the title before hashing. Changing it alters what is written, so it is a
+§7.2 amendment rather than a quiet fix.
 
 Not yet run on a device: **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
 **AC-17** (network monitor over a full cycle), and the consent-bridge cases — rotation and
