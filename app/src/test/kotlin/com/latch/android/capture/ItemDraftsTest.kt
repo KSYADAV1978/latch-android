@@ -4,7 +4,10 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.data.itemKeyOf
+import com.latch.data.sourceHashOf
 import com.latch.parser.Classification
+import com.latch.parser.DateParser
 import com.latch.parser.Confidence
 import com.latch.parser.DatedCandidate
 import com.latch.parser.Field
@@ -16,6 +19,8 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -342,5 +347,116 @@ class SaveBlockerTest {
         val silent = setOf(SaveBlocker.READING_DESTINATION, SaveBlocker.NOT_IDLE)
         val explained = SaveBlocker.entries.filterNot { it in silent }
         assertEquals(setOf(SaveBlocker.NO_DESTINATION, SaveBlocker.NEEDS_A_DATE), explained.toSet())
+    }
+}
+
+/**
+ * FR-804's identity. Driven through the real `DateParser`, because the whole mechanism rests
+ * on the spans it reports — a hand-built `Field` with an invented span would test nothing.
+ */
+class ItemKeyTitleTest {
+
+    private val context = ParseContext(now = LocalDateTime.parse("2026-08-27T09:00:00"))
+
+    private fun capture(text: String, subject: String? = null) =
+        CapturedText(text = text, layer = CaptureLayer.SHARE_SHEET, preferredTitle = subject)
+
+    private fun keyTitle(text: String, subject: String? = null): String {
+        val captured = capture(text, subject)
+        return itemKeyTitle(captured, DateParser.parse(text, context))
+    }
+
+    @Test
+    fun `the date and time are gone from the identity`() {
+        val title = keyTitle("Team sync Monday 31 August at 9:30pm")
+
+        assertFalse(title.contains("31"), title)
+        assertFalse(title.contains("August", ignoreCase = true), title)
+        assertFalse(title.contains("9:30"), title)
+        assertTrue(title.contains("Team sync"), title)
+    }
+
+    @Test
+    fun `a reschedule keeps the same identity`() {
+        // The whole reason latch.item_key exists. These two are the same meeting moved, so
+        // FR-804 must see one identity and two different source hashes.
+        val original = keyTitle("Team sync 31 August at 9:30pm")
+        val moved = keyTitle("Team sync 1 September at 11:00am")
+
+        assertEquals(original, moved)
+        assertEquals(itemKeyOf(original), itemKeyOf(moved))
+        assertNotEquals(
+            sourceHashOf("Team sync 31 August at 9:30pm"),
+            sourceHashOf("Team sync 1 September at 11:00am"),
+        )
+    }
+
+    @Test
+    fun `a named weekday no longer breaks the identity`() {
+        // This was the gap the first attempt left. The parser already recognised the weekday
+        // in "Friday 12 September" as the writer corroborating their own date rather than a
+        // second one, and then discarded it — span and all. It now absorbs that span into the
+        // date it corroborates, so the whole phrase is cut out of the identity.
+        assertEquals(
+            keyTitle("Team sync Monday 31 August at 9:30pm"),
+            keyTitle("Team sync Tuesday 1 September at 11:00am"),
+        )
+    }
+
+    @Test
+    fun `the weekday span is absorbed whatever the date format`() {
+        // Absorbing centrally rather than in one rule's regex is what makes this hold for
+        // every format — written, numeric, and any added later.
+        val written = keyTitle("Standup Monday 31 August at 9am")
+        val numeric = keyTitle("Standup Monday 31/08 at 9am")
+
+        listOf(written, numeric).forEach { title ->
+            assertFalse(title.contains("Monday", ignoreCase = true), title)
+            assertTrue(title.contains("Standup"), title)
+        }
+    }
+
+    @Test
+    fun `a weekday far from the date is still its own date`() {
+        // The corroboration window is what separates "Friday 12 September" from "Friday, and
+        // again on 12 September". Absorbing must not swallow a genuinely separate mention.
+        val result = DateParser.parse("Gym Friday, and the review on 12 September", context)
+        assertTrue(result.candidates.size > 1, "expected two distinct dates")
+    }
+
+    @Test
+    fun `item key and source hash are no longer the same value`() {
+        // The defect this fixes: for a capture under FR-509's 60-character limit the title
+        // was the whole text, so both hashes covered the same string and moved together.
+        val text = "Team sync Monday 31 August at 9:30pm"
+        assertNotEquals(sourceHashOf(text), itemKeyOf(keyTitle(text)))
+    }
+
+    @Test
+    fun `a genuinely different meeting keeps a different identity`() {
+        assertNotEquals(
+            itemKeyOf(keyTitle("Team sync Monday 31 August at 9:30pm")),
+            itemKeyOf(keyTitle("Dentist Monday 31 August at 9:30pm")),
+        )
+    }
+
+    @Test
+    fun `a subject line is the identity as it stands`() {
+        // FR-206. The spans index into the body, so they do not apply to a subject.
+        assertEquals("Sprint review", keyTitle("Moved to 31 August at 9:30pm", subject = "Sprint review"))
+    }
+
+    @Test
+    fun `a capture with no date at all still yields an identity`() {
+        val title = keyTitle("Buy cardamom and rice")
+        assertEquals("Buy cardamom and rice", title)
+    }
+
+    @Test
+    fun `blanking does not run two words together`() {
+        // Deleting the span rather than blanking it would give "syncat", which hashes to
+        // something no other client would reproduce from the same message.
+        val title = keyTitle("Team sync 31 August at 9:30pm")
+        assertFalse(title.contains("syncat"), title)
     }
 }

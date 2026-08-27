@@ -12,6 +12,7 @@ import com.latch.parser.rule.TimeRule
 import com.latch.parser.rule.WrittenDateRule
 import com.latch.parser.rule.gapTo
 import com.latch.parser.rule.overlaps
+import com.latch.parser.rule.spanning
 
 /**
  * The entry point for FR-500. Pure: same text plus same [ParseContext] gives the same
@@ -71,10 +72,25 @@ object DateParser {
         }
 
         val explicit = accepted.filter { it.source == DateSource.EXPLICIT }
+        val corroborating = accepted.filter { candidate ->
+            candidate.source == DateSource.WEEKDAY &&
+                explicit.any { it.span.gapTo(candidate.span) <= CORROBORATION_WINDOW }
+        }
+
         return accepted
-            .filterNot { candidate ->
-                candidate.source == DateSource.WEEKDAY &&
-                    explicit.any { it.span.gapTo(candidate.span) <= CORROBORATION_WINDOW }
+            .filterNot { it in corroborating }
+            // The corroborating weekday is dropped as a date and its span absorbed into the
+            // date it corroborates: "Friday 12 September" is one phrase, and the span should
+            // describe the phrase the writer actually wrote. That matters twice over — FR-504
+            // shows the span back to the user, and §7.2's latch.item_key is the title with
+            // the date cut out of it, so a span that stops short of the weekday leaves the day
+            // name behind and the identity moves when the meeting does, which is the one thing
+            // FR-804 needs it not to do. Doing it here rather than in each rule's regex covers
+            // every date format, including any added later.
+            .map { date ->
+                if (date.source != DateSource.EXPLICIT) return@map date
+                val absorbed = corroborating.filter { date.span.gapTo(it.span) <= CORROBORATION_WINDOW }
+                if (absorbed.isEmpty()) date else date.copy(span = date.span.spanning(absorbed.map { it.span }))
             }
             // FR-511 counts distinct dates, not distinct mentions of one.
             .groupBy { it.date }

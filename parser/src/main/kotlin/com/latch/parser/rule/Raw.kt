@@ -41,6 +41,17 @@ internal interface DateRule {
 internal infix fun IntRange.overlaps(other: IntRange): Boolean =
     first <= other.last && other.first <= last
 
+/** The smallest range covering this one and every one of [others]. */
+internal fun IntRange.spanning(others: List<IntRange>): IntRange {
+    var from = first
+    var to = last
+    others.forEach { other ->
+        if (other.first < from) from = other.first
+        if (other.last > to) to = other.last
+    }
+    return from..to
+}
+
 /** Distance between two spans, 0 if they touch or overlap. */
 internal fun IntRange.gapTo(other: IntRange): Int = when {
     this overlaps other -> 0

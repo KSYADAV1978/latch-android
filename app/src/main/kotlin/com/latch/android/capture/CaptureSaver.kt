@@ -168,7 +168,10 @@ class CaptureSaver(
             // The whole capture, so every item of one save shares it and FR-803 asks
             // "was this message saved", not "was this item created".
             sourceHash = sourceHashOf(captured.text),
-            itemKey = itemKeyOf(items.first().title),
+            // Not the title as displayed: FR-509 makes that the whole text for a short
+            // capture, which would make item_key a copy of source_hash and leave FR-804
+            // with nothing that survives a date change. See itemKeyTitle.
+            itemKey = itemKeyOf(itemKeyTitle(captured, result)),
             chainId = chainId,
             capturedAt = capturedAt,
             sourceApp = captured.appId?.let { "android:$it" },

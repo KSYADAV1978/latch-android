@@ -6,6 +6,7 @@ import com.latch.data.AccountDefaults
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
+import com.latch.parser.TitleExtractor
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -128,6 +129,45 @@ private fun eventItem(
 
 /** Derived from the chain id so a redraft of the same save produces the same ids. */
 private fun itemId(chainId: String, index: Int) = "$chainId#$index"
+
+/**
+ * The item's title with every date and time the parser matched cut out of it — the input to
+ * §7.2's `latch.item_key`.
+ *
+ * FR-804 detects a reschedule by "matching title and identifiers, different date", so the
+ * identity it matches on has to survive the date changing. Hashing the title as displayed
+ * does not: `TitleExtractor` implements FR-509, "use the selection verbatim if under 60
+ * characters", so for a short capture the title **is** the whole text, dates included, and
+ * `item_key` comes out byte-identical to `source_hash`. Both then change together on a
+ * reschedule and FR-804 has nothing to match. That is what this removes.
+ *
+ * The spans are blanked rather than deleted. `Normalizer` is length-preserving exactly so
+ * that a rule's reported span still indexes into the original text, and blanking keeps every
+ * later span valid where deleting would shift them all — it also stops "sync 31 August at"
+ * collapsing into "syncat". The hash normalisation collapses the leftover whitespace.
+ *
+ * A subject line (FR-206) is hashed as it stands: the spans index into the body, so they do
+ * not apply to it. A subject carrying its own date is the residual case, and it is rare
+ * enough to accept — a mail subject is normally the standing name of the thing.
+ */
+fun itemKeyTitle(captured: CapturedText, result: ParseResult): String {
+    captured.preferredTitle?.takeIf { it.isNotBlank() }?.let { return it }
+
+    val candidate = result.primary
+    val spans = listOfNotNull(candidate.date?.span, candidate.time?.span, candidate.endTime?.span)
+    return TitleExtractor.extract(captured.text.blankOut(spans)).value
+}
+
+private fun String.blankOut(spans: List<IntRange>): String {
+    if (spans.isEmpty()) return this
+    val characters = toCharArray()
+    spans.forEach { span ->
+        val from = span.first.coerceAtLeast(0)
+        val to = span.last.coerceAtMost(characters.lastIndex)
+        for (index in from..to) characters[index] = ' '
+    }
+    return String(characters)
+}
 
 /**
  * Whether this capture can be saved at all, and why not where it cannot.
