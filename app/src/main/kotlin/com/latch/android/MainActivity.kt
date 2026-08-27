@@ -76,6 +76,10 @@ class MainActivity : ComponentActivity() {
                         // Backing out of step 1 leaves the app rather than stranding the
                         // user on a screen they have just declined.
                         if (outcome == SetupOutcome.ABANDONED) finish()
+                        // Setup has just written defaults that this process read as absent
+                        // at launch. Without this the capture path finds no destination
+                        // until the process restarts.
+                        if (outcome == SetupOutcome.COMPLETED) app.refreshAccounts()
                     }
 
                     when {

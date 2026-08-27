@@ -259,3 +259,88 @@ class ItemDraftsTest {
         assertEquals("Room 4", (drafted as DraftResult.Ready).items.single().location)
     }
 }
+
+/**
+ * The Save gate. Every reason the button is unavailable must be a named value, because a
+ * disabled button with nothing beside it is unexplainable to the person looking at it — and
+ * that is exactly the defect these tests exist to prevent recurring.
+ */
+class SaveBlockerTest {
+
+    private val defaults = AccountDefaults(
+        accountId = "acct",
+        email = "you@example.com",
+        routingMode = RoutingMode.LATCH_CALENDAR,
+        destinationCalendarId = "latch-cal",
+        destinationCalendarName = "Latch",
+        destinationCalendarColour = "#d50000",
+        taskListId = "list-1",
+    )
+
+    private val ready = DestinationState.Ready(defaults)
+
+    private val goodParse = ParseResult(
+        title = Field("Team sync", Confidence.HIGH),
+        candidates = listOf(
+            DatedCandidate(
+                date = Field(LocalDate.parse("2026-08-31"), Confidence.HIGH),
+                time = Field(LocalTime.parse("21:30"), Confidence.HIGH),
+                classification = Classification.EVENT,
+            )
+        ),
+    )
+
+    @Test
+    fun `a good parse with a destination can be saved`() {
+        assertNull(saveBlocker(ready, goodParse, SaveState.Idle))
+    }
+
+    @Test
+    fun `no destination is reported, not silently disabling the button`() {
+        // The reported defect: a fully parsed item, Save greyed, and nothing on screen
+        // saying why. FR-906 is the reason it must stay disabled; NFR-303's spirit is the
+        // reason the user has to be told.
+        assertEquals(SaveBlocker.NO_DESTINATION, saveBlocker(DestinationState.None, goodParse, SaveState.Idle))
+    }
+
+    @Test
+    fun `a destination still being read is not the same as none`() {
+        // Momentary and says nothing useful, so it stays quiet — but it must not be
+        // confused with None, which is permanent and must speak.
+        assertEquals(
+            SaveBlocker.READING_DESTINATION,
+            saveBlocker(DestinationState.Loading, goodParse, SaveState.Idle),
+        )
+    }
+
+    @Test
+    fun `a time with no day still blocks on the date`() {
+        val noDate = ParseResult(
+            title = Field("Standup", Confidence.HIGH),
+            candidates = listOf(
+                DatedCandidate(
+                    date = null,
+                    time = Field(LocalTime.parse("09:00"), Confidence.HIGH),
+                    classification = Classification.EVENT_INCOMPLETE,
+                )
+            ),
+        )
+        assertEquals(SaveBlocker.NEEDS_A_DATE, saveBlocker(ready, noDate, SaveState.Idle))
+    }
+
+    @Test
+    fun `a save already in flight blocks another`() {
+        assertEquals(SaveBlocker.NOT_IDLE, saveBlocker(ready, goodParse, SaveState.Saving))
+        assertEquals(SaveBlocker.NOT_IDLE, saveBlocker(ready, goodParse, SaveState.Saved()))
+    }
+
+    @Test
+    fun `every blocker except the momentary one is explainable to the user`() {
+        // A guard on the enum itself: adding a reason obliges someone to decide whether it
+        // needs words. READING_DESTINATION and NOT_IDLE are the only two that may stay
+        // silent, and both are transient.
+        val silent = setOf(SaveBlocker.READING_DESTINATION, SaveBlocker.NOT_IDLE)
+        val explained = SaveBlocker.entries.filterNot { it in silent }
+        assertEquals(setOf(SaveBlocker.NO_DESTINATION, SaveBlocker.NEEDS_A_DATE), explained.toSet())
+    }
+}

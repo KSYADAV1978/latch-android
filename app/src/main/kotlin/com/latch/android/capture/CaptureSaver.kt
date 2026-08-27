@@ -36,6 +36,54 @@ enum class SaveFailure {
     WRITE_FAILED,
 }
 
+/**
+ * Where a capture would go, as three distinct states.
+ *
+ * Not a nullable `AccountDefaults`: "not read yet" and "setup has not run" are opposite
+ * facts, and collapsing them is what makes a screen go quiet instead of explaining itself.
+ * The first is momentary and says nothing; the second is the answer to "why can I not save
+ * this", and the user has to be told.
+ */
+sealed interface DestinationState {
+    data object Loading : DestinationState
+    data object None : DestinationState
+    data class Ready(val defaults: AccountDefaults) : DestinationState
+}
+
+/** Why Save is unavailable. Null means it is available. */
+enum class SaveBlocker {
+    /** Momentary, and deliberately silent — there is nothing useful to say for a few frames. */
+    READING_DESTINATION,
+
+    /** Setup has not run, or its defaults were dropped. FR-906: there is nowhere safe to route. */
+    NO_DESTINATION,
+
+    /** FR-506 row 3: a time with no day, and no picker to finish it with. */
+    NEEDS_A_DATE,
+
+    /** A save is already in flight, or has finished. */
+    NOT_IDLE,
+}
+
+/**
+ * The single decision about whether this capture can be saved, and why not.
+ *
+ * Pure, so the screen and the tests cannot drift apart, and so every reason has to be a named
+ * value that the UI is obliged to handle rather than an unexplained disabled button.
+ */
+fun saveBlocker(
+    destination: DestinationState,
+    result: ParseResult?,
+    saveState: SaveState,
+): SaveBlocker? = when {
+    result == null -> SaveBlocker.NEEDS_A_DATE
+    saveState !is SaveState.Idle -> SaveBlocker.NOT_IDLE
+    destination is DestinationState.Loading -> SaveBlocker.READING_DESTINATION
+    destination is DestinationState.None -> SaveBlocker.NO_DESTINATION
+    draftBlocker(result) == DraftBlocker.NEEDS_A_DATE -> SaveBlocker.NEEDS_A_DATE
+    else -> null
+}
+
 sealed interface SaveState {
     data object Idle : SaveState
     data object Saving : SaveState

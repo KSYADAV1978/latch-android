@@ -29,6 +29,8 @@ class CaptureActivity : ComponentActivity() {
 
         // A previous capture in this process may have left an outcome on screen.
         app.captureSaver.reset()
+        // Setup may have completed in another task since this process read its defaults.
+        app.refreshAccounts()
 
         val captured = intent.toCapturedText(this)?.copy(appId = referrerPackage())
         val context = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
@@ -43,7 +45,14 @@ class CaptureActivity : ComponentActivity() {
                     captured = captured,
                     result = result,
                     onDismiss = { finish() },
-                    destination = destinations?.firstOrNull(),
+                    // Three states, not a nullable value: not-yet-read and none-configured
+                    // are opposite facts, and only the second is worth telling the user.
+                    destination = when (val accounts = destinations) {
+                        null -> DestinationState.Loading
+                        else -> accounts.firstOrNull()
+                            ?.let(DestinationState::Ready)
+                            ?: DestinationState.None
+                    },
                     saveState = saveState,
                     // FR-512, interim: shown rather than blocking the save, until the
                     // Capture Inbox exists to send it to instead.

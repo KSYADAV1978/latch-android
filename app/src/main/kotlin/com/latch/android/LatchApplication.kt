@@ -41,10 +41,24 @@ class LatchApplication : Application() {
      * a state the UI has to have — an empty list and "not read yet" mean opposite things,
      * and treating them alike would show setup to a user who has already finished it.
      *
-     * Read once per process. The store moves itself to `Dispatchers.IO`, so where this is
-     * launched from carries no obligation.
+     * The store moves itself to `Dispatchers.IO`, so where a refresh is launched from
+     * carries no obligation.
      */
     val configuredAccounts: StateFlow<List<AccountDefaults>?> = _configuredAccounts.asStateFlow()
+
+    /**
+     * Re-read the stored defaults.
+     *
+     * This used to happen once, in `onCreate`, and that was a defect: completing setup
+     * writes to the store but cannot reach this flow, so it stayed at whatever it held when
+     * the process started — empty, for the run that has just finished setting up. MainActivity
+     * did not notice, because it also consults the setup outcome. The capture path has no
+     * such second opinion, so it saw no destination and disabled Save for the life of the
+     * process. Anything that writes defaults must call this.
+     */
+    fun refreshAccounts() {
+        appScope.launch { _configuredAccounts.value = accountDefaults.allAccounts() }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +69,7 @@ class LatchApplication : Application() {
         //  user told. Nothing reads the id yet, which is the only reason this is a comment
         //  rather than a defect: StubCalendarApi mints a fresh latch-N id every process, so
         //  a stored id already fails to name anything the next launch can see.
-        appScope.launch { _configuredAccounts.value = accountDefaults.allAccounts() }
+        refreshAccounts()
     }
 
     /**

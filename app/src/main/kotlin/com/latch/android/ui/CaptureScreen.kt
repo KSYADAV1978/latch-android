@@ -21,10 +21,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.CapturedText
-import com.latch.android.capture.DraftBlocker
+import com.latch.android.capture.DestinationState
+import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
 import com.latch.android.capture.SaveState
-import com.latch.android.capture.draftBlocker
+import com.latch.android.capture.saveBlocker
 import com.latch.data.AccountDefaults
 import com.latch.core.model.ItemType
 import com.latch.parser.DatedCandidate
@@ -48,8 +49,8 @@ fun CaptureScreen(
     captured: CapturedText?,
     result: ParseResult?,
     onDismiss: () -> Unit,
-    /** FR-904: where this will go. Null until the stored defaults have been read. */
-    destination: AccountDefaults? = null,
+    /** FR-904: where this will go, and whether that is known yet. */
+    destination: DestinationState = DestinationState.Loading,
     saveState: SaveState = SaveState.Idle,
     /** FR-512, interim: shown rather than blocking the save until the Inbox exists. */
     lowConfidence: Boolean = false,
@@ -57,12 +58,7 @@ fun CaptureScreen(
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
 ) {
-    val blocker = result?.let(::draftBlocker)
-    val canSave = captured != null &&
-        result != null &&
-        destination != null &&
-        blocker == null &&
-        saveState is SaveState.Idle
+    val blocker = if (captured == null) SaveBlocker.NEEDS_A_DATE else saveBlocker(destination, result, saveState)
     Surface(
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
@@ -85,13 +81,21 @@ fun CaptureScreen(
 
                 // FR-904: the destination is on screen before the user confirms, which is
                 // also what FR-906 means by never routing somewhere they have not seen.
-                destination?.let { DestinationChip(it) }
+                if (destination is DestinationState.Ready) {
+                    DestinationChip(destination.defaults)
+                }
 
                 if (lowConfidence) {
                     Note(stringResource(R.string.capture_low_confidence))
                 }
-                if (blocker == DraftBlocker.NEEDS_A_DATE) {
-                    Note(stringResource(R.string.capture_save_needs_date))
+
+                // Every reason Save is unavailable says so. A disabled button with nothing
+                // beside it is the one outcome this screen must never produce.
+                when (blocker) {
+                    SaveBlocker.NO_DESTINATION -> Note(stringResource(R.string.capture_save_no_destination))
+                    SaveBlocker.NEEDS_A_DATE -> Note(stringResource(R.string.capture_save_needs_date))
+                    // Momentary, or already reported by SaveOutcome below.
+                    SaveBlocker.READING_DESTINATION, SaveBlocker.NOT_IDLE, null -> Unit
                 }
             }
 
@@ -107,7 +111,7 @@ fun CaptureScreen(
                 }
                 if (saveState !is SaveState.Saved && saveState !is SaveState.AlreadySaved) {
                     Spacer(Modifier.width(8.dp))
-                    Button(onClick = onSave, enabled = canSave) {
+                    Button(onClick = onSave, enabled = blocker == null) {
                         Text(
                             stringResource(
                                 if (saveState is SaveState.Saving) R.string.capture_saving
@@ -182,7 +186,7 @@ private fun DestinationChip(destination: AccountDefaults) {
 
 /** NFR-303: every outcome says what happened, and a failure says what was not saved. */
 @Composable
-private fun SaveOutcome(state: SaveState, destination: AccountDefaults?) {
+private fun SaveOutcome(state: SaveState, destination: DestinationState) {
     when (state) {
         SaveState.Idle, SaveState.Saving -> Unit
 
@@ -192,7 +196,7 @@ private fun SaveOutcome(state: SaveState, destination: AccountDefaults?) {
             } else {
                 stringResource(
                     R.string.capture_saved,
-                    destination?.destinationCalendarName.orEmpty(),
+                    (destination as? DestinationState.Ready)?.defaults?.destinationCalendarName.orEmpty(),
                 )
             }
         )
