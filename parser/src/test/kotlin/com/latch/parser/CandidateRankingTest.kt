@@ -7,6 +7,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -73,22 +74,35 @@ class CandidateRankingTest {
     }
 
     @Test
-    fun `both dates are still offered, in the order the capture reads`() {
-        // FR-511 is not built, but the parser has always returned every date for it, and the
-        // list must stay in document order — the ranking decides which one opens, not what
-        // order the user will eventually see the checkboxes in.
-        val dates = parse(reported).candidates.map { it.date?.value }
-        assertEquals(listOf(LocalDate.of(2026, 8, 31), LocalDate.of(2026, 9, 6)), dates)
+    fun `both commitments are still offered, in the order the capture reads`() {
+        // Two candidates, and since SRS 1.23 they are a *range* and a dated meeting rather
+        // than two loose dates. The list stays in document order — the ranking decides which
+        // one opens, not the order the checkboxes appear in.
+        val candidates = parse(reported).candidates
+        assertEquals(2, candidates.size)
+
+        val range = candidates[0]
+        assertEquals(LocalDate.of(2026, 8, 31), range.date?.value)
+        assertEquals(LocalDate.of(2026, 9, 6), range.endDate?.value)
+        // A range is an Event even with no time: a task cannot hold an end.
+        assertEquals(Classification.EVENT, range.classification)
+
+        val meeting = candidates[1]
+        assertEquals(LocalDate.of(2026, 8, 31), meeting.date?.value)
+        assertNull(meeting.endDate, "the evening meeting is a point, not a span")
+        assertEquals(LocalTime.of(21, 30), meeting.time?.value)
     }
 
     @Test
-    fun `one date written twice is one candidate, positioned at its first mention`() {
-        // 31 August appears twice: once without a year near the start, once with a year near
-        // the end. Taking the stronger mention whole used to take its position too, which put
-        // 31 August behind a 6 September introduced after it.
+    fun `a range opener is not merged into a later restatement of the same date`() {
+        // 31 August appears twice: as the opening of the range, and as the evening meeting.
+        // SRS 1.23 withdraws an absorbed endpoint from mention-merging, because the two are
+        // genuinely different commitments — a week-long offsite, and a meeting on its first
+        // evening. Merging them would destroy one.
         val candidates = parse(reported).candidates
         assertEquals(2, candidates.size)
-        assertEquals(1, candidates.count { it.date?.value == LocalDate.of(2026, 8, 31) })
+        assertEquals(2, candidates.count { it.date?.value == LocalDate.of(2026, 8, 31) })
+        assertEquals(1, candidates.count { it.endDate != null })
     }
 
     // ----- exclusive weekday attachment -----

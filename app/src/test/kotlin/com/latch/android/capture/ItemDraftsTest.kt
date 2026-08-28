@@ -178,6 +178,25 @@ class ItemDraftsTest {
     }
 
     @Test
+    fun `a date range becomes an all-day event ending the day after its close`() {
+        // SRS 1.23: the parser holds the end inclusive — 12 to 14 September ends *on* the
+        // 14th — and Google's all-day API reads the end date as exclusive. The +1 lives here
+        // and only here, which is what stops the off-by-one being discovered on a phone.
+        val item = single(
+            DatedCandidate(
+                date = Field(LocalDate.parse("2026-09-12"), Confidence.HIGH),
+                endDate = Field(LocalDate.parse("2026-09-14"), Confidence.HIGH),
+                classification = Classification.EVENT,
+            )
+        )
+
+        assertTrue(item.allDay)
+        assertEquals(LocalDateTime.parse("2026-09-12T00:00"), item.start)
+        assertEquals(LocalDateTime.parse("2026-09-15T00:00"), item.end)
+        // The single-day form of the same rule is `an all-day event ends on the following day`.
+    }
+
+    @Test
     fun `an end time before the start rolls the end to the next day`() {
         // "from 11 pm to 1 am" is one sitting. Same-day arithmetic made this end two hours
         // before it began, which Google would have taken literally.

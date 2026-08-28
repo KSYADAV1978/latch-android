@@ -82,6 +82,14 @@ data class DatedCandidate(
     val date: Field<LocalDate>?,
     val time: Field<LocalTime>? = null,
     val endTime: Field<LocalTime>? = null,
+    /**
+     * FR-502's duration, where the capture gave a span of days rather than of hours.
+     *
+     * Inclusive, as written — 12 to 14 September ends *on* the 14th. Google's all-day API
+     * reads an end date as exclusive, and that conversion belongs to the drafting step
+     * (SRS 1.23), so anything reading this field gets the writer's own meaning.
+     */
+    val endDate: Field<LocalDate>? = null,
     val classification: Classification,
     /** FR-510: the only handling a past date gets in the parser is being flagged. */
     val isPast: Boolean = false,

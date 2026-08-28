@@ -41,9 +41,25 @@ internal object WrittenDateRule : DateRule {
     private val MONTH_DAY =
         Regex("""\b($MONTH_ALTERNATION)\b\.?\s+(\d{1,2})$ORDINAL(?!\d)$YEAR""")
 
+    /**
+     * "March, 8, 2030" — what Android's voice typing makes of a dictated date (SRS 1.21).
+     *
+     * Separate from [MONTH_DAY] rather than a comma added to it, because **the year is
+     * required here and optional there**. A comma after a month name is a clause boundary in
+     * English far more often than it is dictation: widening the main pattern would make "In
+     * March, 8 people attended" a date. Requiring a four-digit year is what tells the two
+     * apart, and nobody writes a clause boundary followed by a bare day and a year.
+     */
+    private val MONTH_DAY_DICTATED =
+        Regex("""\b($MONTH_ALTERNATION)\b\.?,\s*(\d{1,2})$ORDINAL(?!\d)[,\s]+(\d{4})""")
+
     override fun find(text: String, ctx: ParseContext): List<RawDate> {
         val dayMonth = DAY_MONTH.findAll(text).mapNotNull { match ->
             val (dayRaw, monthName, yearRaw) = match.destructured
+            build(dayRaw.toInt(), MONTHS.getValue(monthName), yearRaw, match.range, ctx)
+        }
+        val monthDayDictated = MONTH_DAY_DICTATED.findAll(text).mapNotNull { match ->
+            val (monthName, dayRaw, yearRaw) = match.destructured
             build(dayRaw.toInt(), MONTHS.getValue(monthName), yearRaw, match.range, ctx)
         }
         val monthDay = MONTH_DAY.findAll(text).mapNotNull { match ->
@@ -51,8 +67,10 @@ internal object WrittenDateRule : DateRule {
             build(dayRaw.toInt(), MONTHS.getValue(monthName), yearRaw, match.range, ctx)
         }
         // "12 September" matches DAY_MONTH; MONTH_DAY cannot also claim it, so no overlap
-        // filtering is needed beyond what the assembler already does.
-        return (dayMonth + monthDay).toList()
+        // filtering is needed beyond what the assembler already does. The dictated form goes
+        // first: it spans more characters than MONTH_DAY could of the same text, and the
+        // assembler resolves overlapping spans by preferring the longer match.
+        return (monthDayDictated + dayMonth + monthDay).toList()
     }
 
     private fun build(

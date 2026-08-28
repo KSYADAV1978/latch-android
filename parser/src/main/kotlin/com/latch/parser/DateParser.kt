@@ -94,10 +94,67 @@ object DateParser {
                 val span = date.span.spanning(absorbed.map { it.span })
                 date.copy(span = span, firstMentionAt = minOf(date.firstMentionAt, span.first))
             }
-            // FR-511 counts distinct dates, not distinct mentions of one.
-            .groupBy { it.date }
-            .map(::mergeMentions)
+            // SRS 1.23: two dates joined by a range connective are one commitment, and the
+            // pair is folded before mentions are merged so that neither endpoint is still
+            // loose when merging happens.
+            .let { mergeRanges(it, normalized) }
+            // FR-511 counts distinct dates, not distinct mentions of one. Keyed by the pair,
+            // so a range and a bare restatement of its opening date stay apart: SRS 1.23
+            // withdraws an absorbed endpoint from merging, and merging 31 August the range
+            // opener into 31 August the evening meeting would destroy one of the two.
+            .groupBy { it.date to it.endDate }
+            .map { (_, mentions) -> mergeMentions(mentions) }
             .sortedBy { it.firstMentionAt }
+    }
+
+    /**
+     * Everything that may sit between two dates and still leave them one range.
+     *
+     * Deliberately a closed list rather than a distance, for the reason [samePhrase] is
+     * literal: "5 September, final on 6 September" is two commitments and no threshold
+     * separates it from "5 September to 6 September" reliably. The dash is here because
+     * [Normalizer] has already folded en and em dashes onto it.
+     */
+    private val RANGE_JOIN = Regex("""^[\s,]*(?:to|-|until|till|through|thru)[\s,]*$""")
+
+    /**
+     * Folds "from X to Y" into one candidate carrying both ends (SRS 1.23).
+     *
+     * Works over the dates in written order and consumes the closing date, so an endpoint
+     * cannot also survive as a candidate of its own — that withdrawal is the point, not a
+     * side effect. Only a later closing date is accepted: "6 September to 31 August" is a
+     * writer's slip or a coincidence of two unrelated dates, and reading it as a range would
+     * produce an item that ends before it starts.
+     */
+    private fun mergeRanges(dates: List<RawDate>, text: String): List<RawDate> {
+        val inOrder = dates.sortedBy { it.span.first }
+        val consumed = BooleanArray(inOrder.size)
+        val merged = mutableListOf<RawDate>()
+
+        for ((index, start) in inOrder.withIndex()) {
+            if (consumed[index]) continue
+            val next = inOrder.getOrNull(index + 1)
+            val joinable = next != null &&
+                !consumed[index + 1] &&
+                next.date > start.date &&
+                start.span.last < next.span.first &&
+                RANGE_JOIN.matches(text.substring(start.span.last + 1, next.span.first))
+
+            if (joinable) {
+                consumed[index + 1] = true
+                val span = start.span.spanning(listOf(next!!.span))
+                merged += start.copy(
+                    endDate = next.date,
+                    span = span,
+                    // A range is only as certain as its weaker end.
+                    confidence = minOf(start.confidence, next.confidence),
+                    firstMentionAt = minOf(start.firstMentionAt, span.first),
+                )
+            } else {
+                merged += start
+            }
+        }
+        return merged
     }
 
     /**
@@ -193,8 +250,7 @@ object DateParser {
      * moved 31 August's apparent position to the second mention, behind a 6 September that the
      * writer had introduced later, and the capture was then saved against the wrong date.
      */
-    private fun mergeMentions(sameDate: Map.Entry<LocalDate, List<RawDate>>): RawDate {
-        val mentions = sameDate.value
+    private fun mergeMentions(mentions: List<RawDate>): RawDate {
         val strongest = mentions.maxBy { it.confidence }
         return strongest.copy(firstMentionAt = mentions.minOf { it.span.first })
     }
@@ -236,9 +292,11 @@ object DateParser {
                 date = Field(date.date, date.confidence, date.span),
                 time = start?.let { Field(it.time, it.confidence, it.span) },
                 endTime = end?.let { Field(it.time, it.confidence, it.span) },
+                endDate = date.endDate?.let { Field(it, date.confidence, date.span) },
                 classification = Classifier.classify(
                     hasDate = true,
                     hasTime = start != null,
+                    isRange = date.endDate != null,
                     ambiguousRelative = date.ambiguousRelative,
                 ),
                 isPast = date.date < today,

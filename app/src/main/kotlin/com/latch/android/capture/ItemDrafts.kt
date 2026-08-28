@@ -100,20 +100,29 @@ private fun eventItem(
     // time there is nothing to put on a clock, and an all-day event is the honest shape.
     val allDay = time == null
 
+    // SRS 1.23: a range carries its closing day, inclusive as the writer wrote it. Turning
+    // that into what Google wants is this step's job, not the parser's.
+    val spanEnd = candidate.endDate?.value
+
     val start = if (allDay) date.atStartOfDay() else LocalDateTime.of(date, time)
     val end = when {
         // Google reads an all-day end date as exclusive: a single day on the 5th ends on the
-        // 6th. EventWrite passes end through untouched by design, so the day is added here.
-        allDay -> date.plusDays(1).atStartOfDay()
+        // 6th, and 12–14 September ends on the 15th. EventWrite passes end through untouched
+        // by design, so the day is added here — the one place it is added, for both shapes.
+        allDay -> (spanEnd ?: date).plusDays(1).atStartOfDay()
         // A second time in the text wins over the default. An end at or before the start
         // means the range crossed midnight — "from 11 pm to 1 am" is one sitting, not an
         // event that finishes two hours before it begins. Only the day rolls; the clock time
         // is what the writer wrote, so nothing is invented (design principle 1).
         candidate.endTime != null -> {
             val endTime = candidate.endTime!!.value
-            val endDate = if (endTime > time) date else date.plusDays(1)
-            LocalDateTime.of(endDate, endTime)
+            // A range of days says which day it ends on; only a bare time has to infer it.
+            val endDay = spanEnd ?: if (endTime > time) date else date.plusDays(1)
+            LocalDateTime.of(endDay, endTime)
         }
+        // A span of days carrying a start time but no end time: it ends on the closing day,
+        // at the time it started. Guessing a different clock time would be inventing one.
+        spanEnd != null -> LocalDateTime.of(spanEnd, time)
         // FR-1001's default duration. Declared on ParseContext and, until now, read by
         // nothing — its KDoc says "applied when a start time is found but no end", and this
         // is the downstream that was meant to apply it.

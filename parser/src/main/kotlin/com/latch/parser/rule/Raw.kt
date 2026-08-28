@@ -26,6 +26,15 @@ internal data class RawDate(
      * Defaults to the start of [span], which is correct for every date mentioned once.
      */
     val firstMentionAt: Int = span.first,
+    /**
+     * The closing date where this is a range — "from 12 September to 14 September".
+     *
+     * Null for the ordinary case of a date standing on its own. Held **inclusive**, as the
+     * writer wrote it: the exclusive end date Google's all-day API wants is arithmetic for
+     * the client's drafting step, and doing it here would put a wire concern in the parser
+     * and move every date by a day for anyone reading this field directly (SRS 1.23).
+     */
+    val endDate: LocalDate? = null,
 )
 
 /**

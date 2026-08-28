@@ -13,7 +13,9 @@ Submit documents within 2 weeks	TASK_WITH_DUE_DATE	2026-09-08	-
 Interview on 05/09 at 1030 hrs	EVENT	2026-09-05	10:30
 Rent payment due 1/9/2026	TASK_WITH_DUE_DATE	2026-09-01	-
 Namaste, aapki appointment kal 4 baje hai	EVENT	2026-08-26	16:00
-Team offsite from 12 September to 14 September	TASK_WITH_DUE_DATE	2026-09-12	-
+# SRS 1.23: a range is one candidate and an Event even with no time — a Google task holds
+# one due date and no end, so calling this a task would discard the 14th.
+Team offsite from 12 September to 14 September	EVENT	2026-09-12	-
 EMI of Rs 12,500 debited on 05/09/2026	TASK_WITH_DUE_DATE	2026-09-05	-
 Wedding reception on 21.11.2026 at 7 pm	EVENT	2026-11-21	19:00
 Vaccination due after 5 days	TASK_WITH_DUE_DATE	2026-08-30	-
@@ -30,7 +32,7 @@ Your OTP is 4821. Do not share it with anyone.	TASK_UNDATED	-	-
 from August 31 to September 6, 2026\nDate: Monday, August 31, 2026 at 21:30	EVENT	2026-08-31	21:30
 # The same capture without the dated line: the range's first date still wins, which is the
 # behaviour the offsite row above already pinned.
-from August 31 to September 6, 2026	TASK_WITH_DUE_DATE	2026-08-31	-
+from August 31 to September 6, 2026	EVENT	2026-08-31	-
 # Ranking, a date with a time beats one without, whichever came first in the text.
 Report due 6 September, review call on 31 August at 9pm	EVENT	2026-08-31	21:00
 # Ranking, an explicitly written date beats one this app worked out from a weekday.
@@ -47,13 +49,17 @@ Sprint ends September 6, 2026 and Monday, August 31, 2026 is the review	TASK_WIT
 # A weekday contradicting the date it is written into is still the same phrase, not a second
 # item: 12 September 2026 is a Saturday and the writer simply got it wrong.
 PTM on Friday 12 September	TASK_WITH_DUE_DATE	2026-09-12	-
-# --- KNOWN GAP, awaiting the FR-511 parser work. Commented out so it does not fail the
-# build; the text is kept here verbatim because it is a real voice-typed capture and the
-# next person to touch WrittenDateRule needs the exact input, not a paraphrase.
-#
-# Voice typing on Android punctuates dictated dates: "March, 8, 2030". MONTH_DAY allows an
-# optional period after the month name but not a comma, so the whole date is missed. The
-# bare "friday" beside it then matches on its own and resolves forward, and the 21:30
-# attaches to that — observed on a device as 28 Aug 2026, 21:30.
-#
-# Project sync on friday. March, 8, 2030 at 21:30	EVENT	2030-03-08	21:30
+# Voice typing on Android punctuates a dictated date: "March, 8, 2030". Found on a device
+# (SRS 1.21) and fixed under the v1.22 reading — a comma after a month name counts only where
+# a four-digit year follows, so "In March, 8 people attended" is still not a date.
+Project sync on friday. March, 8, 2030 at 21:30	EVENT	2030-03-08	21:30
+# Range forms. The dash arrives as an en dash from most keyboards; Normalizer folds it.
+Conference 12 September to 14 September 2026	EVENT	2026-09-12	-
+Leave from 1 Oct 2026 until 5 Oct 2026	EVENT	2026-10-01	-
+# Not a range: two commitments listed, and no threshold reliably separates this from one.
+Review 5 September, final on 6 September 2026	TASK_WITH_DUE_DATE	2026-09-05	-
+# Not a range either — the connective joins chapters, and neither number is a date.
+Class test on 3 tarikh, chapters 1 to 4	TASK_WITH_DUE_DATE	2026-09-03	-
+# The dictation reading is narrow: a comma after a month with no year following is a clause
+# boundary, so this stays undated rather than becoming the 8th.
+In March, 8 people confirmed	TASK_UNDATED	-	-
