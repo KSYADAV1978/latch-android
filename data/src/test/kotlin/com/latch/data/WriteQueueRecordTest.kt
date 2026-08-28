@@ -137,6 +137,113 @@ class WriteQueueRecordTest {
         assertEquals(SyncState.QUEUED, decoded.write.item.syncState)
     }
 
+    // ----- FR-804: an UPDATE, which the record could not express before v1.16 -----
+
+    @Test
+    fun `an update carries the item it targets and what that item held before`() {
+        val prior = ItemDates.Event(
+            start = LocalDateTime.parse("2030-03-05T21:30"),
+            end = LocalDateTime.parse("2030-03-05T22:30"),
+            timeZone = "Asia/Kolkata",
+        )
+        val update = entry().copy(
+            operation = WriteOperation.UPDATE,
+            write = entry().write.copy(targetRemoteId = "ev_42", priorState = prior),
+        )
+
+        val decoded = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(update)))
+
+        assertEquals(WriteOperation.UPDATE, decoded.operation)
+        // Without the target, an entry that outlived the process would wake with new dates
+        // and no way to say which item they belonged to.
+        assertEquals("ev_42", decoded.write.targetRemoteId)
+        // Without the prior state, FR-807's undo of this update would have nothing to write
+        // back — and deleting the item instead would destroy one the user already had.
+        assertEquals(prior, decoded.write.priorState)
+    }
+
+    @Test
+    fun `a task update carries its previous due date, including none at all`() {
+        val task = Item(
+            id = "chain-2#0",
+            captureId = "cap-2",
+            chainId = "chain-2",
+            type = ItemType.TASK,
+            title = "Project sync",
+            dueDate = LocalDate.parse("2030-03-07"),
+            taskListId = "list-1",
+        )
+
+        fun roundTrip(prior: ItemDates.Task): ItemDates? {
+            val base = entry(item = task)
+            val update = base.copy(
+                operation = WriteOperation.UPDATE,
+                write = base.write.copy(targetRemoteId = "t_9", priorState = prior),
+            )
+            return decodeQueuedWrite(encodeQueuedWrite(update))?.write?.priorState
+        }
+
+        assertEquals(ItemDates.Task(LocalDate.parse("2030-03-05")), roundTrip(ItemDates.Task(LocalDate.parse("2030-03-05"))))
+        // An undated item that an update gave a date to is undone by taking the date away
+        // again, so "there was no due date" has to survive as a value.
+        assertEquals(ItemDates.Task(null), roundTrip(ItemDates.Task(null)))
+    }
+
+    @Test
+    fun `a create carries neither, and omits them rather than writing them empty`() {
+        val json = JSONObject(encodeQueuedWrite(entry()))
+
+        // The rule §7.2 applies to its own optional keys: an empty value cannot be told from
+        // a value that is genuinely empty.
+        assertFalse(json.has("target"), "a CREATE has no target")
+        assertFalse(json.has("prior"), "a CREATE is undone by deleting what it made")
+
+        val decoded = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(entry())))
+        assertNull(decoded.write.targetRemoteId)
+        assertNull(decoded.write.priorState)
+    }
+
+    @Test
+    fun `a version 1 record still decodes, because dropping it would lose a capture`() {
+        // The account-defaults store drops a v1 record and lets setup run again. This one
+        // cannot: the entry is the only copy of the capture, and NFR-302 forbids losing it.
+        // Nothing has to be inferred either — an UPDATE was never issued at v1, so every v1
+        // record is a CREATE, which carries neither new field anyway.
+        val v1 = JSONObject(encodeQueuedWrite(entry()))
+        v1.remove("target")
+        v1.remove("prior")
+        v1.put("v", 1)
+
+        val decoded = assertNotNull(decodeQueuedWrite(v1.toString()), "a v1 entry must still drain")
+        assertEquals(WriteOperation.CREATE, decoded.operation)
+        assertEquals("Team sync", decoded.write.item.title)
+        assertNull(decoded.write.targetRemoteId)
+        assertNull(decoded.write.priorState)
+    }
+
+    @Test
+    fun `a prior state of a kind this version does not know decodes to null`() {
+        val update = JSONObject(
+            encodeQueuedWrite(
+                entry().copy(
+                    operation = WriteOperation.UPDATE,
+                    write = entry().write.copy(
+                        targetRemoteId = "ev_42",
+                        priorState = ItemDates.Event(
+                            start = LocalDateTime.parse("2030-03-05T21:30"),
+                            end = LocalDateTime.parse("2030-03-05T22:30"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        update.getJSONObject("prior").put("kind", "SOMETHING_LATER")
+
+        // Null rather than a throw: one entry a later version wrote must not take out a
+        // drain that would have written the others.
+        assertNull(decodeQueuedWrite(update.toString())?.write?.priorState)
+    }
+
     // ----- refusing what it cannot trust -----
 
     @Test

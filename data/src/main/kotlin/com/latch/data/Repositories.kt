@@ -83,6 +83,26 @@ data class PendingWrite(
     val body: String,
     /** An IANA zone id. `Item.start` is a `LocalDateTime` and needs one to resolve. */
     val timeZone: String,
+    /**
+     * The item an [WriteOperation.UPDATE] is to modify (SRS §7.1, corrected at v1.16).
+     *
+     * A `CREATE` has no target and leaves this null. Without it an entry that outlived the
+     * process would wake with the new dates and no way to say which item they belonged to —
+     * surviving a restart being the entire purpose of the queue.
+     */
+    val targetRemoteId: String? = null,
+    /**
+     * What the target held before the update, so FR-807's undo can put it back.
+     *
+     * Bounded to exactly the fields an update may modify, which is what [ItemDates] is: no
+     * previous description or notes, because an update does not touch them, and no previous
+     * §7.2 metadata, because that is written once at insert and never modified — so there is
+     * no prior value to restore.
+     *
+     * Null for a `CREATE`, which is undone by deleting what it made rather than by
+     * restoring anything.
+     */
+    val priorState: ItemDates? = null,
 )
 
 data class QueuedWrite(

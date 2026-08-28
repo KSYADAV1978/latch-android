@@ -157,8 +157,19 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  * The version leads for the same reason it does there: a record from a later version decodes
  * to null and is dropped rather than mis-parsed into a write that would reach the user's
  * account wrong.
+ *
+ * **Version 2 added FR-804's `target` and `prior` (SRS §7.1, corrected at v1.16), and
+ * version 1 records are still read.** This is the opposite of the account-defaults store's
+ * answer, where a v1 record is dropped and setup simply runs again, and the difference is
+ * what is lost: dropping a queue entry loses a capture that exists nowhere else, which is
+ * the one thing NFR-302 forbids. Nothing has to be inferred to read one, either — an UPDATE
+ * was never issued at v1, so every v1 record is a CREATE, and a CREATE carries neither of
+ * the new fields anyway.
  */
-internal const val QUEUE_RECORD_VERSION = 1
+internal const val QUEUE_RECORD_VERSION = 2
+
+/** The oldest record layout still readable. See [QUEUE_RECORD_VERSION]. */
+internal const val QUEUE_RECORD_MIN_VERSION = 1
 
 internal fun encodeQueuedWrite(entry: QueuedWrite): String {
     val item = entry.write.item
@@ -175,6 +186,12 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
         .put("body", entry.write.body)
 
     entry.lastError?.let { json.put("last_error", it) }
+
+    // Both are UPDATE-only. Omitted rather than written null for a CREATE, the rule §7.2
+    // applies to its own optional keys: an empty value cannot be told from a value that is
+    // genuinely empty.
+    entry.write.targetRemoteId?.let { json.put("target", it) }
+    entry.write.priorState?.let { json.put("prior", encodeItemDates(it)) }
 
     json.put(
         "item",
@@ -208,9 +225,43 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
     return json.toString()
 }
 
+/**
+ * Encodes the FR-804 prior state. `kind` leads so a reader can tell the two apart without
+ * guessing from which fields happen to be present.
+ */
+internal fun encodeItemDates(dates: ItemDates): JSONObject = when (dates) {
+    is ItemDates.Event -> JSONObject()
+        .put("kind", "EVENT")
+        .put("start", dates.start.toString())
+        .put("end", dates.end.toString())
+        .put("all_day", dates.allDay)
+        .putOpt("time_zone", dates.timeZone)
+
+    is ItemDates.Task -> JSONObject()
+        .put("kind", "TASK")
+        .putOpt("due", dates.due?.toString())
+}
+
+/** Null for a kind a later version introduced, so one entry cannot take out a drain. */
+internal fun decodeItemDates(json: JSONObject): ItemDates? = when (json.optString("kind")) {
+    "EVENT" -> ItemDates.Event(
+        start = LocalDateTime.parse(json.getString("start")),
+        end = LocalDateTime.parse(json.getString("end")),
+        allDay = json.optBoolean("all_day"),
+        timeZone = json.optString("time_zone").takeIf { it.isNotBlank() },
+    )
+
+    "TASK" -> ItemDates.Task(
+        due = json.optString("due").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
+    )
+
+    else -> null
+}
+
 internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
     val json = JSONObject(record)
-    if (json.optInt("v") != QUEUE_RECORD_VERSION) {
+    val version = json.optInt("v")
+    if (version < QUEUE_RECORD_MIN_VERSION || version > QUEUE_RECORD_VERSION) {
         null
     } else {
         val itemJson = json.getJSONObject("item")
@@ -263,6 +314,9 @@ internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
                     ),
                     body = json.getString("body"),
                     timeZone = json.getString("zone"),
+                    // Absent on every v1 record and on every CREATE, which is the same set.
+                    targetRemoteId = json.optString("target").takeIf { it.isNotBlank() },
+                    priorState = json.optJSONObject("prior")?.let(::decodeItemDates),
                 ),
             )
         }

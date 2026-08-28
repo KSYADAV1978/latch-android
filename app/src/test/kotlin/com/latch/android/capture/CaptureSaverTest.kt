@@ -10,9 +10,11 @@ import com.latch.data.DuplicateSearch
 import com.latch.data.EventWrite
 import com.latch.data.GoogleRejected
 import com.latch.data.GoogleUnreachable
+import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueueStatus
 import com.latch.data.QueuedWrite
+import com.latch.data.RescheduleSearch
 import com.latch.data.TaskList
 import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
@@ -388,8 +390,22 @@ private class RecordingCalendarApi(
     private val existingEventId: String? = null,
     private val failDelete: Boolean = false,
     private val failInsert: Exception? = null,
+    private val rescheduleMatch: RescheduleSearch = RescheduleSearch(),
 ) : CalendarApi {
     val deleted = mutableListOf<Pair<String, String>>()
+    val patched = mutableListOf<Triple<String, String, ItemDates.Event>>()
+
+    /** Every key this fake was asked about, so a test can assert exactly one query shape. */
+    val itemKeysQueried = mutableListOf<String>()
+
+    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch {
+        itemKeysQueried += itemKey
+        return rescheduleMatch
+    }
+
+    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
+        patched += Triple(calendarId, eventId, dates)
+    }
 
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
         failInsert?.let { throw it }
@@ -410,8 +426,22 @@ private class RecordingCalendarApi(
     override suspend fun makeVisible(calendarId: String) = Unit
 }
 
-private class RecordingTasksApi(private val failDelete: Boolean = false) : TasksApi {
+private class RecordingTasksApi(
+    private val failDelete: Boolean = false,
+    private val rescheduleMatch: RescheduleSearch = RescheduleSearch(),
+) : TasksApi {
     val deleted = mutableListOf<Pair<String, String>>()
+    val patched = mutableListOf<Triple<String, String, ItemDates.Task>>()
+    val itemKeysQueried = mutableListOf<String>()
+
+    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch {
+        itemKeysQueried += itemKey
+        return rescheduleMatch
+    }
+
+    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
+        patched += Triple(taskListId, taskId, dates)
+    }
 
     override suspend fun insertTask(taskListId: String, task: TaskWrite) = "task-1"
 

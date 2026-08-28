@@ -106,6 +106,59 @@ data class DuplicateSearch(val existingId: String?, val scanCapped: Boolean = fa
     val found: Boolean get() = existingId != null
 }
 
+/**
+ * The date fields of an item, and the **only** fields an FR-804 update may modify (SRS
+ * §5.8, v1.16). One type serves two purposes: the new values a `patch` writes, and the
+ * previous values FR-807's undo writes back.
+ *
+ * That it is one type is the point. There is no field here for a title, a description or
+ * notes, so an update cannot express a change to them and no caller has to remember not to
+ * — the dates-only rule holds structurally, the way FR-105 holds. It matters most on tasks,
+ * where §7.2's metadata lives *in* the notes: an update that rewrote them would breach the
+ * write-once invariant, which is why the rule is uniform across both transports rather than
+ * relaxed on events where the metadata sits elsewhere.
+ */
+sealed interface ItemDates {
+    data class Event(
+        val start: LocalDateTime,
+        val end: LocalDateTime,
+        val allDay: Boolean = false,
+        /**
+         * Null where Google returned none, which happens when the event simply uses its
+         * calendar's default zone. Omitting it on the way back reproduces exactly that, so
+         * null is carried rather than filled in with a guess.
+         */
+        val timeZone: String? = null,
+    ) : ItemDates
+
+    data class Task(val due: LocalDate?) : ItemDates
+}
+
+/**
+ * An existing item that FR-804 may be about to update: what to patch, and what to restore
+ * if the user undoes it.
+ *
+ * [dates] is read at match time rather than at undo time deliberately. The values undo must
+ * write back are the ones that were there *before* this app changed them, and after the
+ * patch they are gone from the account — the only place they exist is here.
+ */
+data class RescheduleMatch(val remoteId: String, val dates: ItemDates)
+
+/**
+ * The result of the FR-804 search by `latch.item_key`.
+ *
+ * [scanCapped] carries the same warning as [DuplicateSearch.scanCapped] and one more
+ * besides. On tasks this search cannot be bounded by date at all — FR-803 bounds its scan to
+ * D±1 because a duplicate shares its date, whereas a reschedule differs by definition — so
+ * it is a capped scan of the whole list in every case, not only for undated tasks. A capped
+ * result with no match therefore means "did not look everywhere" and must never be reported
+ * as "not a reschedule"; a capped result *with* a match means [match] is the latest among
+ * those read, which is not certainly the latest that exists.
+ */
+data class RescheduleSearch(val match: RescheduleMatch? = null, val scanCapped: Boolean = false) {
+    val found: Boolean get() = match != null
+}
+
 interface AuthClient {
     /** FR-002: requests the four scopes and no others. */
     suspend fun signIn(): GoogleAccount
@@ -187,6 +240,30 @@ interface CalendarApi {
      * more damaging of the two possible lies.
      */
     suspend fun deleteEvent(calendarId: String, eventId: String)
+
+    /**
+     * FR-804, the reschedule search. Exact, for the same reason [findEventBySourceHash] is:
+     * `events.list` filtered by `privateExtendedProperty` has Google do the matching.
+     *
+     * Unlike the FR-803 query this one does not stop at the first hit. Several events can
+     * share a key once the user has answered an earlier offer with "create new", and SRS
+     * §5.8 says the offer goes to the one with the **latest** start — the position a person
+     * means by "the meeting", the others being ones it has already left.
+     *
+     * Derives the key exactly once, by the current §7.2 derivation. It must not fall back to
+     * a superseded derivation to catch pre-v1.14 items: §7.2 declares those unmatched, and
+     * querying for an old-style key would quietly restore a wire contract that has moved.
+     */
+    suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch
+
+    /**
+     * `events.patch` (FR-804). Dates only — [ItemDates.Event] cannot express anything else.
+     *
+     * The request body carries no `extendedProperties`, and that is required rather than
+     * incidental: §7.2's metadata is written once at insert and no later operation modifies
+     * it, so an updated item keeps the `source_hash` of the capture that created it.
+     */
+    suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event)
 }
 
 interface TasksApi {
@@ -215,4 +292,31 @@ interface TasksApi {
 
     /** `tasks.delete` (FR-807), idempotent in the same way as [CalendarApi.deleteEvent]. */
     suspend fun deleteTask(taskListId: String, taskId: String)
+
+    /**
+     * FR-804 for tasks, and the weakest path in the write layer — worth knowing before
+     * relying on it.
+     *
+     * [findTaskBySourceHash] can bound its scan to D±1 because a duplicate parses to the
+     * same due date. **That bound does not carry over here**: a reschedule has a different
+     * date by definition, which is the whole premise of FR-804, so there is nothing to bound
+     * by and this reads the list until it runs out or hits the page cap — for dated and
+     * undated tasks alike.
+     *
+     * A capped result is therefore ordinary rather than exceptional on a large list, and
+     * [RescheduleSearch.scanCapped] must not be collapsed into "not a reschedule": the
+     * caller falls through to an ordinary create, which is the safe answer, and the user is
+     * offered a create where an update was available. The cure is the local index deferred
+     * under FR-803, and it should arrive with FR-701's storage.
+     */
+    suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch
+
+    /**
+     * `tasks.patch` (FR-804). Due date only.
+     *
+     * Carries no `notes`, and on this transport that is what keeps §7.2's write-once
+     * invariant: task metadata lives *in* the notes, so a patch that sent them would rewrite
+     * the item's `source_hash` and `item_key` as a side effect of moving its date.
+     */
+    suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task)
 }

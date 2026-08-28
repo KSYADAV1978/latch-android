@@ -5,6 +5,7 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 import kotlinx.coroutines.currentCoroutineContext
@@ -107,7 +108,34 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
     }
 
     override suspend fun deleteEvent(calendarId: String, eventId: String) {
-        http.deleteWhateverIsThere(eventDeleteUrl(calendarId, eventId))
+        http.deleteWhateverIsThere(eventItemUrl(calendarId, eventId))
+    }
+
+    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch {
+        var pageToken: String? = null
+        var pages = 0
+        var latest: RescheduleMatch? = null
+
+        do {
+            currentCoroutineContext().ensureActive()
+            val page = http.get(eventItemKeyUrl(calendarId, itemKey, pageToken))
+            latest = latestEventMatch(latest, eventMatchesFrom(page))
+            pageToken = nextPageTokenFrom(page)
+            pages++
+        } while (pageToken != null && pages < MAX_DEDUP_PAGES)
+
+        // Google matched the key, so an empty result is genuinely none. The cap can still be
+        // reached by a user who has answered "create new" a great many times, and then the
+        // latest of what was read may not be the latest that exists — hence still reported.
+        return RescheduleSearch(latest, scanCapped = pageToken != null)
+    }
+
+    override suspend fun patchEventDates(
+        calendarId: String,
+        eventId: String,
+        dates: ItemDates.Event,
+    ) {
+        http.patch(eventItemUrl(calendarId, eventId), eventDatesBody(dates))
     }
 }
 
@@ -179,7 +207,34 @@ internal class GoogleTasksApi(private val http: GoogleHttp) : TasksApi {
     }
 
     override suspend fun deleteTask(taskListId: String, taskId: String) {
-        http.deleteWhateverIsThere(taskDeleteUrl(taskListId, taskId))
+        http.deleteWhateverIsThere(taskItemUrl(taskListId, taskId))
+    }
+
+    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch {
+        var pageToken: String? = null
+        var pages = 0
+        var latest: RescheduleMatch? = null
+
+        do {
+            currentCoroutineContext().ensureActive()
+            // No due bound, and that is the point: FR-803's D±1 window rests on a duplicate
+            // sharing its date, and a reschedule differs by definition. There is nothing to
+            // bound by, so this is the whole list every time.
+            val page = http.get(taskItemKeyUrl(taskListId, pageToken))
+            latest = latestTaskMatch(latest, taskMatchesFrom(page, itemKey))
+            pageToken = nextPageTokenFrom(page)
+            pages++
+        } while (pageToken != null && pages < MAX_DEDUP_PAGES)
+
+        return RescheduleSearch(latest, scanCapped = pageToken != null)
+    }
+
+    override suspend fun patchTaskDates(
+        taskListId: String,
+        taskId: String,
+        dates: ItemDates.Task,
+    ) {
+        http.patch(taskItemUrl(taskListId, taskId), taskDatesBody(dates))
     }
 }
 
@@ -329,7 +384,7 @@ internal fun eventRequestBody(event: EventWrite): JSONObject {
     return body
 }
 
-private fun eventTimePoint(at: LocalDateTime, allDay: Boolean, timeZone: String): JSONObject =
+private fun eventTimePoint(at: LocalDateTime, allDay: Boolean, timeZone: String?): JSONObject =
     if (allDay) {
         JSONObject().put("date", at.toLocalDate().toString())
     } else {
@@ -337,7 +392,10 @@ private fun eventTimePoint(at: LocalDateTime, allDay: Boolean, timeZone: String)
         // 3339 — which is what the API documents — requires them.
         JSONObject()
             .put("dateTime", at.format(EVENT_DATE_TIME))
-            .put("timeZone", timeZone)
+            // Omitted where absent rather than guessed at. An event that came back with no
+            // zone was using its calendar's default, and leaving it out puts it back on the
+            // same footing (FR-804's restore).
+            .also { point -> timeZone?.let { point.put("timeZone", it) } }
     }
 
 private val EVENT_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
@@ -375,11 +433,165 @@ internal fun taskDedupUrl(taskListId: String, due: LocalDate?, pageToken: String
         pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
     }
 
-internal fun eventDeleteUrl(calendarId: String, eventId: String): String =
+internal fun eventItemUrl(calendarId: String, eventId: String): String =
     "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events/${encodePath(eventId)}"
 
-internal fun taskDeleteUrl(taskListId: String, taskId: String): String =
+internal fun taskItemUrl(taskListId: String, taskId: String): String =
     "$TASKS_V1/lists/${encodePath(taskListId)}/tasks/${encodePath(taskId)}"
+
+// ---------------------------------------------------------------------------------------
+// FR-804: finding the item a capture reschedules, and moving it.
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Deliberately **not** `maxResults=1`, which is what the FR-803 query uses.
+ *
+ * FR-803 asks a yes/no question and can stop at the first hit. FR-804 has to see every event
+ * carrying the key, because SRS §5.8 gives the offer to the one with the latest start and
+ * "the first Google happened to return" is not that.
+ */
+internal fun eventItemKeyUrl(calendarId: String, itemKey: String, pageToken: String?): String =
+    buildString {
+        append("$CALENDAR_V3/calendars/${encodePath(calendarId)}/events")
+        append("?privateExtendedProperty=").append(encodeQuery("$KEY_ITEM_KEY=$itemKey"))
+        append("&maxResults=250")
+        pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
+    }
+
+/**
+ * No `dueMin`/`dueMax`, and their absence is the whole difference from [taskDedupUrl].
+ *
+ * That window works for FR-803 because a duplicate parses to the same due date. A reschedule
+ * is a *different* date by definition, so bounding by the new date would search precisely
+ * where the item being looked for is not. `showCompleted` and `showHidden` stay on for the
+ * same reason as the dedup scan: a ticked-off item still exists and can still be moved.
+ */
+internal fun taskItemKeyUrl(taskListId: String, pageToken: String?): String =
+    buildString {
+        append("$TASKS_V1/lists/${encodePath(taskListId)}/tasks")
+        append("?maxResults=100&showCompleted=true&showHidden=true")
+        pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
+    }
+
+/**
+ * The `events.patch` body. Start and end and nothing else — no `summary`, no `description`
+ * and above all no `extendedProperties`, so §7.2's metadata survives the move untouched.
+ */
+internal fun eventDatesBody(dates: ItemDates.Event): JSONObject =
+    JSONObject()
+        .put("start", eventTimePoint(dates.start, dates.allDay, dates.timeZone))
+        .put("end", eventTimePoint(dates.end, dates.allDay, dates.timeZone))
+
+/**
+ * The `tasks.patch` body. `due` alone — sending `notes` would rewrite §7.2's metadata, which
+ * on this transport lives inside them.
+ *
+ * A null due is written as an explicit JSON null rather than omitted, because omission in a
+ * patch means "leave as it is" and this has to be able to say "clear it".
+ */
+internal fun taskDatesBody(dates: ItemDates.Task): JSONObject =
+    JSONObject().put(
+        "due",
+        dates.due?.let { "${it}T00:00:00.000Z" } ?: JSONObject.NULL,
+    )
+
+internal fun eventMatchesFrom(page: JSONObject): List<RescheduleMatch> {
+    val items = page.optJSONArray("items") ?: return emptyList()
+    val matches = mutableListOf<RescheduleMatch>()
+    for (index in 0 until items.length()) {
+        val entry = items.optJSONObject(index) ?: continue
+        val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
+        val dates = eventDatesFrom(entry) ?: continue
+        matches += RescheduleMatch(id, dates)
+    }
+    return matches
+}
+
+/**
+ * An event whose dates cannot be read is skipped rather than treated as a match with unknown
+ * dates. Undo restores what is captured here, so a match with no readable prior state would
+ * be an update that could not be undone.
+ */
+internal fun eventDatesFrom(event: JSONObject): ItemDates.Event? {
+    val start = event.optJSONObject("start") ?: return null
+    val end = event.optJSONObject("end") ?: return null
+    val allDay = !start.optString("date").isNullOrBlank()
+    return ItemDates.Event(
+        start = eventTimePointOf(start) ?: return null,
+        end = eventTimePointOf(end) ?: return null,
+        allDay = allDay,
+        timeZone = start.optString("timeZone").takeIf { it.isNotBlank() },
+    )
+}
+
+private fun eventTimePointOf(point: JSONObject): LocalDateTime? {
+    point.optString("date").takeIf { it.isNotBlank() }?.let { date ->
+        return runCatching { LocalDate.parse(date).atStartOfDay() }.getOrNull()
+    }
+    point.optString("dateTime").takeIf { it.isNotBlank() }?.let { at ->
+        // Google answers with an offset, which is a moment; the local wall time is what an
+        // event's fields hold, and the zone travels separately.
+        return runCatching { OffsetDateTime.parse(at).toLocalDateTime() }.getOrNull()
+    }
+    return null
+}
+
+internal fun taskMatchesFrom(page: JSONObject, itemKey: String): List<RescheduleMatch> {
+    val items = page.optJSONArray("items") ?: return emptyList()
+    val matches = mutableListOf<RescheduleMatch>()
+    for (index in 0 until items.length()) {
+        val entry = items.optJSONObject(index) ?: continue
+        // As in the dedup scan: notes the user has edited into nonsense parse to null and
+        // are simply not a match.
+        val metadata = remoteMetadataFromTaskNotes(entry.optString("notes")) ?: continue
+        if (metadata.itemKey != itemKey) continue
+        val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
+        matches += RescheduleMatch(id, ItemDates.Task(taskDueFrom(entry)))
+    }
+    return matches
+}
+
+internal fun taskDueFrom(task: JSONObject): LocalDate? =
+    task.optString("due").takeIf { it.isNotBlank() }
+        ?.let { due -> runCatching { OffsetDateTime.parse(due).toLocalDate() }.getOrNull() }
+
+/**
+ * SRS §5.8's tie-break: where several items carry one key, the offer goes to the latest.
+ *
+ * The others are positions the meeting has already left, and picking among them by whatever
+ * order the API returned would make the offer differ between the two transports for no
+ * reason a user could see.
+ */
+internal fun latestEventMatch(
+    current: RescheduleMatch?,
+    candidates: List<RescheduleMatch>,
+): RescheduleMatch? {
+    var best = current
+    for (candidate in candidates) {
+        val at = (candidate.dates as? ItemDates.Event)?.start ?: continue
+        val bestAt = (best?.dates as? ItemDates.Event)?.start
+        if (bestAt == null || at.isAfter(bestAt)) best = candidate
+    }
+    return best
+}
+
+/** As [latestEventMatch]. An undated task never outranks a dated one: it has no position. */
+internal fun latestTaskMatch(
+    current: RescheduleMatch?,
+    candidates: List<RescheduleMatch>,
+): RescheduleMatch? {
+    var best = current
+    for (candidate in candidates) {
+        val due = (candidate.dates as? ItemDates.Task)?.due
+        val bestDue = (best?.dates as? ItemDates.Task)?.due
+        when {
+            best == null -> best = candidate
+            due == null -> Unit
+            bestDue == null || due.isAfter(bestDue) -> best = candidate
+        }
+    }
+    return best
+}
 
 /**
  * Whether a rejected delete has nonetheless left the account in the state FR-807 asked for.

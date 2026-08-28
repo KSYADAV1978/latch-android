@@ -262,15 +262,15 @@ class WritePathTest {
     fun `a delete addresses the item by its container and its own id`() {
         assertEquals(
             "https://www.googleapis.com/calendar/v3/calendars/you%40example.com/events/ev_42",
-            eventDeleteUrl("you@example.com", "ev_42"),
+            eventItemUrl("you@example.com", "ev_42"),
         )
         assertEquals(
             "https://tasks.googleapis.com/tasks/v1/lists/list_1/tasks/task_42",
-            taskDeleteUrl("list_1", "task_42"),
+            taskItemUrl("list_1", "task_42"),
         )
         // Both ids reach the URL as path segments, so neither may carry a raw separator out
         // of the account and into a path this code did not intend.
-        assertTrue(eventDeleteUrl("a/b", "c d").endsWith("/calendars/a%2Fb/events/c%20d"))
+        assertTrue(eventItemUrl("a/b", "c d").endsWith("/calendars/a%2Fb/events/c%20d"))
     }
 
     @Test
