@@ -205,35 +205,44 @@ private fun CaptureBody(
 ) {
     val candidate = result.primary
 
-    ItemTypeBadge(candidate)
+    // FR-511: everything below that describes *one* candidate belongs to the header only
+    // while there is one candidate. With a list, each row carries its own badge, date and
+    // notes, and repeating the primary's above them says something false as often as not —
+    // an EVENT badge over a list holding tasks, or FR-510's past-date note shown twice for
+    // the same row. The title is the exception: it names the capture rather than any one
+    // date in it, so it stands above the list.
+    val single = result.candidates.size == 1
+
+    if (single) {
+        ItemTypeBadge(candidate)
+    }
 
     Text(
         text = captured.preferredTitle ?: result.title.value,
         style = MaterialTheme.typography.titleMedium,
     )
 
-    // FR-511: with one date this is the whole story and a checkbox beside it would be a
-    // control with nothing to choose. With several, the list below carries them all and this
-    // line would be repeating its first row.
-    if (result.candidates.size == 1) {
+    if (single) {
         Text(
             text = whenLine(candidate),
             style = MaterialTheme.typography.bodyLarge,
         )
+
+        // FR-510: a past date never becomes a dated item; the user is offered a follow-up.
+        // Per row otherwise — CandidateRow shows it for whichever rows are actually past.
+        if (candidate.isPast) {
+            Note(stringResource(R.string.capture_past_date))
+        }
     }
 
-    // FR-510: a past date never becomes a dated item; the user is offered a follow-up.
-    if (candidate.isPast) {
-        Note(stringResource(R.string.capture_past_date))
-    }
-
-    // FR-504: the resolved interpretation is shown before saving, never assumed.
+    // FR-504: the resolved interpretation is shown before saving, never assumed. Header-level
+    // only where there is one candidate; CandidateRow carries it per row otherwise.
     val ambiguousDate = candidate.date?.value
-    if (candidate.ambiguousOrder && ambiguousDate != null) {
+    if (single && candidate.ambiguousOrder && ambiguousDate != null) {
         Note(stringResource(R.string.capture_ambiguous_order, ambiguousDate.format(DATE_FORMAT)))
     }
 
-    if (candidate.ambiguousRelative) {
+    if (single && candidate.ambiguousRelative) {
         Note(stringResource(R.string.capture_ambiguous_relative))
     }
 
@@ -290,6 +299,19 @@ private fun CandidateRow(candidate: DatedCandidate, checked: Boolean, onToggle: 
             // read, and the follow-up that requirement describes is not built.
             if (candidate.isPast) {
                 Note(stringResource(R.string.capture_past_date))
+            }
+            // FR-504, likewise per row. These used to be shown for the primary alone, which
+            // in a multi-date capture meant an ambiguous date that was *not* the primary got
+            // no interpretation shown at all — "Invoice dated 05/09 and review on 12
+            // September at 3pm" ranks the timed date first and leaves 05/09 unexplained.
+            // The requirement is that the resolved reading is displayed before saving, and a
+            // row the user is about to tick is exactly where it has to appear.
+            val ambiguousDate = candidate.date?.value
+            if (candidate.ambiguousOrder && ambiguousDate != null) {
+                Note(stringResource(R.string.capture_ambiguous_order, ambiguousDate.format(DATE_FORMAT)))
+            }
+            if (candidate.ambiguousRelative) {
+                Note(stringResource(R.string.capture_ambiguous_relative))
             }
         }
     }

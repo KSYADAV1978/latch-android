@@ -166,14 +166,15 @@ than 10 seconds" so nothing is out of specification, and no change is asked for;
 number was chosen against the requirement's floor rather than against how the offer is used,
 and this is the evidence for revisiting it if it is ever revisited.
 
-**Two cosmetic items on the multi-date sheet**, neither worth its own commit today. The
-**ItemTypeBadge above the list is the primary's**, so an EVENT badge can sit over a list that
-contains tasks — the when-line below it was suppressed for a multi-date capture and the badge
-was not, which is an oversight rather than a decision; the **title** above the list is
-deliberate and names the capture. And a past **primary** would show FR-510's note twice, once
-in the header and once in its own row, for the same reason. Also seen: FR-509's 50-character
-truncation can end a title on a dangling preposition ("…September 6, 2027 at"), which is the
-truncation working as specified and reading badly.
+**One cosmetic item remains on the multi-date sheet**: FR-509's 50-character truncation can
+end a title on a dangling preposition ("…September 6, 2027 at"), which is the truncation
+working as specified and reading badly. Fixed since the pass, in one commit: the primary's
+badge and FR-510 note no longer sit above the list — everything describing a single candidate
+is now header-level only where there is a single candidate, and the title is the exception
+because it names the capture rather than a date in it. The same commit closed an **FR-504
+miss** found while making that change: the ambiguity notes were primary-only, so in a
+multi-date capture an ambiguous date that was not the primary had its resolved reading shown
+nowhere at all.
 
 **Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
 **pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
