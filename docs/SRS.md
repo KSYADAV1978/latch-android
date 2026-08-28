@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.26 (draft for developer handover)"
+author: "Version 1.27 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.26 — draft for developer handover |
+| Version | 1.27 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -47,6 +47,8 @@ date: "28 August 2026"
 | 1.24 | 28 Aug 2026 | Records a limitation found while building FR-511's drain, against FR-806 and §7.1. **A chain that fails part-way through its inserts is left short on the next attempt.** The entry stays queued, as it must, but FR-803 at the head of the retry asks whether the message has been saved, finds the items that did get written, and answers yes — so the drain retires the entry with the rest of the chain never written. The rule that makes the common case correct is what makes this one wrong, and no reordering fixes both: asked per item the check loses whole chains to the duplicate the chain created itself, asked once it cannot tell a half-succeeded chain from one already saved. The cure is a **per-item written marker** on the entry, so a retry resumes at the first unwritten item rather than re-asking a question about the message; that needs the local storage FR-701 brings, where FR-803's own index of source hashes is already deferred to. The exposure is bounded meanwhile — it needs a failure *between* two inserts rather than before the first, and the user is left with the items that were written rather than with nothing. No requirement changed.
 | 1.25 | 28 Aug 2026 | Two readings taken once FR-511 made their subjects reachable, both found by running the device checklist's own texts through the parser before the phone saw them. **A capture producing more than one item is never offered as a reschedule**; it is saved as an ordinary multi-select save, and FR-804's offer is confined to single-candidate captures. This is v1.16's "matched item, not its chain" narrowing coming due rather than a new one: an `item_key` covers the capture, so a re-captured multi-date message matches the chain it created, and accepting the offer would patch one item and write none of the others — four items in front of the user becoming one moved event and three discarded silently. Losing a capture is the worst outcome this specification admits; design principle 1 forbids inventing what the user did not write, and dropping what they did write is the same failure inverted. The accepted cost is that re-capturing an amended multi-date message writes its unchanged items again, which is **visible and undoable** where a silent discard is neither. The cure is named rather than attempted: **per-item date matching**, so an amended message updates what moved, creates what is new and leaves the rest — a larger feature needing item-level identity §7.2 deliberately does not provide. FR-804 is unchanged for a single-candidate capture. **And FR-511's per-row blocking rule is recorded as presently unreachable**: a time with no day becomes its own candidate only where the capture holds no date at all, since every time is otherwise paired with the nearest date, so a blocked row cannot yet sit beside an unblocked one. It becomes reachable when the assembler can leave a time unpaired, which FR-506 row 3's date picker will need regardless; it is built now because the multi-select list is where it belongs. No requirement changed.
 | 1.26 | 28 Aug 2026 | Corrects a statement of fact that FR-511 made stale. FR-807's note listed **four** requirements as unmet for want of UI and named FR-511 among them — "only the first date of a multi-date capture is saved" — and drew from that the further claim that a chain is one item on every reachable path, so FR-807's removal loop could not be exercised beyond one. Both were true when written at v1.12 and are no longer: FR-511 is built, and AC-11 was verified against a four-item chain on a device on 28 Aug 2026. The count drops to three — FR-506 row 3, FR-507 and FR-510 — and the paragraph now records that the multi-item case is reachable rather than that it is not. No requirement changed; this is the specification catching up with what was built to it.
+
+| 1.27 | 28 Aug 2026 | Settles what FR-215 costs and what paying it commits the project to, before the OCR slice is built — the same order §7.2 was pinned in, and for a related reason: an APK budget cannot be corrected after the models are in it. **On-device OCR is measured and the bundled variant is taken.** ML Kit Text Recognition v2, bundled, Latin and Devanagari: **+12.83 MB per device**, +41.41 MB on a universal APK. The unbundled Play-services variant costs +325 KB and is **rejected**, because it opens a hole in NFR-301 exactly where the rest of the app is built to survive — a first image capture with no network fails outright, neither queued nor degraded, on the user with the least reason to try again. **NFR-103 adopts the per-device reading**, which is the figure that reaches a user and the reading `docs/DEPENDENCIES.md` already applies to SQLCipher. That reading is not free and it creates a condition, which is why it is written rather than assumed: the shipping artifact must be an App Bundle, and the 42.58 MB universal APK becomes a development artifact recorded as such rather than a breach. **FR-1108 is added** to hold that commitment as a release gate — a signing configuration, a bundle block and a bundletool-derived per-device measurement are owed before any Play submission — so that a reading taken here cannot be quietly forgotten by whoever ships. **FR-207 gains its PDF reading**: the platform `PdfRenderer`, no dependency, pages rendered to bitmaps and put through the same recogniser, capped at ten pages with the cap **reported on screen** rather than applied silently, on the same instinct that makes `scanCapped` report giving up rather than answering "none". Its cost is recorded rather than hidden — OCR of a rendered page is lossy where a PDF's embedded text layer is exact. **FR-805b is added**, in the shape FR-805a already has: for an OCR-derived capture the description carries a capped extract around the matched dates, never the whole recognised text, because a screen dump synchronised into a calendar description is a privacy decision this specification has not taken and would not take by accident — and a bare content-URI link, the other obvious answer, is a grant that expires and that §4.1's other clients could never resolve. **§7.2 records the OCR hash wobble** — the same image re-shared can recognise slightly differently, so `latch.source_hash` can differ for what a human would call the same capture and `latch.item_key` inherits it — accepted for image captures at v1.0, with the direction of the failure recorded as the reason it is acceptable. **NFR-102's progressive render is gated to OCR captures** in this slice, text keeping today's synchronous parse. And **AC-17 is restated structurally**: a second component now makes its own connections outside the `ALLOWED_HOSTS` guard every request of ours goes through. No requirement is removed and none is changed in substance; **FR-1108 and FR-805b are added**, and FR-215, FR-216 and FR-207 acquire the how-it-is-met notes they have never had. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -193,6 +195,34 @@ Four independent capture layers are required. Each must function if the others a
 
 **FR-207 [MUST]** The share target shall accept `application/pdf` and extract text from it. (See FR-215.)
 
+> **How this requirement is met, and what it gives up.**
+>
+> **The platform renders; FR-215's recogniser reads.** `android.graphics.pdf.PdfRenderer` has
+> been in Android since API 21, well below the minimum SDK FR-516 fixes at 26, so a PDF page
+> becomes a bitmap at no dependency cost and goes through the same recogniser as a shared
+> image. One path serves both kinds of PDF, which is the point: a scanned PDF has no text
+> layer to read and would need this path regardless.
+>
+> **What that gives up is real and is recorded rather than glossed.** A PDF that *has* an
+> embedded text layer carries its text exactly, and a library that read that layer directly —
+> PdfBox-Android, or iText — would extract it perfectly where OCR of a picture of the same
+> page will not. **The fidelity loss is accepted.** Such a library is 5–16 MB on a budget
+> FR-215 has already spent a third of, iText brings an AGPL-or-commercial licence question,
+> and neither removes the need for the OCR path. The consequence to expect is ordinary OCR
+> error — a mis-read digit in a date, a column order the recogniser reconstructs differently
+> from the page — on documents where an exact answer was available and was not taken.
+>
+> **Ten pages, and the cap is reported rather than applied silently.** Rendering and
+> recognising is per-page work with a per-page cost, and NFR-101 budgets 2.5 s for a single
+> full-screen image; an unbounded PDF is an unbounded wait. The app shall OCR the first **ten**
+> pages and shall **state on the confirmation screen** how many of how many it read — "first
+> 10 of 34 pages read" — so that a date on page eleven is a thing the user is told about
+> rather than a thing that silently was not there. This is the instinct FR-803's
+> `scanCapped` already establishes: a search that stopped looking must say so, because the
+> caller cannot otherwise tell it apart from having looked everywhere and found nothing. The
+> number is a reading and is movable by revision; what is not movable is that the cap is
+> visible.
+
 ### Layer 3 — Notification listener
 
 **FR-208 [MUST]** The app shall optionally implement `NotificationListenerService` to detect dates in incoming messages.
@@ -217,7 +247,59 @@ Four independent capture layers are required. Each must function if the others a
 
 **FR-215 [MUST]** Images and PDFs received by any layer shall be processed with on-device OCR (ML Kit Text Recognition v2 or equivalent), supporting at minimum Latin and Devanagari scripts.
 
+> **How this requirement is met, and what meeting it commits the project to.**
+>
+> **ML Kit Text Recognition v2, bundled, with the Latin and Devanagari models in the APK.**
+> ML Kit ships in two forms with an identical API: *bundled*, where the native pipeline and
+> the models are packaged into the application, and *unbundled*, where a thin client
+> downloads both from Play services on first use. The choice between them is the whole
+> decision, and it was settled by measurement against NFR-103 — recorded in full, with the
+> method and the per-ABI breakdown, in `docs/DEPENDENCIES.md`.
+>
+> | Variant | Universal APK | Per device (arm64-v8a) |
+> |---|---|---|
+> | Unbundled, Latin + Devanagari | +325 KB | +325 KB |
+> | **Bundled, Latin + Devanagari** | **+41.41 MB** | **+12.83 MB** |
+>
+> **The unbundled variant is rejected, and not on size.** It is a hundred and forty times
+> cheaper and it is still the wrong answer, because a model that has not been downloaded yet
+> means a **first image capture with no network fails outright** — not queued under FR-806,
+> not degraded, simply unable to extract text at all. NFR-301 requires capture to function
+> fully offline and the entire write queue exists so that a capture made with no network is
+> not lost; an OCR path that fails in that exact situation contradicts the property the
+> product is built around, and it does so on a first-run user, who has the least reason to
+> give the app a second try. Size is the cheaper thing to spend here than the promise.
+>
+> **Devanagari is not what costs, and this is why FR-215's "at minimum" is met in full rather
+> than trimmed.** The second script adds **626 KB** over Latin alone: the native pipeline is
+> one library shared between them and is byte-identical in both builds, so only the model
+> assets differ. There is therefore no meaningful middle position in which Devanagari is
+> dropped to save space — it would give up half of what this requirement names for four per
+> cent of what it costs. Noted rather than acted on: the bundled asset set also carries a
+> **Bengali** model of 443 KB that nothing in this specification asks for and that cannot be
+> excluded, because it ships inside the same bundle as Devanagari.
+>
+> **What this spends.** 13.97 MB of a 40 MB budget on one feature, under the per-device
+> reading NFR-103 now takes. Every later slice — the Capture Inbox (FR-700), Settings
+> (FR-1000), the Recipes UI (FR-600), the notification listener (FR-208) — draws on what is
+> left. It is affordable and it is recorded here as **spent** rather than left to be
+> discovered as missing.
+
 **FR-216 [MUST]** OCR shall run entirely on device. No image shall be transmitted anywhere.
+
+> **How this is met, and the one thing it now rests on that it did not before.** The bundled
+> variant taken under FR-215 downloads no model and calls no recognition service: the
+> pipeline and the models are in the APK and the inference is local, which is the strongest
+> form of this requirement and one reason the bundled variant is the right one. The image
+> itself is never retained (see `Capture.rawText`, which holds the extracted text and never
+> the source image) and never leaves the device.
+>
+> **ML Kit is nonetheless a second component that makes its own connections**, for its own
+> logging, outside the `ALLOWED_HOSTS` guard every request this app composes passes through.
+> That traffic goes to Google, so AC-17 holds, but it is not ours to route — the same
+> standing Play services' OAuth grant already has. AC-17's restatement records this; the
+> consequence for verification is that the network monitor must be run over an **image**
+> capture specifically, because a text capture never wakes this component at all.
 
 **FR-217 [MUST]** The app shall **not** use `MediaProjection` for screen capture. Rationale: from Android 14, consent is required for every capture session and the token cannot be reused, making the interaction unusable for this purpose.
 
@@ -436,6 +518,41 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 > Rationale. A Google item is persistent storage (see the reading recorded against NFR-206), and NFR-206 forbids notification content reaching it. This is the same reasoning that suppresses webhook delivery for this layer under FR-210a, and it applies with more force here: a webhook is an endpoint the user chose, whereas the calendar entry is written by default and syncs to every device on the account. The exclusion shall be stated in the notification-access disclosure screen alongside FR-210a's.
 
+**FR-805b [MUST]** Where a capture was derived by OCR (FR-215), the item's source text shall be a **capped extract of the recognised text around the matched dates**, and shall never be the whole recognised text. FR-805 is otherwise satisfied as written: the source link is unchanged, and the extract is the source text for every purpose the requirement names.
+
+> **Rationale, and why neither of the two obvious alternatives is taken.**
+>
+> **The whole OCR text is a privacy decision, not a completeness one.** A shared screenshot is
+> a picture of a screen, and what the recogniser returns is everything that was on it — other
+> people's messages above and below the one that mattered, a bank balance in a status area, an
+> unrelated notification. FR-805 asks for the source text so a user can see where an item came
+> from; writing all of that into a calendar description would synchronise a screen dump to
+> every device on the account and into the account's backups, which is a decision this
+> specification has not taken and must not take by accident. Design principle 2 confines what
+> leaves the device to "the finished calendar or task entry", and a screen dump is not one.
+>
+> **A bare content-URI link is too fragile to be provenance.** The obvious alternative —
+> store no text and link to the image — fails at the thing FR-805 exists for. A shared
+> content URI is a grant to one activity for one launch; it does not survive the app that
+> issued it clearing its cache, the file being deleted, or the item being read on another
+> device, and the other two clients of §4.1 could never resolve it at all. An item whose
+> provenance is a link that no longer opens has no provenance.
+>
+> **The shape is FR-805a's.** The description is composed in exactly one place and call sites
+> cannot compose it differently, which is what makes FR-805a hold structurally rather than by
+> care; this rule is applied at the same place and inherits the same property. Note the two
+> rules compose in the one direction that matters: a notification-sourced capture stores no
+> source text at all, and an OCR extract of nothing is still nothing.
+>
+> **The extract as parameterised.** These are readings, movable by a future revision, and are
+> recorded so that the behaviour is a decision rather than whatever the first implementation
+> did: a window of **160 characters either side** of each matched date span; windows **merged**
+> where they fall within 40 characters of one another; the whole body capped at **600
+> characters**; an ellipsis at each join and at either end where text was dropped, so the user
+> can see that they are reading an extract. Where the capture is OCR-derived and **no** date
+> was matched, the first 600 characters are taken — the item is undated under design principle
+> 1 and still needs provenance.
+
 **FR-806 [MUST]** All writes shall be queued locally when offline and retried on reconnection, with the queue visible to the user.
 
 > **How this requirement is met, and where it is bounded.**
@@ -530,7 +647,15 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **NFR-102 [MUST]** The confirmation UI shall render before parsing completes if necessary, filling fields progressively, rather than delaying display.
 
-**NFR-103 [MUST]** Android APK size under 40 MB. Windows MSIX under 80 MB.
+> **Where this is met, and where it is deliberately not exercised yet.** "If necessary" is the operative phrase, and until FR-215 it was never necessary: a text capture is parsed synchronously with no I/O, well inside NFR-101's 800 ms, and the screen has its fields before it first draws. An OCR capture cannot be — NFR-101 budgets it 2.5 s, which is a wait the user must watch rather than sit behind a blank window — so the progressive path is built for and gated to OCR captures in this slice, with the text path keeping the synchronous parse it has today. This is a narrowing of scope, not of the requirement: the mechanism reaches every capture the moment a text path needs it. It is recorded because the gating is deliberate, and because a device pass must **re-verify an ordinary text capture end to end** whenever this code is touched — the risk of adding an asynchronous path is that it quietly captures the synchronous one.
+
+**NFR-103 [MUST]** Android APK size under 40 MB. Windows MSIX under 80 MB. **On Android this is measured per device**, against the split an App Bundle delivers, per the reading below.
+
+> **How "APK size" is read on Android, recorded because FR-215 made the two readings give opposite answers.** Bundled OCR models are one native library per ABI, so a universal APK carries four copies of a thing any device needs one of. Measured on 28 Aug 2026, the same tree is **13.97 MB per device (arm64-v8a)** and **42.58 MB as a universal APK** — inside the budget under one reading and a breach under the other, with no difference in what any user installs.
+>
+> **The per-device figure governs.** It is what reaches a user, it is what Play delivers, and it is the reading `docs/DEPENDENCIES.md` already applies to the SQLCipher measurement recorded there. The **universal APK is a development artifact**: its 42.58 MB is recorded as such and is **not** a breach of this requirement.
+>
+> **That reading is conditional, and FR-1108 holds the condition.** It is true only if the shipping artifact actually is an App Bundle. A project that took this reading and then submitted a universal APK would be over budget by the measurement it used to declare itself under it, which is precisely the kind of thing that is forgotten between a decision and a submission — so the commitment is written as a release gate rather than left here as an assumption.
 
 **NFR-104 [MUST]** No persistent background service on Android other than the optional notification listener.
 
@@ -649,6 +774,12 @@ Written to `extendedProperties.private` on events, and appended to notes on task
 An optional key that has no value shall be **omitted**, never written empty. An empty value cannot be distinguished from a value that is genuinely the empty string, and a reader cannot then tell "unknown" from "known to be nothing".
 
 **`latch.source_hash` covers the whole capture, not the individual item.** Every item produced by one capture therefore carries the same value, and FR-803's question is "has this message already been saved", not "has this item already been created".
+
+**An OCR-derived capture's hash is not stable across recognitions, and this is accepted for v1.0.** Every value in this section is specified exactly so that two clients derive the same digest from the same text; that guarantee is over the *text*, and for an image capture the text is whatever the recogniser returned. The same image shared twice can recognise slightly differently — a different scale or rotation on the second share, a different ML Kit version, a different device — and one character of difference is a different `latch.source_hash`. FR-803 then fails to recognise a true duplicate, and because `latch.item_key` is derived from the same recognised text it inherits the wobble, so FR-804 is weaker again on image captures than on text ones.
+
+**The reason this is acceptable rather than merely unfixed is the direction in which it fails.** The wobble can only cause FR-803 to **miss** a duplicate, never to report one falsely: a hash that differs finds nothing and the capture is written as a new item. So the cost is a second item that the user can see on screen, undo under FR-807, or delete by hand. The failure it cannot produce is the damaging one — suppressing a save the user asked for, on the strength of a digest that happened to collide with something. That is the correct side of design principle 1, under which losing what the user wrote is the worst outcome this specification admits.
+
+**Two apparent cures are worse and are recorded so they are not attempted.** Hashing the **image bytes** would be stable for the same file re-shared and would break the contract this section exists to hold: §4.1's other clients OCR a differently encoded copy of the same screenshot, a re-taken screenshot has different bytes entirely, and the value is specified as a digest of normalised *text*. Applying a **stricter normalisation for OCR text only** — collapsing more aggressively, folding confusable characters — reduces the wobble without removing it, and forks the AC-07 normalisation in a way a reader cannot detect: a client would have to know a capture was OCR-derived to reproduce the digest, and this schema has no key that says so. Both trade a visible, undoable duplicate for a silent cross-client divergence.
 
 **`latch.item_key` likewise covers the capture and not the item.** Step 2 above blanks *every* date, time and end-time span — not merely the one the primary candidate matched — so every item a single capture produces derives the same key. That is deliberate, and the alternative was considered and rejected: blanking only an item's own spans would leave its neighbours' dates standing in its title, so the key would move the moment any date in the message changed, which is exactly the failure `item_key` exists to prevent. The consequence is that FR-804 identifies **what the message is about**, not which occurrence of it, and a reschedule offer against a multi-item chain resolves through §5.8's existing latest-date tie-break.
 
@@ -786,6 +917,16 @@ The scopes in FR-002 are sensitive and require Google review before general avai
 
 **FR-1107 [MUST]** An annual maintenance allocation shall be planned for Google Play target-API-level updates, policy re-declarations and dependency upgrades. Estimated at two developer-weeks per year, ongoing.
 
+**FR-1108 [MUST]** The Android application shall be submitted to Google Play as an **App Bundle**, never as a universal APK. Before any submission the following are owed and shall be treated as a release gate:
+
+1. A release **signing configuration**, and a `bundle` block configuring the ABI, density and language splits.
+2. A **per-device size measurement derived from the bundle itself** — via `bundletool build-apks` and the resulting APK set, not by subtracting ABI entries from a universal APK as the 28 Aug 2026 measurement did — recorded in `docs/DEPENDENCIES.md` against NFR-103's budget.
+3. The release signing certificate's SHA-1 registered against the Android OAuth client (FR-001), without which sign-in fails on exactly the build being shipped.
+
+> **Why this is a requirement and not a note.** NFR-103's per-device reading is what makes FR-215's bundled OCR models affordable, and that reading is only true of an App Bundle. Ship the same tree as a universal APK and the app is 42.58 MB against a 40 MB budget — over, by the very measurement used to declare it under. The gap between taking that reading and acting on it is months and several slices of work, which is exactly the distance over which an assumption is forgotten. Written here because §9 is where the obligations that bind at submission live, and because whoever ships is not necessarily whoever measured.
+>
+> Item 2 is separate from items 1 and 3 on purpose. The measurement this specification currently rests on is an **estimate**: it subtracts the other ABIs' entries from a universal APK, which is the honest arithmetic available before a bundle exists, but it is not the artifact Play builds. Splits carry their own overhead and the real figure will differ. Confirming it against the actual APK set is the point at which NFR-103 stops being a calculation and becomes a measurement. Item 3 is unrelated to size and is here because it is the other thing that is invisible until the first release build and fatal when it is found — the note under §8.6 and the debug-keystore constraint already recorded in `CLAUDE.md` are the same fact one step earlier.
+
 ---
 
 # 10. Acceptance criteria
@@ -810,12 +951,18 @@ Each scenario below shall pass on a physical device before sign-off.
 | AC-14 | Enter "05/09" with DD/MM setting | Interpreted as 5 September; interpretation displayed before save |
 | AC-15 | Complete first-run setup | Under 60 seconds; Latch calendar created only on finish |
 | AC-16 | Abandon setup at step 2 | No calendar created in the Google account |
-| AC-17 | Network monitor active during a full capture cycle, app in **default configuration** (no webhook configured) | No outbound request to any non-Google endpoint |
+| AC-17 | Network monitor active during a full capture cycle, app in **default configuration** (no webhook configured). The cycle shall include an **image** capture — see the note below | No outbound request to any non-Google endpoint |
 | AC-18 | Configure a webhook, then capture an item with the network monitor active | Exactly one request to the user-configured endpoint; no other non-Google traffic |
 | AC-19 | Configure a webhook, then confirm an item captured via the notification listener | No webhook request is made; the item is written to Google only |
 | AC-20 | Configure a webhook pointing at an unreachable endpoint, then save an item | Item is written to Google normally; no blocking error; undo still works |
 | AC-21 | Configure a reachable webhook, save an item while offline, then reconnect | Google write completes from the queue; no webhook request is sent for that item; behaviour is documented, not reported as an error |
 | AC-22 | Confirm an item captured via the notification listener, then inspect the created item in Google | Title and date are present; the notification's text appears nowhere — not in the description, the notes, or the extended properties |
+
+> **AC-17 restated, because what it rests on has changed shape.** This criterion was once structural in the strongest possible way: the app held no `INTERNET` permission and could not make a request at all. It then became a property of the code — every request the app composes passes through a single guard that refuses any host outside an explicit allowlist, checked on the parsed host, HTTPS only, redirects refused — with one acknowledged exception, Play services making its own calls for the OAuth grant, which go to Google but are not ours to route.
+>
+> **FR-215 adds a second such component.** ML Kit opens its own connections for its own logging, outside that guard, on a schedule this app does not control. As with the OAuth grant the traffic goes to Google, so the criterion holds as written; and as with the OAuth grant it is not ours to route, so it will appear on a monitor and must not be reported as a failure. The bundled variant taken under FR-215 is the quieter of the two here — an unbundled ML Kit would additionally download models on first use — but "quieter" is not "silent", and this is now a criterion resting on **two** components whose traffic is Google's rather than one.
+>
+> **The verification consequence is that the monitored cycle must include an image capture.** A text capture never wakes this component, so a run over text alone would show a clean monitor and would prove nothing about the code path this note is about. Widening the allowlist remains an AC-17 decision rather than a refactor; the same is now true of adding any component that makes connections of its own.
 
 ---
 

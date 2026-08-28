@@ -19,6 +19,8 @@ baselines is not.
 
 | Dependency | Version | Universal APK | Per device (App Bundle) | Decision |
 |---|---|---|---|---|
+| ML Kit text recognition, **bundled**, Latin + Devanagari | 16.0.1 | +41.41 MB (dev artifact) | **+12.83 MB** (arm64-v8a) | **Approved** |
+| ML Kit text recognition, **unbundled** (Play services), Latin + Devanagari | 19.0.1 / 16.0.1 | +325 KB | +325 KB | **Rejected** — NFR-301 |
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB (see note) | +118 KB | **Approved, now in use** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
 | `com.google.android.gms:play-services-auth` | 22.0.0 | +135 KB | +135 KB | **Approved** |
@@ -36,11 +38,121 @@ SQLCipher's weight is one native library per ABI: arm64-v8a 2.00 MB, armeabi-v7a
 x86 2.14 MB, x86_64 2.13 MB. Play delivers only the device's ABI, so 2.0 MB is the honest
 figure and 7.34 MB is the universal-APK worst case.
 
-None of this is the binding constraint on NFR-103. On-device OCR (FR-215) is unmeasured and
-will dominate the budget — ML Kit's bundled text recognition models are the largest single
-item this app will ever ship. Measure it before treating the 40 MB as comfortable.
+None of the rows above is the binding constraint on NFR-103. **On-device OCR is, and it has
+now been measured** — see the FR-215 section below. The bundled models are, as predicted, the
+largest single item this app will ever ship: they are roughly thirty-six times the whole
+current app on a universal APK and eleven times it per device.
 
 ## Approved
+
+### ML Kit Text Recognition v2, bundled — on-device OCR (FR-215, FR-216, FR-207)
+
+FR-215 requires images and PDFs to be processed with on-device OCR, "ML Kit Text Recognition
+v2 or equivalent", supporting **at minimum Latin and Devanagari**. FR-216 requires it to run
+entirely on device. ML Kit ships that in two forms, and the choice between them is the whole
+decision — the API is identical, the import statements are identical, and only the artifact
+coordinates differ.
+
+- **Bundled** (`com.google.mlkit:text-recognition` + `:text-recognition-devanagari`). The
+  native pipeline and the model files are packaged into the APK. Works on first launch, with
+  no network, on a device with no Play services.
+- **Unbundled** (`com.google.android.gms:play-services-mlkit-text-recognition` +
+  `:play-services-mlkit-text-recognition-devanagari`). The APK carries a thin client; the
+  pipeline and the models are downloaded by Play services on first use.
+
+**Measured 28 Aug 2026**, release build, R8 and resource shrinking on, against a baseline of
+**1,219,462 bytes** — `main` at commit `fff5e10`, re-measured after the spike was reverted
+and reproduced byte-for-byte. Per the methodology above, the spike used realistic usage: a
+real `:ocr` module wired into `CaptureActivity` behind a reachable call, so R8 could not
+strip what was being measured.
+
+| Variant | Universal APK | Delta | Per device (arm64-v8a) | Delta |
+|---|---|---|---|---|
+| Baseline (no OCR) | 1,219,462 | — | 1,192,166 | — |
+| **Unbundled**, Latin + Devanagari | 1,551,985 | **+332,523 (+325 KB)** | 1,524,689 | **+332,523 (+325 KB)** |
+| Bundled, Latin only | 44,002,604 | +42,783,142 | 14,006,192 | +12,814,026 (+12.22 MB) |
+| **Bundled**, Latin + Devanagari | 44,643,418 | **+43,423,956 (+41.41 MB)** | 14,647,006 | **+13,454,840 (+12.83 MB)** |
+
+**The universal and per-device figures diverge enormously, and which one NFR-103 means is the
+decision.** Bundled ML Kit's weight is one native library per ABI — `libmlkit_google_ocr_pipeline.so`,
+stored uncompressed: arm64-v8a 11,074,640, armeabi-v7a 6,789,192, x86 11,570,332, x86_64
+11,636,888 — plus 1,908,759 bytes of model assets shared across all four. Play delivers only
+the device's ABI, so **13.97 MB is the honest per-device figure and 42.58 MB is the
+universal-APK worst case**, the same distinction recorded for SQLCipher below. Unbundled has
+no ABI split at all: it ships no native code, so its two figures are the same number.
+
+**Against NFR-103's 40 MB, the two readings give opposite answers.** Per device, bundled
+lands at 13.97 MB — comfortably inside the budget and inside half of it. As a universal APK,
+bundled lands at 42.58 MB and **breaches NFR-103 outright**, before a single further feature
+is built. This project does not currently produce an App Bundle: there is no signing config
+and no `bundle` block, so the only artifact this build makes today is the universal APK that
+breaches. Adopting bundled therefore makes NFR-103 conditional on shipping an AAB rather than
+an APK — which is what Play requires for new applications in any case, but it is a commitment
+this project has not yet made anywhere in writing.
+
+**Devanagari is not what costs.** The second script adds **640,814 bytes (626 KB)** over
+Latin alone — model assets only; the native pipeline `.so` is byte-identical in both builds
+and is shared between the scripts. The expensive thing is bundling *at all*, not bundling
+*two scripts*. There is consequently no meaningful middle option in which Devanagari is
+dropped to save space: doing so would give up half of what FR-215 names, for 4% of the cost.
+(The bundled model assets also carry a **Bengali** model, 443,176 bytes, which nothing in
+this specification asks for and which cannot be excluded — it ships inside the same asset
+bundle as Devanagari.)
+
+**What the unbundled variant costs instead is a first-run network dependency**, and that is
+the reason this is a decision and not an arithmetic problem. Latch is offline-first: NFR-301
+requires capture to function fully offline, and FR-806's entire write queue exists so that a
+capture made with no network is not lost. Under the unbundled variant a user's **first image
+capture with no network fails** — not queued, not degraded, but unable to extract text at
+all, because the model has not been downloaded yet. That is a hole in NFR-301 in exactly the
+situation the rest of the app is built to survive, and it lands on a first-run user, who has
+the least reason to give the app a second try.
+
+**Decision, 28 Aug 2026: bundled, both scripts, and NFR-103 adopts the per-device reading.**
+The per-device figure is the one that reaches a user, it is what Play delivers, and it is the
+reading this file already applies to the SQLCipher measurement below. The universal APK's
+42.58 MB is recorded as a **development artifact**, not as a breach. The unbundled variant is
+**rejected** — not on size, which it wins by a factor of a hundred and forty, but on the
+NFR-301 hole it opens: a first image capture with no network fails outright, neither queued
+under FR-806 nor degraded, on the user with the least reason to try again. Its +325 KB stays
+in the table above as the road not taken, so the trade is visible to whoever revisits this.
+
+It is not free: 13.97 MB against a 40 MB budget spends roughly a third of it on one feature,
+and every later slice — the Capture Inbox, Settings, Recipes UI, the notification listener —
+is drawn from what is left. Recorded as **spent**, rather than discovered as missing.
+
+**The per-device reading is conditional, and the condition is now a requirement.** It holds
+only if the shipping artifact is an App Bundle, and this project has no signing config and no
+`bundle` block. **SRS FR-1108** makes that a release gate: a signing configuration and bundle
+block, a **bundletool-derived** per-device measurement recorded here against NFR-103 — the
+figures above subtract ABI entries from a universal APK, which is the honest arithmetic
+available before a bundle exists but is not the artifact Play builds — and the release
+certificate's SHA-1 registered against the Android OAuth client. Written as a requirement
+because the distance between this decision and that submission is months, and because whoever
+ships is not necessarily whoever measured.
+
+**Two obligations carried into the build, recorded so they are not lost as footnotes.** The
+**merged manifest is to be inspected** when the dependency lands, and any permission ML Kit
+introduces named in `app/src/main/AndroidManifest.xml`'s comment — the precedent is
+WorkManager's four, and that file is where a reviewer comes to find out what the app can do.
+And **NFR-101's 2.5 s budget for OCR of a full-screen image goes into the device pass**; it is
+unmeasured, and no JVM test can see it.
+
+**PDFs add no dependency** (FR-207). `android.graphics.pdf.PdfRenderer` has been in the
+platform since API 21, well below the minSdk FR-516 fixes at 26. Pages are rendered to
+bitmaps and put through the same recogniser as an image, so the PDF path costs the OCR
+decision above and nothing further. The alternative — PdfBox-Android or iText, which read a
+PDF's embedded **text layer** directly and would extract it perfectly rather than by looking
+at a picture of it — is roughly 5–16 MB on top of a budget this feature has already spent a
+third of, brings an AGPL-or-commercial licence question in iText's case, and would still need
+the OCR path for a scanned PDF, which has no text layer to read. Rendering and recognising is
+one path that handles both kinds. What it gives up is recorded as a reading against FR-207 in
+the SRS rather than left here: OCR of a rendered page is lossy where the text layer is exact.
+
+**Approved, not yet in use.** The measurement spike that produced these numbers was reverted:
+at the time of writing no coordinate here is declared in `gradle/libs.versions.toml`, there is
+no `:ocr` module in `settings.gradle.kts`, and no `image/*` or `application/pdf` share filter
+in the manifest. Those land with the FR-215 build.
 
 ### `androidx.work` — the offline write queue (FR-806, NFR-302)
 
