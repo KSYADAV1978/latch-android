@@ -105,6 +105,29 @@ class CandidateRankingTest {
         assertEquals(1, candidates.count { it.endDate != null })
     }
 
+    @Test
+    fun `one date written twice, outside a range, is still one candidate at its first mention`() {
+        // This guard used to live on `reported`, where 31 August was written once as the
+        // range opener and once as the meeting. Since SRS 1.23 those are two commitments and
+        // are deliberately not merged, so the input no longer exercises mergeMentions at all
+        // — and the defect it was written for would have gone uncovered. The same shape
+        // without a range connective keeps it covered.
+        //
+        // The defect: taking the higher-confidence mention whole took its position with it,
+        // putting 31 August behind a 6 September the writer introduced later.
+        val text = "Offsite on August 31, deadline September 6, 2026, review August 31, 2026 at 21:30"
+        val candidates = parse(text).candidates
+
+        assertEquals(2, candidates.size, "31 August twice is one candidate")
+        assertEquals(1, candidates.count { it.date?.value == LocalDate.of(2026, 8, 31) })
+        // Position comes from the earliest mention, not from the strongest one.
+        assertEquals(
+            listOf(LocalDate.of(2026, 8, 31), LocalDate.of(2026, 9, 6)),
+            candidates.map { it.date?.value },
+        )
+        assertEquals(LocalDate.of(2026, 8, 31), parse(text).primary.date?.value)
+    }
+
     // ----- exclusive weekday attachment -----
 
     @Test
