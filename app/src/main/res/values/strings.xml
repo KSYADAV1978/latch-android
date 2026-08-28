@@ -29,6 +29,16 @@
     <string name="capture_saved">Saved to %1$s</string>
     <!-- FR-803: the same message was captured before, so nothing was written this time. -->
     <string name="capture_already_saved">Already saved. Nothing was written again.</string>
+
+    <!--
+        FR-804. Both dates are shown because the user is being asked to move one thing to
+        another, and cannot answer without seeing both. The weekday in each is computed from
+        the date rather than taken from the captured text, which may contradict it.
+    -->
+    <string name="capture_reschedule_offer">This looks like a reschedule. \"%1$s\" is already saved for %2$s. Move it to %3$s?</string>
+    <string name="capture_reschedule_update">Update it</string>
+    <string name="capture_reschedule_create_new">Create new</string>
+    <string name="capture_reschedule_no_date">no date</string>
     <!-- The duplicate check gave up before reading every task; see the reading against FR-803. -->
     <string name="capture_saved_unchecked">Saved. Latch could not check every task for a duplicate, so this may be a second copy.</string>
     <!-- FR-807: the undo offer, carrying the seconds it has left so it visibly runs out. -->

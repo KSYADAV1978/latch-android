@@ -31,6 +31,7 @@ import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.saveIsOffered
 import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
+import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
@@ -68,6 +69,10 @@ fun CaptureScreen(
     onSave: () -> Unit = {},
     /** FR-807: take back everything this save wrote. */
     onUndo: () -> Unit = {},
+    /** FR-804: the user confirmed the move. */
+    onUpdateExisting: () -> Unit = {},
+    /** FR-804: the user wants a separate item instead. */
+    onCreateNew: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
 ) {
@@ -148,6 +153,19 @@ fun CaptureScreen(
                                 else R.string.capture_save
                             )
                         )
+                    }
+                }
+                // FR-804. Two answers and no default: the requirement forbids a silent
+                // update, and a preselected button in a dialog that can be dismissed by a
+                // stray tap is how a silent one would happen.
+                if (saveState is SaveState.RescheduleOffered) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onCreateNew) {
+                        Text(stringResource(R.string.capture_reschedule_create_new))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onUpdateExisting) {
+                        Text(stringResource(R.string.capture_reschedule_update))
                     }
                 }
                 // FR-807. Takes the Save button's place rather than sitting beside it: the
@@ -249,6 +267,18 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
 
         SaveState.AlreadySaved -> Note(stringResource(R.string.capture_already_saved))
 
+        // FR-804. The weekdays here are computed from the dates themselves and never taken
+        // from the captured text, which may name one that contradicts the date beside it —
+        // §7.2 requires such a contradiction to be absorbed, not repeated back at the user.
+        is SaveState.RescheduleOffered -> Note(
+            stringResource(
+                R.string.capture_reschedule_offer,
+                state.title,
+                describeDates(state.existing),
+                describeDates(state.proposed),
+            )
+        )
+
         is SaveState.Failed -> Note(
             stringResource(
                 when (state.reason) {
@@ -319,3 +349,23 @@ private fun whenLine(candidate: DatedCandidate): String {
     }
 }
 
+/**
+ * An item's dates as a sentence fragment, for FR-804's offer.
+ *
+ * The weekday is **derived from the date**, which is the whole point: a capture may say
+ * "Friday 12 September" of a Saturday, and §7.2 absorbs that contradiction into the date
+ * rather than acting on it. Repeating the writer's weekday back here would show the user a
+ * day name that does not match the day the item is actually on.
+ */
+@Composable
+private fun describeDates(dates: ItemDates): String = when (dates) {
+    is ItemDates.Event ->
+        if (dates.allDay) dates.start.toLocalDate().format(OFFER_DATE)
+        else dates.start.format(OFFER_DATE_TIME)
+
+    is ItemDates.Task ->
+        dates.due?.format(OFFER_DATE) ?: stringResource(R.string.capture_reschedule_no_date)
+}
+
+private val OFFER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
+private val OFFER_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy, HH:mm")

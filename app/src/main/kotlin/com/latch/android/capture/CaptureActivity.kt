@@ -71,6 +71,10 @@ class CaptureActivity : ComponentActivity() {
                         }
                     },
                     onUndo = { app.captureSaver.undo() },
+                    // FR-804: the two answers to the offer. Neither is a default, and the
+                    // saver ignores both unless an offer is genuinely standing.
+                    onUpdateExisting = { app.captureSaver.updateExisting() },
+                    onCreateNew = { app.captureSaver.createNewInstead() },
                     fromEmptyClipboard = intent.getBooleanExtra(EXTRA_READ_CLIPBOARD, false),
                 )
             }
@@ -98,10 +102,17 @@ class CaptureActivity : ComponentActivity() {
     @Composable
     private fun HoldWindowOpenForUndo(saveState: SaveState) {
         val offerIsOpen = (saveState as? SaveState.Saved)?.undo != null
+
+        // FR-804's offer is held open for the same reason, and it is the stronger case: this
+        // is a question the app asked rather than an action the user took, and a stray tap
+        // would answer it by discarding the capture entirely. Nothing has been written at
+        // this point, so the tap costs the whole save and not just the undo.
+        val askingAboutReschedule = saveState is SaveState.RescheduleOffered
+
         var offerWasOpen by remember { mutableStateOf(false) }
 
         LaunchedEffect(saveState) {
-            setFinishOnTouchOutside(!offerIsOpen)
+            setFinishOnTouchOutside(!offerIsOpen && !askingAboutReschedule)
             when {
                 offerIsOpen -> offerWasOpen = true
                 offerWasOpen && saveState is SaveState.Saved -> finish()

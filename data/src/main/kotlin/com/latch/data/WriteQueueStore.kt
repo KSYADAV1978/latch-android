@@ -51,11 +51,17 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
 
     private val cipher = KeystoreCipher(KEY_ALIAS)
 
-    override suspend fun enqueue(write: PendingWrite): String = withContext(Dispatchers.IO) {
+    override suspend fun enqueue(
+        write: PendingWrite,
+        operation: WriteOperation,
+    ): String = withContext(Dispatchers.IO) {
+        require(operation != WriteOperation.UPDATE || write.targetRemoteId != null) {
+            "An UPDATE entry needs the id of the item it updates"
+        }
         val entry = QueuedWrite(
             id = UUID.randomUUID().toString(),
             write = write,
-            operation = WriteOperation.CREATE,
+            operation = operation,
             attempts = 0,
             lastError = null,
             queuedAt = Instant.now(),

@@ -19,6 +19,7 @@ import com.latch.data.TaskList
 import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
 import com.latch.data.WritableCalendar
+import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.sourceHashOf
 import com.latch.parser.DateParser
@@ -349,109 +350,4 @@ class CaptureSaverTest {
         runCurrent()
         assertIs<SaveState.Saved>(saver.state.value, "the save should have completed")
     }
-}
-
-/**
- * An in-memory [WriteQueue]. Deliberately not the encrypted store: that one needs a Context
- * and a real Android Keystore, and its record format is tested on its own in `:data`.
- */
-private class RecordingQueue : WriteQueue {
-    val entries = linkedMapOf<String, PendingWrite>()
-    var drainsRequested = 0
-    private var next = 0
-
-    override suspend fun enqueue(write: PendingWrite): String {
-        val id = "queue-${next++}"
-        entries[id] = write
-        return id
-    }
-
-    override suspend fun pending(): List<QueuedWrite> = emptyList()
-
-    override suspend fun status() = QueueStatus(waiting = entries.size, givenUp = 0)
-
-    override suspend fun markWritten(queueId: String, remoteId: String) {
-        entries.remove(queueId)
-    }
-
-    override suspend fun markFailed(queueId: String, error: String, permanent: Boolean) = Unit
-
-    override suspend fun drop(queueId: String): Boolean = entries.remove(queueId) != null
-}
-
-private class FixedDefaults(private val defaults: AccountDefaults) : AccountDefaultsStore {
-    override suspend fun defaultsFor(accountId: String) = defaults
-    override suspend fun allAccounts() = listOf(defaults)
-    override suspend fun save(defaults: AccountDefaults) = Unit
-    override suspend fun remove(accountId: String) = Unit
-}
-
-private class RecordingCalendarApi(
-    private val existingEventId: String? = null,
-    private val failDelete: Boolean = false,
-    private val failInsert: Exception? = null,
-    private val rescheduleMatch: RescheduleSearch = RescheduleSearch(),
-) : CalendarApi {
-    val deleted = mutableListOf<Pair<String, String>>()
-    val patched = mutableListOf<Triple<String, String, ItemDates.Event>>()
-
-    /** Every key this fake was asked about, so a test can assert exactly one query shape. */
-    val itemKeysQueried = mutableListOf<String>()
-
-    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch {
-        itemKeysQueried += itemKey
-        return rescheduleMatch
-    }
-
-    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
-        patched += Triple(calendarId, eventId, dates)
-    }
-
-    override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
-        failInsert?.let { throw it }
-        return "event-1"
-    }
-
-    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String) =
-        DuplicateSearch(existingEventId)
-
-    override suspend fun deleteEvent(calendarId: String, eventId: String) {
-        if (failDelete) throw IllegalStateException("events.delete refused")
-        deleted += calendarId to eventId
-    }
-
-    override suspend fun listWritableCalendars(): List<WritableCalendar> = emptyList()
-    override suspend fun createLatchCalendar(summary: String, description: String) = "unused"
-    override suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean): String? = null
-    override suspend fun makeVisible(calendarId: String) = Unit
-}
-
-private class RecordingTasksApi(
-    private val failDelete: Boolean = false,
-    private val rescheduleMatch: RescheduleSearch = RescheduleSearch(),
-) : TasksApi {
-    val deleted = mutableListOf<Pair<String, String>>()
-    val patched = mutableListOf<Triple<String, String, ItemDates.Task>>()
-    val itemKeysQueried = mutableListOf<String>()
-
-    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch {
-        itemKeysQueried += itemKey
-        return rescheduleMatch
-    }
-
-    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
-        patched += Triple(taskListId, taskId, dates)
-    }
-
-    override suspend fun insertTask(taskListId: String, task: TaskWrite) = "task-1"
-
-    override suspend fun findTaskBySourceHash(taskListId: String, sourceHash: String, due: LocalDate?) =
-        DuplicateSearch(existingId = null)
-
-    override suspend fun deleteTask(taskListId: String, taskId: String) {
-        if (failDelete) throw IllegalStateException("tasks.delete refused")
-        deleted += taskListId to taskId
-    }
-
-    override suspend fun listTaskLists(): List<TaskList> = emptyList()
 }

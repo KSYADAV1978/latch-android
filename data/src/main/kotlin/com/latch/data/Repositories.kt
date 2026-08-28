@@ -35,8 +35,17 @@ interface CaptureInbox {
  * for it (AC-21).
  */
 interface WriteQueue {
-    /** Returns the queue id, which is what FR-807 undo needs to drop the entry again. */
-    suspend fun enqueue(write: PendingWrite): String
+    /**
+     * Returns the queue id, which is what FR-807 undo needs to drop the entry again.
+     *
+     * @param operation defaults to [WriteOperation.CREATE], which is every entry the queue
+     *   held before FR-804. An `UPDATE` must carry [PendingWrite.targetRemoteId] and
+     *   [PendingWrite.priorState]; without them it could neither be applied nor undone.
+     */
+    suspend fun enqueue(
+        write: PendingWrite,
+        operation: WriteOperation = WriteOperation.CREATE,
+    ): String
 
     suspend fun pending(): List<QueuedWrite>
 

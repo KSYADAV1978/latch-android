@@ -7,10 +7,13 @@ import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
 import com.latch.data.CalendarApi
 import com.latch.data.EventWrite
+import com.latch.data.ItemDates
 import com.latch.data.RemoteMetadata
+import com.latch.data.RescheduleMatch
 import com.latch.data.TaskWrite
 import com.latch.data.PendingWrite
 import com.latch.data.TasksApi
+import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.isWorthRetrying
 import com.latch.data.itemKeyOf
@@ -115,6 +118,25 @@ sealed interface CreatedItem {
      * window, so this stays droppable for as long as the offer stands — see [drainable].
      */
     data class Queued(val queueId: String) : CreatedItem
+
+    /**
+     * FR-804: an item that already existed and was **moved**, not created.
+     *
+     * Undoing this is a restore and never a delete. The item was the user's before this save
+     * touched it, and deleting it would destroy something they already had — the one outcome
+     * FR-807 must not produce, and the reason its wording had to be corrected at SRS 1.16.
+     *
+     * [priorDates] is what the item held when the match was made, which is the only place
+     * those values still exist once the patch has gone through. SRS 1.19 records the
+     * staleness that follows: where the update waited in the queue, this restores what was
+     * true at match time and overwrites any hand edit made in between.
+     */
+    data class Updated(
+        val type: ItemType,
+        val containerId: String,
+        val remoteId: String,
+        val priorDates: ItemDates,
+    ) : CreatedItem
 }
 
 /** FR-807: not less than ten seconds. */
@@ -178,8 +200,33 @@ sealed interface SaveState {
      */
     data class Queued(val undo: UndoWindow? = null) : SaveState
 
-    /** FR-803: an item with this source hash is already in the account. Nothing was written. */
+    /**
+     * FR-803, and §7.2's third row: nothing was written.
+     *
+     * Reached either because this message has been saved before, or because it is new text
+     * naming the date the item already sits on. Both are "already saved" to the user,
+     * because in both there is nothing for a write to do.
+     */
     data object AlreadySaved : SaveState
+
+    /**
+     * FR-804: this capture looks like a reschedule, and the user has to say.
+     *
+     * **Nothing has been written when this state is reached** — the offer comes before the
+     * write, not after it, because the requirement forbids a silent update and an update
+     * already performed cannot be un-asked. The two answers are [CaptureSaver.updateExisting]
+     * and [CaptureSaver.createNewInstead]; closing the screen takes neither and writes
+     * nothing.
+     *
+     * [existing] and [proposed] are dates, not sentences. NFR-402 keeps the phrasing in the
+     * app, and the weekday shown beside each must be **computed from the date** rather than
+     * carried over from the captured text, which may name a weekday that contradicts it.
+     */
+    data class RescheduleOffered(
+        val title: String,
+        val existing: ItemDates,
+        val proposed: ItemDates,
+    ) : SaveState
 
     data class Failed(val reason: SaveFailure) : SaveState
 
@@ -222,6 +269,9 @@ fun undoOffer(state: SaveState, now: Instant): UndoWindow? = when (state) {
  */
 fun saveIsOffered(state: SaveState): Boolean = when (state) {
     SaveState.Idle, SaveState.Saving, is SaveState.Failed -> true
+    // FR-804: the question on screen is now update-or-create, and Save is not one of the
+    // two answers. Leaving it up would offer a third door that writes without answering.
+    is SaveState.RescheduleOffered,
     is SaveState.Saved,
     is SaveState.Queued,
     SaveState.AlreadySaved,
@@ -264,6 +314,16 @@ class CaptureSaver(
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
 
+    /**
+     * The write held back while an FR-804 offer stands.
+     *
+     * Kept here rather than inside [SaveState.RescheduleOffered] because the state is what
+     * the screen renders and none of this is its business. It also means an answer can only
+     * be acted on while an offer is genuinely open: [reset] clears this, so a tap belonging
+     * to a capture that has since been replaced finds nothing to do.
+     */
+    private var offer: PendingOffer? = null
+
     fun save(captured: CapturedText, result: ParseResult, context: ParseContext) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
@@ -291,9 +351,38 @@ class CaptureSaver(
      * done is no longer the one in front of the user. A save or an undo already in flight is
      * left alone — it has reached Google and its outcome still has to be reported.
      */
+    /**
+     * FR-804: the user confirmed the move. This is the first write of this save.
+     *
+     * Does nothing unless an offer is actually standing, so a second tap, or one that lands
+     * after the screen has moved on, cannot patch the item twice.
+     */
+    fun updateExisting() {
+        val standing = offer ?: return
+        if (_state.value !is SaveState.RescheduleOffered) return
+        offer = null
+        _state.value = SaveState.Saving
+        scope.launch { applyUpdate(standing) }
+    }
+
+    /**
+     * FR-804: the user declined the move and wants a separate item. An ordinary FR-801
+     * create, and the escape hatch for a match this app got wrong.
+     */
+    fun createNewInstead() {
+        val standing = offer ?: return
+        if (_state.value !is SaveState.RescheduleOffered) return
+        offer = null
+        _state.value = SaveState.Saving
+        scope.launch { completeAsCreate(standing) }
+    }
+
     fun reset() {
         val current = _state.value
         if (current != SaveState.Saving && current != SaveState.Undoing) {
+            // An offer the user walked away from wrote nothing, and must not be answerable
+            // by a tap belonging to the next capture.
+            offer = null
             _state.value = SaveState.Idle
         }
     }
@@ -360,12 +449,24 @@ class CaptureSaver(
                 SaveState.Failed(SaveFailure.WRITE_FAILED)
             }
         }
+        settle(outcome)
+    }
+
+    /**
+     * Publish an outcome, then wait out its FR-807 offer.
+     *
+     * Shared by all three paths a save can take — a create, an FR-804 update, and a create
+     * the user chose over an update — so the ten seconds cannot come out differently
+     * depending on which of them ran.
+     *
+     * The wait is in this coroutine rather than a job of its own, because the check after it
+     * is what actually decides: anything that has moved the state on since (a new capture's
+     * reset, or the user taking the offer) has already ended this window and finds nothing
+     * to do.
+     */
+    private suspend fun settle(outcome: SaveState) {
         _state.value = outcome
 
-        // FR-807: the offer closes on its own after ten seconds. Waited out in this
-        // coroutine rather than a job of its own, because the check below is what actually
-        // decides — anything that has moved the state on since (a new capture's reset, or
-        // the user taking the offer) has already ended this window, and finds nothing to do.
         val window = undoWindowOf(outcome) ?: return
         delay(UNDO_WINDOW.toMillis())
         val current = _state.value
@@ -404,6 +505,98 @@ class CaptureSaver(
         )
     }
 
+    /**
+     * FR-804's update, and the only place in the app that moves an item that already exists.
+     *
+     * The failure handling matches a create's exactly: a failure that waiting can fix goes
+     * to the queue, anything else is reported. What it queues is an `UPDATE` carrying the
+     * target and the prior state, because a queued move that could not later be undone
+     * would be the defect SRS 1.16 corrected, reintroduced through the back door.
+     */
+    private suspend fun applyUpdate(standing: PendingOffer) {
+        val outcome = try {
+            val moved = when (val proposed = standing.proposed) {
+                is ItemDates.Event -> {
+                    calendarApi.patchEventDates(
+                        calendarId = standing.defaults.destinationCalendarId,
+                        eventId = standing.match.remoteId,
+                        dates = proposed,
+                    )
+                    CreatedItem.Updated(
+                        type = ItemType.EVENT,
+                        containerId = standing.defaults.destinationCalendarId,
+                        remoteId = standing.match.remoteId,
+                        priorDates = standing.match.dates,
+                    )
+                }
+
+                is ItemDates.Task -> {
+                    tasksApi.patchTaskDates(
+                        taskListId = standing.defaults.taskListId,
+                        taskId = standing.match.remoteId,
+                        dates = proposed,
+                    )
+                    CreatedItem.Updated(
+                        type = ItemType.TASK,
+                        containerId = standing.defaults.taskListId,
+                        remoteId = standing.match.remoteId,
+                        priorDates = standing.match.dates,
+                    )
+                }
+            }
+            SaveState.Saved(undo = undoWindowFor(standing.metadata, listOf(moved)))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (isWorthRetrying(failure)) queueUpdate(standing) else SaveState.Failed(SaveFailure.WRITE_FAILED)
+        }
+
+        settle(outcome)
+    }
+
+    private suspend fun completeAsCreate(standing: PendingOffer) {
+        val outcome = try {
+            create(
+                item = standing.item,
+                defaults = standing.defaults,
+                metadata = standing.metadata,
+                body = standing.body,
+                context = standing.context,
+                searchWasCapped = standing.duplicateWasCapped,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (isWorthRetrying(failure)) {
+                queue(standing.item, standing.metadata, standing.body, standing.context)
+            } else {
+                SaveState.Failed(SaveFailure.WRITE_FAILED)
+            }
+        }
+
+        settle(outcome)
+    }
+
+    private suspend fun queueUpdate(standing: PendingOffer): SaveState {
+        val queueId = writeQueue.enqueue(
+            PendingWrite(
+                item = standing.item,
+                metadata = standing.metadata,
+                body = standing.body,
+                timeZone = standing.context.zone.id,
+                targetRemoteId = standing.match.remoteId,
+                priorState = standing.match.dates,
+            ),
+            operation = WriteOperation.UPDATE,
+        )
+        requestDrain()
+        // Undoing this drops the entry. Nothing has been moved in the account yet, so there
+        // is no patch to reverse — which is why the two are separate `CreatedItem` shapes.
+        return SaveState.Queued(
+            undo = undoWindowFor(standing.metadata, listOf(CreatedItem.Queued(queueId))),
+        )
+    }
+
     private suspend fun remove(window: UndoWindow) {
         var removed = 0
         var failed = false
@@ -425,6 +618,17 @@ class CaptureSaver(
                     // rather than as a quiet success.
                     is CreatedItem.Queued -> check(writeQueue.drop(item.queueId)) {
                         "Queue entry was already drained"
+                    }
+
+                    // FR-807, corrected at SRS 1.16: undoing an update is a restore. The
+                    // item existed before this save touched it, so deleting it would destroy
+                    // something the user already had — the one thing an undo must not do.
+                    is CreatedItem.Updated -> when (val prior = item.priorDates) {
+                        is ItemDates.Event ->
+                            calendarApi.patchEventDates(item.containerId, item.remoteId, prior)
+
+                        is ItemDates.Task ->
+                            tasksApi.patchTaskDates(item.containerId, item.remoteId, prior)
                     }
                 }
                 removed++
@@ -460,23 +664,105 @@ class CaptureSaver(
         expiresAt = Instant.now().plus(UNDO_WINDOW),
     )
 
-    /** FR-803 first, then FR-801. The order is the requirement: check before writing. */
+    /**
+     * FR-803, then FR-804, then FR-801. The order is the requirement.
+     *
+     * A `source_hash` match settles it and the item key is **not queried at all** — §7.2's
+     * first row says the key is not consulted, so a duplicate can never present itself as a
+     * reschedule. Only on a miss is the key searched, and only then can an offer arise.
+     */
     private suspend fun write(
         item: Item,
         defaults: AccountDefaults,
         metadata: RemoteMetadata,
         body: String,
         context: ParseContext,
-    ): SaveState = when (item.type) {
-        ItemType.EVENT -> {
-            val existing = calendarApi.findEventBySourceHash(
-                calendarId = defaults.destinationCalendarId,
-                sourceHash = metadata.sourceHash,
-            )
-            if (existing.found) {
-                SaveState.AlreadySaved
-            } else {
-                val remoteId = calendarApi.insertEvent(
+    ): SaveState {
+        val proposed = itemDatesOf(item, context.zone.id)
+        val duplicate = findDuplicate(item, defaults, metadata)
+        val reschedule = if (duplicate.found) null else findReschedule(item, defaults, metadata)
+
+        return when (val decision = writeDecision(duplicate, reschedule, proposed)) {
+            WriteDecision.Duplicate -> SaveState.AlreadySaved
+
+            WriteDecision.Create ->
+                create(item, defaults, metadata, body, context, duplicate.scanCapped)
+
+            is WriteDecision.Reschedule -> {
+                // Held aside rather than put in the state: the state is what the screen
+                // renders, and the write's internals are not its business.
+                offer = PendingOffer(
+                    item = item,
+                    defaults = defaults,
+                    metadata = metadata,
+                    body = body,
+                    context = context,
+                    match = decision.match,
+                    proposed = proposed,
+                    duplicateWasCapped = duplicate.scanCapped,
+                )
+                SaveState.RescheduleOffered(
+                    title = item.title,
+                    existing = decision.match.dates,
+                    proposed = proposed,
+                )
+            }
+        }
+    }
+
+    private suspend fun findDuplicate(
+        item: Item,
+        defaults: AccountDefaults,
+        metadata: RemoteMetadata,
+    ) = when (item.type) {
+        ItemType.EVENT -> calendarApi.findEventBySourceHash(
+            calendarId = defaults.destinationCalendarId,
+            sourceHash = metadata.sourceHash,
+        )
+
+        ItemType.TASK -> tasksApi.findTaskBySourceHash(
+            taskListId = defaults.taskListId,
+            sourceHash = metadata.sourceHash,
+            due = item.dueDate,
+        )
+    }
+
+    /**
+     * The key is derived once, by the current §7.2 derivation, and searched for once.
+     *
+     * There is deliberately no second query under a superseded derivation to catch items
+     * written before v1.14: §7.2 declares those unmatched, and looking for an old-style key
+     * would quietly restore a wire contract this project has moved.
+     */
+    private suspend fun findReschedule(
+        item: Item,
+        defaults: AccountDefaults,
+        metadata: RemoteMetadata,
+    ) = when (item.type) {
+        ItemType.EVENT -> calendarApi.findEventByItemKey(
+            calendarId = defaults.destinationCalendarId,
+            itemKey = metadata.itemKey,
+        )
+
+        ItemType.TASK -> tasksApi.findTaskByItemKey(
+            taskListId = defaults.taskListId,
+            itemKey = metadata.itemKey,
+        )
+    }
+
+    private suspend fun create(
+        item: Item,
+        defaults: AccountDefaults,
+        metadata: RemoteMetadata,
+        body: String,
+        context: ParseContext,
+        searchWasCapped: Boolean,
+    ): SaveState {
+        val created = when (item.type) {
+            ItemType.EVENT -> CreatedItem.Written(
+                type = ItemType.EVENT,
+                containerId = defaults.destinationCalendarId,
+                remoteId = calendarApi.insertEvent(
                     calendarId = defaults.destinationCalendarId,
                     event = EventWrite(
                         summary = item.title,
@@ -488,33 +774,13 @@ class CaptureSaver(
                         timeZone = context.zone.id,
                         metadata = metadata,
                     ),
-                )
-                SaveState.Saved(
-                    searchWasCapped = existing.scanCapped,
-                    undo = undoWindowFor(
-                        metadata,
-                        listOf(
-                            CreatedItem.Written(
-                                type = ItemType.EVENT,
-                                containerId = defaults.destinationCalendarId,
-                                remoteId = remoteId,
-                            )
-                        ),
-                    ),
-                )
-            }
-        }
-
-        ItemType.TASK -> {
-            val existing = tasksApi.findTaskBySourceHash(
-                taskListId = defaults.taskListId,
-                sourceHash = metadata.sourceHash,
-                due = item.dueDate,
+                ),
             )
-            if (existing.found) {
-                SaveState.AlreadySaved
-            } else {
-                val remoteId = tasksApi.insertTask(
+
+            ItemType.TASK -> CreatedItem.Written(
+                type = ItemType.TASK,
+                containerId = defaults.taskListId,
+                remoteId = tasksApi.insertTask(
                     taskListId = defaults.taskListId,
                     task = TaskWrite(
                         title = item.title,
@@ -522,21 +788,32 @@ class CaptureSaver(
                         due = item.dueDate,
                         metadata = metadata,
                     ),
-                )
-                SaveState.Saved(
-                    searchWasCapped = existing.scanCapped,
-                    undo = undoWindowFor(
-                        metadata,
-                        listOf(
-                            CreatedItem.Written(
-                                type = ItemType.TASK,
-                                containerId = defaults.taskListId,
-                                remoteId = remoteId,
-                            )
-                        ),
-                    ),
-                )
-            }
+                ),
+            )
         }
+
+        return SaveState.Saved(
+            searchWasCapped = searchWasCapped,
+            undo = undoWindowFor(metadata, listOf(created)),
+        )
     }
 }
+
+/**
+ * Everything an FR-804 offer needs in order to be answered either way.
+ *
+ * Both answers are possible from here: [match] and [proposed] carry out the update, and the
+ * drafted item with its metadata and body carry out the create instead. Holding one object
+ * rather than two means the create branch cannot quietly differ from the one the offer replaced.
+ */
+private data class PendingOffer(
+    val item: Item,
+    val defaults: AccountDefaults,
+    val metadata: RemoteMetadata,
+    val body: String,
+    val context: ParseContext,
+    val match: RescheduleMatch,
+    val proposed: ItemDates,
+    /** Carried through so "saved, and it might be a second copy" survives the detour. */
+    val duplicateWasCapped: Boolean,
+)

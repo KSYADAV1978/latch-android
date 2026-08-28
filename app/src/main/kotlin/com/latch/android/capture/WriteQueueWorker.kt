@@ -13,9 +13,11 @@ import com.latch.android.LatchApplication
 import com.latch.core.model.ItemType
 import com.latch.data.CalendarApi
 import com.latch.data.EventWrite
+import com.latch.data.ItemDates
 import com.latch.data.QueuedWrite
 import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
+import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.isWorthRetrying
 import java.time.Duration
@@ -102,6 +104,15 @@ class WriteQueueWorker(
         val write = entry.write
         val item = write.item
 
+        // FR-804: an update moves an item that already exists, so there is nothing to check
+        // for a duplicate of and nothing to insert. The FR-803 re-check below is deliberately
+        // not run for one — it answers "has this message been saved", and the answer is yes,
+        // by the very item this entry is about to move.
+        if (entry.operation == WriteOperation.UPDATE) {
+            applyQueuedUpdate(entry, queue, calendarApi, tasksApi)
+            return
+        }
+
         when (item.type) {
             ItemType.EVENT -> {
                 val calendarId = requireNotNull(item.calendarId) { "A queued event has no calendar" }
@@ -141,6 +152,47 @@ class WriteQueueWorker(
                 queue.markWritten(entry.id, remoteId)
             }
         }
+    }
+
+    /**
+     * FR-804's update, drained.
+     *
+     * The target and the new dates both come off the entry, which is why SRS §7.1 had to be
+     * corrected before this could exist: an entry that named only the item would wake with
+     * nothing to say which remote item it meant. The prior state travels with it too, unused
+     * here — it is what an FR-807 undo of this update would write back, and SRS 1.19 records
+     * that a delayed drain makes those values that much older.
+     */
+    private suspend fun applyQueuedUpdate(
+        entry: QueuedWrite,
+        queue: WriteQueue,
+        calendarApi: CalendarApi,
+        tasksApi: TasksApi,
+    ) {
+        val write = entry.write
+        val item = write.item
+        val target = requireNotNull(write.targetRemoteId) { "A queued update has no target" }
+
+        when (item.type) {
+            ItemType.EVENT -> calendarApi.patchEventDates(
+                calendarId = requireNotNull(item.calendarId) { "A queued event has no calendar" },
+                eventId = target,
+                dates = ItemDates.Event(
+                    start = requireNotNull(item.start),
+                    end = requireNotNull(item.end),
+                    allDay = item.allDay,
+                    timeZone = write.timeZone,
+                ),
+            )
+
+            ItemType.TASK -> tasksApi.patchTaskDates(
+                taskListId = requireNotNull(item.taskListId) { "A queued task has no list" },
+                taskId = target,
+                dates = ItemDates.Task(item.dueDate),
+            )
+        }
+
+        queue.markWritten(entry.id, target)
     }
 
     companion object {
