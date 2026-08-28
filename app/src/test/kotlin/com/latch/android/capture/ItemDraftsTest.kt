@@ -178,6 +178,50 @@ class ItemDraftsTest {
     }
 
     @Test
+    fun `an end time before the start rolls the end to the next day`() {
+        // "from 11 pm to 1 am" is one sitting. Same-day arithmetic made this end two hours
+        // before it began, which Google would have taken literally.
+        val item = single(
+            DatedCandidate(
+                date = Field(date, Confidence.HIGH),
+                time = Field(LocalTime.parse("23:00"), Confidence.HIGH),
+                endTime = Field(LocalTime.parse("01:00"), Confidence.HIGH),
+                classification = Classification.EVENT,
+            )
+        )
+
+        assertEquals(LocalDateTime.parse("2026-09-06T01:00"), item.end)
+        // Only the day moves. The clock time is what the writer wrote.
+        assertEquals(LocalDateTime.parse("2026-09-05T23:00"), item.start)
+    }
+
+    @Test
+    fun `an end time equal to the start is a full day, not a zero-length event`() {
+        val item = single(
+            DatedCandidate(
+                date = Field(date, Confidence.HIGH),
+                time = Field(LocalTime.parse("09:00"), Confidence.HIGH),
+                endTime = Field(LocalTime.parse("09:00"), Confidence.HIGH),
+                classification = Classification.EVENT,
+            )
+        )
+        assertEquals(LocalDateTime.parse("2026-09-06T09:00"), item.end)
+    }
+
+    @Test
+    fun `an end time after the start stays on the same day`() {
+        val item = single(
+            DatedCandidate(
+                date = Field(date, Confidence.HIGH),
+                time = Field(LocalTime.parse("15:00"), Confidence.HIGH),
+                endTime = Field(LocalTime.parse("16:30"), Confidence.HIGH),
+                classification = Classification.EVENT,
+            )
+        )
+        assertEquals(LocalDateTime.parse("2026-09-05T16:30"), item.end)
+    }
+
+    @Test
     fun `with no end time the default duration applies`() {
         // ParseContext.defaultEventDuration was declared and read by nothing until this
         // mapping; its KDoc says "applied when a start time is found but no end".
