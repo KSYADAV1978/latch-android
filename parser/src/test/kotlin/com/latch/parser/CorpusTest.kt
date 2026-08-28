@@ -75,7 +75,11 @@ class CorpusTest {
                     "$file line ${index + 1}: expected 4 tab-separated columns, found ${columns.size}"
                 }
                 Case(
-                    input = columns[0],
+                    // A real capture can be several lines — a share from a mail client
+                    // usually is — and a line is this file's unit, so the two have to be
+                    // spelled differently. A literal backslash-n in a cell is a line break
+                    // in the captured text.
+                    input = columns[0].replace("\\n", "\n"),
                     classification = Classification.valueOf(columns[1].trim()),
                     date = columns[2].trim().takeIf { it != "-" }?.let(LocalDate::parse),
                     time = columns[3].trim().takeIf { it != "-" }?.let(LocalTime::parse),

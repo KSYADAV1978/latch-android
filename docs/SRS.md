@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.13 (draft for developer handover)"
+author: "Version 1.14 (draft for developer handover)"
 date: "27 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "27 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.13 — draft for developer handover |
+| Version | 1.14 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -34,6 +34,7 @@ date: "27 August 2026"
 | 1.11 | 27 Aug 2026 | Specified §7.2's `latch.item_key` properly, after the first real writes showed it coming back byte-identical to `latch.source_hash` and therefore inert. It is now defined as the title with every date and time expression removed, with the derivation given step by step, including that a corroborating weekday is part of the date phrase and must be removed with it — omitting it leaves the day name in the identity, which moves on exactly the reschedule FR-804 exists to catch. Records that this clause is the one part of §7.2 resting on parser behaviour rather than arithmetic over text, that it is where three clients are most likely to drift, that the existing conformance vectors cannot pin it, and that FR-804 is therefore reliable within a client and unproven across them until a second one exists. No requirement changed. |
 | 1.12 | 27 Aug 2026 | Recorded how FR-807 undo is met and where it is bounded, as it was built. Undo removes the ids the save recorded rather than re-querying `latch.chain_id`: the chain id is the group identity and is on every item, but the Tasks API has no content filter — the same limitation that makes FR-803 a bounded scan — so finding a task chain by it would be a scan that is allowed to give up, and undo would be exact for events and best-effort for tasks. Records the three consequences: the offer does not survive process death, a new capture ends it, and a cross-device undo would be a different feature, events only. Records the reading under which the capture window suppresses its own touch-outside dismissal while the offer stands, without which "not less than 10 seconds" is met on paper and not in the hand. No requirement changed. |
 | 1.13 | 27 Aug 2026 | Recorded how FR-806's write queue is met and where it is bounded, as it was built. Records that the payload is held in an app-private encrypted store and **not** in WorkManager, whose own database is unencrypted and whose input data is capped; that FR-803's duplicate check therefore runs a second time at drain, without which two offline captures of one message become two items and AC-07 fails inside AC-10; and that a queued entry is not drained inside its FR-807 undo window, which removes the race between an undo and a drain rather than trying to win it. Records two limits: a queued capture does not survive a device transfer, and an entry that has been given up on stays visible but has no manual retry until Settings (FR-1000) exists. §7.1's `WriteQueue` row is corrected — an `Item` cannot carry a write, because §7.2's metadata, the FR-805 body and the time zone are not on it. No requirement changed.
+| 1.14 | 27 Aug 2026 | Records a reading against FR-505 fixing **which** of several dates in one capture the app acts on, after a capture opened on a date the writer had not committed to. Ranking is: a date with a time, then an explicitly written date over one the app calculated, then earliest mention. FR-505's confidence is deliberately **not** a key — a range's year is written once at the end, so ranking on it makes the end of every "from A to B, 2026" the primary, which is the same defect by another road. Also corrects the corroborating-weekday clause of §7.2: a weekday is absorbed by the one date it falls on, nearest wins between two that match, and a weekday elsewhere in the text stays a date of its own — but a weekday written into the same phrase as a date is still absorbed even where it contradicts it, because §7.2's own example "PTM on Friday 12 September" is such a case (12 September 2026 is a Saturday) and reading a writer's slip as a second commitment would invent an item. No requirement changed; FR-511 remains unmet.
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -254,6 +255,18 @@ Four independent capture layers are required. Each must function if the others a
 **FR-504 [MUST]** Date-order ambiguity (`05/09`) shall be resolved using a user-visible setting defaulting to `DD/MM` for Indian locales. The resolved interpretation shall be displayed to the user before saving.
 
 **FR-505 [MUST]** The parser shall assign a confidence value to each extracted field.
+
+> **How several dates in one capture are ranked, recorded because the rule is a reading and not a mechanism.** FR-511 requires every date to be offered; nothing in this specification said which of them the confirmation screen should **open on**, and until now that was decided by position alone — the first date mentioned won. That is wrong often enough to have been reported: a capture reading "from August 31 to September 6, 2026" followed by "Date: Monday, August 31, 2026 at 21:30" opened on 6 September with no time, and would have been saved against a date the writer never committed to.
+>
+> The primary candidate shall be chosen as follows, each key settling the matter before the next is consulted.
+>
+> 1. **A date carrying a time outranks one that does not.** A writer who gave a clock time has said the most about the commitment, and under FR-506 it is the difference between an event and a task with a due date.
+> 2. **An explicitly written date outranks one the app calculated.** "August 31" is a statement; "Monday", "tomorrow" and "in 3 days" are arithmetic this app performed. Design principle 1 forbids inventing a date, and letting the app's own inference outrank the user's words is the same instinct one step further on.
+> 3. **Otherwise the earliest mention wins**, which is the previous behaviour kept as the tiebreak.
+>
+> **The confidence this requirement defines is deliberately not one of those keys**, and that is worth recording because it was the obvious third key and it is wrong. A year is what separates `CERTAIN` from `HIGH`, and a date range is written with its year once, at the end — "from August 31 to September 6, 2026". Only the closing date carries one, so ranking on confidence makes the **end** of every such range the primary: the same defect this reading exists to fix, arrived at down a different road. Placed below position it can never fire at all, since no two candidates share a first mention, so it is left out rather than kept as a key that decides nothing.
+>
+> Ordering of the **list** is unchanged: `candidates` stays in document order, so FR-511's checkboxes will read in the order the capture reads. Only which one is primary is decided here.
 
 **FR-506 [MUST]** Classification rules:
 
@@ -564,7 +577,13 @@ A client shall derive it as follows.
 3. Apply FR-509's title extraction to the blanked text.
 4. Normalise and hash the result exactly as `latch.source_hash` is normalised and hashed.
 
-**A date expression includes a weekday that corroborates it.** In "PTM on Friday 12 September" the whole phrase is one date, and the span removed at step 2 shall cover all of it. A weekday is corroborating where it sits within a short distance of an explicit date; beyond that distance it is a date in its own right, and "Gym Friday, and the review on 12 September" is two dates and not one phrase. Removing only "12 September" leaves "Friday" in the identity, and a reschedule to another weekday moves it — which is precisely the failure `item_key` exists to prevent, so this clause is load-bearing rather than a refinement.
+**A date expression includes a weekday that corroborates it.** In "PTM on Friday 12 September" the whole phrase is one date, and the span removed at step 2 shall cover all of it. Removing only "12 September" leaves "Friday" in the identity, and a reschedule to another weekday moves it — which is precisely the failure `item_key` exists to prevent, so this clause is load-bearing rather than a refinement.
+
+**Which date a weekday corroborates shall be decided by the day it falls on, not by proximity alone.** A weekday is absorbed by an explicit date whose own day of the week it matches; where two such dates are in range, the nearer wins; where none matches, the weekday is a date in its own right and becomes its own FR-511 candidate. "Gym Friday, and the review on 12 September" is two dates and not one phrase.
+
+> **This clause was proximity alone, and proximity alone is wrong in both directions.** It allowed a single weekday to be absorbed into *every* explicit date within range rather than one, which produced candidate spans overlapping each other — and since the derivation above blanks the primary's span out of the title, an over-reaching span blanks part of a neighbouring date and silently changes an identity that cannot be corrected once written. It also attached weekdays to dates they contradict: in "September 6, 2026 … Monday, August 31, 2026" the 6th is a Sunday, and reading the Monday beside it as a restatement of it is simply false.
+>
+> **One exception, and it is not a softening.** Where a weekday is written into the same phrase as a date — nothing between them but spaces and commas, no line break and no intervening words — it is absorbed whether or not the day matches, and the contradiction is left for FR-504 to display rather than acted on. This section's own example requires it: **12 September 2026 is a Saturday**, so "PTM on Friday 12 September" is a phrase whose weekday matches nothing. Writers get weekdays wrong constantly, and reading a slip as a second commitment invents an item nobody asked for — and would drop "Friday" back out of the blanked span, which is the failure the paragraph above calls load-bearing.
 
 This clause is the one part of §7.2 that depends on parser behaviour rather than on arithmetic over the text, and it is therefore where three independently written clients are most likely to drift. Two consequences follow. A client whose date rules match a different extent of the same phrase will compute a different `item_key` from the same message, which degrades FR-804 across devices without failing anything visibly. And the conformance vectors at `data/src/test/resources/metadata/hash_vectors.tsv` pin the normalisation only — they cannot pin this, because the input to it is whatever that client's parser matched. **A vector file for date-free titles should be added when the second client is built**, and until then FR-804 should be understood as reliable within a client and unproven across them.
 

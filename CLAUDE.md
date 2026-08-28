@@ -236,6 +236,19 @@ Two limits are recorded rather than hidden: a queued capture does not survive a 
 (FR-1000). Adding `androidx.work` also merges four permissions into the manifest — the manifest
 comment names them, because that file is where the app's promises are read.
 
+**Which of several dates wins is a recorded reading, not an accident.** `PRIMARY_RANKING` in
+`:parser` — a date with a time, then an explicit date over a calculated one, then earliest
+mention — is written up against FR-505 in the SRS. FR-505's own confidence is deliberately not
+a key: a range's year is written once at the end, so ranking on it makes the end of every
+"from A to B, 2026" the primary, which is the defect the ranking exists to fix. `candidates`
+stays in document order; only `primary` is ranked.
+
+Weekday corroboration goes by the day the date falls on, not proximity — proximity alone let
+one weekday be absorbed into two dates at once, and overlapping candidate spans corrupt §7.2's
+`item_key`, which blanks the primary's span out of the title. The exception is a weekday in the
+same phrase as a date, which is absorbed even when it contradicts it: §7.2's own example "PTM on
+Friday 12 September" is such a case, because 12 September 2026 is a Saturday.
+
 Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
 cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
 is saved — which is also why an undo chain is one item on every path reachable today;

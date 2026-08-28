@@ -15,6 +15,17 @@ internal data class RawDate(
     val source: DateSource,
     val ambiguousOrder: Boolean = false,
     val ambiguousRelative: Boolean = false,
+    /**
+     * Where this date is first committed to in the text, which is not always where [span]
+     * points.
+     *
+     * One date can be written twice — "from August 31 … Monday, August 31, 2026" — and the
+     * mention that wins on confidence need not be the one that came first. [span] follows the
+     * strongest mention, because that is the text the user is shown and the text `item_key`
+     * blanks; this follows the earliest, because that is the order the capture reads in.
+     * Defaults to the start of [span], which is correct for every date mentioned once.
+     */
+    val firstMentionAt: Int = span.first,
 )
 
 /**

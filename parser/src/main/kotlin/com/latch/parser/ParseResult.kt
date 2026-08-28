@@ -27,13 +27,53 @@ data class ParseResult(
      */
     val pendingOffset: Field<PendingOffset>? = null,
 ) {
-    /** The candidate the confirmation UI opens on. Later ones are additional checkboxes. */
-    val primary: DatedCandidate get() = candidates.first()
+    /**
+      * The candidate the confirmation UI opens on, and the one a save writes. The others are
+      * additional checkboxes once FR-511 is built.
+      *
+      * Chosen by [PRIMARY_RANKING] rather than by position — see the reading recorded against
+      * FR-505 in the SRS. [candidates] stays in document order, so the list still reads in the
+      * order the capture reads.
+      */
+     val primary: DatedCandidate get() = candidates.minWith(PRIMARY_RANKING)
 
     /** FR-512: what the app compares against [ParseContext.confidenceThreshold]. */
     val overallConfidence: Confidence
         get() = minOf(title.confidence, primary.confidence)
 }
+
+/**
+ * Which of several dates in one capture the app should act on first (a reading of FR-505,
+ * recorded in the SRS).
+ *
+ * Best first, so `minWith` picks the winner. In order:
+ *
+ * 1. **A date with a time beats one without.** A writer who gave a clock time has told us the
+ *    most about the commitment, and under FR-506 it is the difference between an event and a
+ *    task with a due date.
+ * 2. **An explicitly written date beats a relative or inferred one.** "August 31" is a
+ *    statement; "Monday" or "in 3 days" is a calculation this app performed, and design
+ *    principle 1 says the app's own arithmetic should never outrank what the user wrote.
+ * 3. **Otherwise the earliest mention wins.** Not a key here: [candidates] is already in
+ *    document order and `minWith` keeps the first of equal elements, so position is the
+ *    tiebreak by construction.
+ *
+ * Position used to be the *only* rule, and that is what let "from August 31 to September 6,
+ * 2026 / Date: Monday, August 31, 2026 at 21:30" open on 6 September with no time.
+ *
+ * **FR-505's confidence is deliberately not a key, and that was not the first answer.** Ranking
+ * on it above position reads well until a date range meets it: people write a range's year once,
+ * at the end — "from August 31 to September 6, 2026" — so only the closing date carries one, and
+ * a year is exactly what separates [Confidence.CERTAIN] from [Confidence.HIGH]. Confidence then
+ * makes the *end* of every such range the primary, which is the same wrong answer this ranking
+ * was written to fix, arrived at down a different road. Below position it can never fire at all,
+ * because no two candidates share a first mention — so it is left out rather than kept as a key
+ * that cannot decide anything. The corpus row for "from August 31 to September 6, 2026" is what
+ * holds this in place.
+ */
+val PRIMARY_RANKING: Comparator<DatedCandidate> =
+    compareBy<DatedCandidate> { if (it.time != null) 0 else 1 }
+        .thenBy { if (it.isExplicit) 0 else 1 }
 
 /**
  * One date found in the capture, with the time that belongs to it if there was one.
@@ -49,6 +89,11 @@ data class DatedCandidate(
     val ambiguousOrder: Boolean = false,
     /** FR-506 row 3: "next week" resolves to a date, but not to one worth saving unconfirmed. */
     val ambiguousRelative: Boolean = false,
+    /**
+     * True where the writer wrote the date out — "31 August", "05/09" — rather than the app
+     * having worked it out from "Monday", "tomorrow" or "in 3 days". Read by [PRIMARY_RANKING].
+     */
+    val isExplicit: Boolean = false,
 ) {
     val confidence: Confidence
         get() = listOfNotNull(date?.confidence, time?.confidence).minOrNull() ?: Confidence.NONE

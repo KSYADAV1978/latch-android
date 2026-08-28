@@ -21,3 +21,29 @@ The webinar is every Monday at 5 pm	EVENT	2026-08-31	17:00
 Please pay the fee by 30/09/2026, failing which admission will be cancelled	TASK_WITH_DUE_DATE	2026-09-30	-
 Parent orientation on Saturday 5 September, 10:00 am, main hall	EVENT	2026-09-05	10:00
 Your OTP is 4821. Do not share it with anyone.	TASK_UNDATED	-	-
+
+# --- Candidate ranking (FR-505 reading) and exclusive weekday attachment. ---
+# The reported failure: a range whose end date has no time, alongside an explicit dated
+# line that does. Before the ranking existed this opened on 6 September with no time,
+# because the earliest span won and 31 August's position had been taken from its
+# higher-confidence second mention.
+from August 31 to September 6, 2026\nDate: Monday, August 31, 2026 at 21:30	EVENT	2026-08-31	21:30
+# The same capture without the dated line: the range's first date still wins, which is the
+# behaviour the offsite row above already pinned.
+from August 31 to September 6, 2026	TASK_WITH_DUE_DATE	2026-08-31	-
+# Ranking, a date with a time beats one without, whichever came first in the text.
+Report due 6 September, review call on 31 August at 9pm	EVENT	2026-08-31	21:00
+# Ranking, an explicitly written date beats one this app worked out from a weekday.
+Gym Friday, and the review on 12 September	TASK_WITH_DUE_DATE	2026-09-12	-
+# Ranking, position beats a later date carrying a year. Confidence is deliberately not a key:
+# a range's year is written once at the end, so ranking on it would make the end of every
+# "from A to B, 2026" the primary — the same defect, reached a different way.
+Review 5 September, final on 6 September 2026	TASK_WITH_DUE_DATE	2026-09-05	-
+# Exclusive attachment: Monday is Monday 31 August's, not the Sunday before it. Both dates
+# sit inside the corroboration window of that one weekday. The primary is 6 September because
+# it is written first and nothing outranks position here; which date owns the weekday is a
+# question about spans, and CandidateRankingTest is where that is asserted.
+Sprint ends September 6, 2026 and Monday, August 31, 2026 is the review	TASK_WITH_DUE_DATE	2026-09-06	-
+# A weekday contradicting the date it is written into is still the same phrase, not a second
+# item: 12 September 2026 is a Saturday and the writer simply got it wrong.
+PTM on Friday 12 September	TASK_WITH_DUE_DATE	2026-09-12	-

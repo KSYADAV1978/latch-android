@@ -14,7 +14,7 @@ Tab-separated, four columns. `#` starts a comment line, blank lines are ignored.
 
 | Column | Meaning |
 |---|---|
-| `input` | The captured text, exactly as it would arrive |
+| `input` | The captured text, exactly as it would arrive. A literal `\n` is a line break — real captures are often several lines, and a line is this file's unit |
 | `classification` | `EVENT`, `TASK_WITH_DUE_DATE`, `EVENT_INCOMPLETE`, `TASK_UNDATED` (FR-506) |
 | `date` | Expected ISO date of the primary candidate, or `-` |
 | `time` | Expected 24-hour `HH:MM` of the primary candidate, or `-` |
