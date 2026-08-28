@@ -142,6 +142,15 @@ AC-10's run exercised; **AC-15**, **AC-09** (hidden calendar offered and actuall
 process death with the consent screen up, which are the only part of this app with no
 automated cover at all.
 
+**Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
+**pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
+values were deleted from the account on 28 Aug 2026, so the fixture no longer exists, and
+manufacturing one would mean writing an item under a derivation the SRS has withdrawn. It is
+covered at JVM level instead — exactly one `item_key` query shape is issued and there is no
+superseded-derivation fallback, which is the part §7.2 forbids and the part a device could not
+have shown. SRS 1.17 records this. No account known to this project now holds an item with a
+stale key.
+
 AC-15 is half-observed and deliberately not recorded as passing. A setup run on 26 Aug 2026
 took **43 seconds** from launch to the defaults record being written, measured off the
 filesystem, which is inside its 60-second budget. But AC-15 also requires that the calendar
