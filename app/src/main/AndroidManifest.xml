@@ -49,6 +49,45 @@
       one-shot and constrained. A periodic worker would be a new NFR-104 decision.
     -->
 
+    <!--
+      ML KIT (FR-215) ADDS NO PERMISSION, AND FIVE COMPONENTS. Verified 28 Aug 2026 by merging
+      the manifest with and without :ocr and diffing the two — the permission sets are
+      byte-identical, so the list above is still the whole list. Reproduce with:
+
+        ./gradlew :app:processDebugMainManifest
+        app/build/intermediates/merged_manifest/debug/.../AndroidManifest.xml
+
+      What it does add is recorded here for the same reason the WorkManager permissions are:
+      this file is where a reviewer comes to find out what the app can do.
+
+        - MlKitInitProvider              a ContentProvider, so it runs at process start,
+                                         BEFORE Application.onCreate. Every launch pays it,
+                                         including the text captures that never use OCR.
+        - MlKitComponentDiscoveryService a manifest-declared registry of component registrars.
+                                         Never started; it exists to be read, not run.
+        - datatransport TransportBackendDiscovery,
+          JobInfoSchedulerService,
+          AlarmManagerSchedulerBroadcastReceiver
+                                         ML Kit's logging pipeline. The CctBackendFactory
+                                         meta-data names Google's Clearcut transport: this is
+                                         what uploads ML Kit's usage telemetry.
+
+      TWO CONSEQUENCES, NEITHER A DEFECT.
+
+      AC-17. This is the concrete form of the restatement recorded in the SRS: a second
+      component now makes its own connections outside GoogleHttp's ALLOWED_HOSTS guard. The
+      traffic goes to Google, so the criterion holds as written, and it is not ours to route —
+      the same standing Play services' OAuth grant has. It WILL appear on a network monitor
+      and must not be reported as a failure. Removing these components with tools:node="remove"
+      was considered and is not taken: the traffic is inside AC-17, and stripping a library's
+      transport is how a crash arrives in a path with no test to catch it.
+
+      NFR-202 holds — ML Kit's telemetry is API usage, latency and error codes, not message or
+      image content, and the requirement forbids collecting content. NFR-104 holds too: a
+      JobService is scheduled work, the same standing WorkManager already has, not a persistent
+      background service.
+    -->
+
     <application
         android:name=".LatchApplication"
         android:allowBackup="false"

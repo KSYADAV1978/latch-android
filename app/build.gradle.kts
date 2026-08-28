@@ -55,6 +55,7 @@ dependencies {
     implementation(project(":parser"))
     implementation(project(":recipes"))
     implementation(project(":data"))
+    implementation(project(":ocr"))
 
     // The OAuth grant only (FR-002). Every Google call is hand-written REST on the token
     // this returns; see docs/DEPENDENCIES.md for why the library stops there.

@@ -17,6 +17,10 @@ coroutines = "1.9.0"
 work = "2.11.2"
 # The OAuth grant only; see docs/DEPENDENCIES.md. Measured at +135 KB.
 playServicesAuth = "22.0.0"
+# On-device OCR (FR-215), bundled. The single largest thing this app ships: +12.83 MB per
+# device, measured. The bundled variant is deliberate — the unbundled one downloads its models
+# on first use, so a first image capture with no network would fail outright (NFR-301).
+mlkitTextRecognition = "16.0.1"
 # Test-only. The real org.json, standing in for the android.jar stub under JVM unit tests.
 orgJson = "20260814"
 # Instrumented, for the launch canary only. Never in the app APK.
@@ -41,6 +45,12 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 androidx-work = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+
+# One artifact, both of FR-215's scripts: this ships a combined `gocrdevanagari_and_latin`
+# engine and the Latn, Deva and Beng models, so Latin needs no second recogniser. Adding
+# `com.google.mlkit:text-recognition` beside it measured +8,082 bytes and would be declared and
+# never called. See OcrReader's KDoc for the escalation if the device pass disagrees.
+mlkit-text-recognition-devanagari = { module = "com.google.mlkit:text-recognition-devanagari", version.ref = "mlkitTextRecognition" }
 
 org-json = { module = "org.json:json", version.ref = "orgJson" }
 

@@ -19,8 +19,9 @@ baselines is not.
 
 | Dependency | Version | Universal APK | Per device (App Bundle) | Decision |
 |---|---|---|---|---|
-| ML Kit text recognition, **bundled**, Latin + Devanagari | 16.0.1 | +41.41 MB (dev artifact) | **+12.83 MB** (arm64-v8a) | **Approved** |
-| ML Kit text recognition, **unbundled** (Play services), Latin + Devanagari | 19.0.1 / 16.0.1 | +325 KB | +325 KB | **Rejected** — NFR-301 |
+| `com.google.mlkit:text-recognition-devanagari` (bundled) | 16.0.1 | +41.35 MB (dev artifact) | **+12.83 MB** (arm64-v8a) | **Approved, now in use** |
+| `com.google.mlkit:text-recognition` (bundled, Latin only) | 16.0.1 | +8 KB on top of the above | +8 KB | **Not taken** — redundant |
+| ML Kit text recognition, **unbundled** (Play services) | 19.0.1 / 16.0.1 | +325 KB | +325 KB | **Rejected** — NFR-301 |
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB (see note) | +118 KB | **Approved, now in use** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
 | `com.google.android.gms:play-services-auth` | 22.0.0 | +135 KB | +135 KB | **Approved** |
@@ -90,6 +91,22 @@ breaches. Adopting bundled therefore makes NFR-103 conditional on shipping an AA
 an APK — which is what Play requires for new applications in any case, but it is a commitment
 this project has not yet made anywhere in writing.
 
+**One artifact serves both scripts, established when the module was built.** The Devanagari
+artifact ships a **combined `gocrdevanagari_and_latin` engine** together with the Latn, Deva
+and Beng models — verified by listing the assets of a built APK, not inferred from
+documentation — so it satisfies FR-215's "at minimum Latin and Devanagari" in a **single
+recognition pass**. Declared alone it measures **44,635,336** universal against the
+44,643,418 of both artifacts together: the Latin-only artifact is **+8,082 bytes** and buys a
+second, dedicated Latin recogniser that nothing would call. It is **not taken** — an artifact
+declared and never called is precisely what NFR-501 exists to prevent. The escalation, if the
+device pass shows the combined engine reading Latin worse than the dedicated model, is one
+line and 8 KB; it is recorded in `OcrReader`'s KDoc rather than pre-empted here.
+
+Taking one pass rather than two is also the only shape that reads a **mixed-script** image
+correctly. Running Latin and Devanagari separately and choosing the longer output would cost
+twice the time against NFR-101's 2.5 s and would discard one script's text whenever an image
+held both.
+
 **Devanagari is not what costs.** The second script adds **640,814 bytes (626 KB)** over
 Latin alone — model assets only; the native pipeline `.so` is byte-identical in both builds
 and is shared between the scripts. The expensive thing is bundling *at all*, not bundling
@@ -131,12 +148,25 @@ certificate's SHA-1 registered against the Android OAuth client. Written as a re
 because the distance between this decision and that submission is months, and because whoever
 ships is not necessarily whoever measured.
 
-**Two obligations carried into the build, recorded so they are not lost as footnotes.** The
-**merged manifest is to be inspected** when the dependency lands, and any permission ML Kit
-introduces named in `app/src/main/AndroidManifest.xml`'s comment — the precedent is
-WorkManager's four, and that file is where a reviewer comes to find out what the app can do.
-And **NFR-101's 2.5 s budget for OCR of a full-screen image goes into the device pass**; it is
-unmeasured, and no JVM test can see it.
+**The merged manifest was inspected on adoption, 28 Aug 2026, and ML Kit adds no permission
+at all.** Established by merging the manifest with and without `:ocr` and diffing the two, so
+it is a measurement rather than a reading of the library's documentation: the permission sets
+are byte-identical, and the four WorkManager brought in remain the whole of what this app
+gained from a dependency. What it does add is five components — an init `ContentProvider` that
+runs before `Application.onCreate`, a component-discovery service that is never started, and
+three `datatransport` components that are ML Kit's telemetry pipeline to Google's Clearcut
+backend. All five are named in `app/src/main/AndroidManifest.xml`'s comment, with their AC-17,
+NFR-202 and NFR-104 consequences, per the WorkManager precedent.
+
+**NFR-101's 2.5 s budget for OCR of a full-screen image remains unmeasured** and is in the
+device pass. No JVM test can see it.
+
+**A note on the figure above, so a later re-measurement is not read as a regression.** With
+`:ocr` declared but not yet called from `:app`, the release APK measures 14,540,616 per device
+(+12.73 MB) — R8 strips the Kotlin and ML Kit classes nothing reaches, while the native library
+and the model assets ship regardless. The **+12.83 MB in the table is the figure to hold**: it
+was measured against a reachable call, per the methodology at the top of this file, and the
+APK will return to it once the capture path calls the reader.
 
 **PDFs add no dependency** (FR-207). `android.graphics.pdf.PdfRenderer` has been in the
 platform since API 21, well below the minSdk FR-516 fixes at 26. Pages are rendered to
