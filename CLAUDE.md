@@ -113,6 +113,11 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **AC-07** — duplicate detection | 27 Aug 2026 | **Mechanism verified; cross-device half still owed.** Capturing identical text a second time returned "Already saved. Nothing was written again." and created nothing. That is Google's own index answering a `privateExtendedProperty=latch.source_hash=…` query, so the hash was written, is stored in `private`, and round-trips deterministically through the normalisation. But AC-07 reads "capture the same message **on phone and PC**", and the Windows client does not exist — this was phone-to-phone. The criterion is not met until two clients do it. |
 | **AC-11** — undo removes what a save wrote | 27 Aug 2026 | **Mechanism verified; the four-item half still owed.** Save swapped the button for a counting-down Undo, a tap outside the window did **not** dismiss it while the offer stood, the window closed itself when the offer lapsed, and Undo removed the event from Google Calendar. That covers every part of FR-807 no JVM test can see — the `setFinishOnTouchOutside` suppression above all, which is a real dialog-window behaviour and the piece most likely to have differed on a device. But AC-11 reads "save a **four-item** chain, then press undo", and a chain is one item on every path reachable today: `draftItems` drafts only `ParseResult.primary` until FR-511's per-date checkboxes exist, and FR-601 recipe expansion is not wired to this path either. The removal loop is written for a chain of any size and reports how far it got, and none of that has been run against more than one item. The criterion is not met until a real four-item chain is undone.
 | **AC-10** — offline capture reaches Google | 27 Aug 2026 | **Pass.** Aeroplane mode on, capture saved, screen said "No connection" rather than "Saved" — the distinction the Queued state exists for, since nothing was in the account yet. Home showed the pending count, and on reconnecting the item appeared in Google Calendar. That is the criterion as written, met in full: queued locally, written on reconnection, no loss. What it does **not** cover is the rest of NFR-302 — app termination and device restart while queued are the other two cases it names, and neither has been watched. Nor has the FR-803 re-check at drain, which is the defect that would stay invisible until a user queued the same message twice offline and got two items. |
+| **FR-505 ranking, and exclusive weekday attachment** | 28 Aug 2026 | **Pass.** "Sprint ends March 11, 2030 and the review is Tuesday, March 5, 2030 at 21:30" opened on **5 Mar 2030, 21:30, Event** — the date carrying a time, not the one written first. Before the fix this opened on 11 March with no time. 11 Mar 2030 is a Monday and 5 Mar a Tuesday, so the weekday attached to the date whose day it falls on rather than to the nearer one, which is the half no JVM test can show reaching a screen. |
+| **AC-08 / FR-804** — a reschedule is offered, not duplicated | 28 Aug 2026 | **Pass, on events and on tasks.** The offer appeared on the second capture naming both positions with computed weekdays, and **nothing was written while it stood**. Both answers work: Create new made a second item, Update moved the first and left exactly one. A tap outside did **not** dismiss the offer. §7.2's third row was watched too — re-capturing the text of a reschedule already applied answered "Already saved. Nothing was written again." rather than offering to move the item onto the position it already held. |
+| **FR-807 over an update** — undo restores, never deletes | 28 Aug 2026 | **Pass.** Undo inside the window put the event back on its previous date; nothing was deleted. Also observed on the way: an offer left untaken closed itself at ten seconds and the save stood, which is FR-807's lapse behaviour seen rather than reasoned about. |
+| **`tasks.delete` and `tasks.patch`** | 28 Aug 2026 | **Pass, first run against the live API.** Both had only ever run against a fake. `tasks.delete` via undo of a created task, `tasks.patch` via an update and again via its undo restoring the due date. |
+| **§7.2 write-once, observed** | 28 Aug 2026 | **Pass.** After an update the event's description still showed the **original** capture's text, March 5 and all, while its dates read March 7. That is SRS 1.18's reading seen on a device: the description is provenance, not current state. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
@@ -130,17 +135,22 @@ The parser already knew about that case and was throwing the answer away. `colle
 detects a bare weekday beside an explicit date and drops it as corroboration — "in 'PTM on
 Friday 12 September' the weekday is the writer corroborating their own date" — and now absorbs
 its span into the date it corroborates instead. One change, covering every date format rather
-than one rule's regex, and it improves FR-504's highlight too. §7.2 specifies the derivation as
+than one rule's regex. It does **not** touch FR-504: that requirement is "the resolved
+interpretation shall be displayed", which the confirmation screen meets with the when-line and
+its ambiguity notes — **there is no source-text highlight in this UI and none is specified**.
+The spans exist for §7.2's derivation, not for display. §7.2 specifies the derivation as
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-Not yet run on a device: **`tasks.delete`** — FR-807 was watched on an event, so the Tasks
-half of undo has still only ever run against a fake; **the FR-803 re-check at drain**, and
+Not yet run on a device: **the FR-803 re-check at drain**, and
 **NFR-302's other two limbs** — app termination and device restart while queued — none of which
 AC-10's run exercised; **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
 **AC-17** (network monitor over a full cycle), and the consent-bridge cases: rotation and
 process death with the consent screen up, which are the only part of this app with no
-automated cover at all.
+automated cover at all. FR-804's own gaps join that list: **a queued `UPDATE` has never
+drained** — the 28 Aug pass was online throughout, so the worker's update path and the
+staleness SRS 1.19 records have only ever run on the JVM — and **the task search has never
+capped**, which needs a list longer than ten pages, so the give-up behaviour is JVM-only.
 
 **Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
 **pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
@@ -257,6 +267,18 @@ one weekday be absorbed into two dates at once, and overlapping candidate spans 
 `item_key`, which blanks the primary's span out of the title. The exception is a weekday in the
 same phrase as a date, which is absorbed even when it contradicts it: §7.2's own example "PTM on
 Friday 12 September" is such a case, because 12 September 2026 is a Saturday.
+
+**FR-804 is built and verified on a device.** A save runs FR-803, then — only on a miss —
+searches `latch.item_key`, and a match on a different date offers update-or-create before
+anything is written. `writeDecision` in `:app` is §7.2's table as a pure function, one test per
+row. Undo of an update is a **restore**, never a delete: `CreatedItem.Updated` carries the
+dates read at match time, which after the patch exist nowhere else. Four things there are
+decisions rather than mechanics, each written up in the SRS: "same date" means an update would
+change nothing (so a same-day time change is a real reschedule), the time zone is excluded from
+that comparison, a recurring event is refused outright because `events.patch` on a series master
+moves every occurrence, and FR-803 is deliberately **not** re-run when a queued `UPDATE` drains.
+Detection is scoped by transport — a task capture queries only tasks — so two items sharing a
+date-free title across the two transports cannot match each other.
 
 Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
 cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
