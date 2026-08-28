@@ -704,7 +704,19 @@ class CaptureSaver(
         val leader = items.first()
         val proposed = itemDatesOf(leader, context.zone.id)
         val duplicate = findDuplicate(leader, defaults, metadata)
-        val reschedule = if (duplicate.found) null else findReschedule(leader, defaults, metadata)
+
+        // SRS 1.25: a capture producing more than one item is never offered as a reschedule.
+        // An item_key covers the capture, so a re-captured multi-date message matches the
+        // chain it created — and accepting the offer would patch one item and write none of
+        // the others, turning four items in front of the user into one moved event and three
+        // discarded silently. The query is skipped rather than its answer ignored: there is
+        // nothing to ask when no answer could be acted on.
+        val offerable = items.size == 1
+        val reschedule = if (duplicate.found || !offerable) {
+            null
+        } else {
+            findReschedule(leader, defaults, metadata)
+        }
 
         return when (val decision = writeDecision(duplicate, reschedule, proposed)) {
             WriteDecision.Duplicate -> SaveState.AlreadySaved

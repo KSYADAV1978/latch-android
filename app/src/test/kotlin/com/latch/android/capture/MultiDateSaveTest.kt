@@ -75,7 +75,10 @@ class MultiDateSaveTest {
         runCurrent()
 
         assertEquals(1, calendar.sourceHashesQueried.size, "one message, one duplicate check")
-        assertEquals(1, calendar.itemKeysQueried.size, "one message, one reschedule check")
+        // The item_key query is not made at all for a chain — see the SRS 1.25 pair below.
+        // It was asserted as exactly one here until that reading; a four-date capture cannot
+        // act on the answer, so there is nothing to ask.
+        assertTrue(calendar.itemKeysQueried.isEmpty())
     }
 
     @Test
@@ -142,6 +145,63 @@ class MultiDateSaveTest {
             itemKeyOf(itemKeyTitle(captured(fourDates), parse(fourDates))),
             itemKeyOf(itemKeyTitle(captured(moved), parse(moved))),
         )
+    }
+
+    // ----- SRS 1.25: a multi-item capture is never offered as a reschedule -----
+
+    @Test
+    fun `a multi-date capture is saved, not offered as a reschedule`() = runTest {
+        // The account already holds this chain, so the key matches. Accepting an offer would
+        // patch one item and write none of the other three — four items in front of the user
+        // becoming one moved event and three discarded silently.
+        val calendar = RecordingCalendarApi(
+            rescheduleMatch = com.latch.data.RescheduleSearch(
+                com.latch.data.RescheduleMatch(
+                    remoteId = "ev_old",
+                    dates = com.latch.data.ItemDates.Event(
+                        start = LocalDateTime.parse("2026-09-30T09:00"),
+                        end = LocalDateTime.parse("2026-09-30T10:00"),
+                    ),
+                    title = "Kickoff",
+                ),
+            ),
+        )
+        val saver = saver(calendar = calendar)
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        assertIs<SaveState.Saved>(saver.state.value)
+        assertEquals(4, calendar.inserted, "every item is written; nothing is discarded")
+        // The query is skipped rather than its answer ignored: nothing to ask when no answer
+        // could be acted on.
+        assertTrue(calendar.itemKeysQueried.isEmpty(), "no reschedule query for a chain")
+        assertTrue(calendar.patched.isEmpty())
+    }
+
+    @Test
+    fun `a single-date capture is still offered as a reschedule`() = runTest {
+        // FR-804 is unchanged for the captures it was written against.
+        val single = "Kickoff 1 September at 9am"
+        val calendar = RecordingCalendarApi(
+            rescheduleMatch = com.latch.data.RescheduleSearch(
+                com.latch.data.RescheduleMatch(
+                    remoteId = "ev_old",
+                    dates = com.latch.data.ItemDates.Event(
+                        start = LocalDateTime.parse("2026-09-30T09:00"),
+                        end = LocalDateTime.parse("2026-09-30T10:00"),
+                    ),
+                    title = "Kickoff",
+                ),
+            ),
+        )
+        val saver = saver(calendar = calendar)
+
+        saver.save(captured(single), parse(single), context)
+        runCurrent()
+
+        assertIs<SaveState.RescheduleOffered>(saver.state.value)
+        assertEquals(1, calendar.itemKeysQueried.size)
     }
 
     // ----- AC-11: the four-item chain, and undoing it -----

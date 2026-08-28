@@ -63,3 +63,7 @@ Class test on 3 tarikh, chapters 1 to 4	TASK_WITH_DUE_DATE	2026-09-03	-
 # The dictation reading is narrow: a comma after a month with no year following is a clause
 # boundary, so this stays undated rather than becoming the 8th.
 In March, 8 people confirmed	TASK_UNDATED	-	-
+# SRS 1.25: a range writes its year once, at the end. FR-513 gives a bare "September 20" the
+# current year, which inside a range opened one year and closed in another — a 370-day item.
+# Found by running a device checklist text through the parser before the phone saw it.
+Annual maintenance shutdown from September 20 to September 24, 2027	EVENT	2027-09-20	-

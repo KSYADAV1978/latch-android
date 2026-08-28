@@ -35,6 +35,16 @@ internal data class RawDate(
      * and move every date by a day for anyone reading this field directly (SRS 1.23).
      */
     val endDate: LocalDate? = null,
+    /**
+     * Whether the writer actually wrote a year, as opposed to FR-513 supplying the current
+     * one.
+     *
+     * Carried explicitly rather than read back out of [confidence] — a year is what separates
+     * `CERTAIN` from `HIGH` today, but that is a fact about how confidence happens to be
+     * scored and not a promise, and range-year propagation must not break the day someone
+     * rescores it.
+     */
+    val hasWrittenYear: Boolean = false,
 )
 
 /**

@@ -76,6 +76,49 @@ class RangeTest {
         assertEquals(LocalDate.of(2026, 11, 5), candidate.endDate?.value)
     }
 
+    // ----- the year, written once at the end -----
+
+    @Test
+    fun `a range writes its year once and both ends take it`() {
+        // The opening carries no year of its own. FR-513 resolves such a date to the current
+        // year, which is right for a date standing alone and wrong inside a range: the item
+        // drafted from it opened in 2026 and closed in 2027, spanning 370 days.
+        val candidate = parse("Annual maintenance shutdown from September 20 to September 24, 2027")
+            .candidates.single()
+
+        assertEquals(LocalDate.of(2027, 9, 20), candidate.date?.value)
+        assertEquals(LocalDate.of(2027, 9, 24), candidate.endDate?.value)
+    }
+
+    @Test
+    fun `a range written in the current year is unchanged by that rule`() {
+        // The guard. This shape passed before the fix only because the clock year and the
+        // written year happened to agree, which is what hid the defect; it must still resolve
+        // both ends to 2026 now that they no longer always do.
+        val candidate = parse("from August 31 to September 6, 2026").candidates.single()
+
+        assertEquals(LocalDate.of(2026, 8, 31), candidate.date?.value)
+        assertEquals(LocalDate.of(2026, 9, 6), candidate.endDate?.value)
+    }
+
+    @Test
+    fun `a range across the new year opens in the year before its close`() {
+        // Applying the closing year flatly would open on 28 December 2028, after the range
+        // had already ended.
+        val candidate = parse("Shutdown from December 28 to January 3, 2028").candidates.single()
+
+        assertEquals(LocalDate.of(2027, 12, 28), candidate.date?.value)
+        assertEquals(LocalDate.of(2028, 1, 3), candidate.endDate?.value)
+    }
+
+    @Test
+    fun `an opening that names its own year keeps it`() {
+        // FR-513 is not weakened: the year is only ever taken from the other end of the same
+        // phrase, never from the app's own arithmetic, and never over a year the writer gave.
+        val candidate = parse("Leave from 1 Oct 2026 until 5 Nov 2026").candidates.single()
+        assertEquals(LocalDate.of(2026, 10, 1), candidate.date?.value)
+    }
+
     // ----- what is not a range -----
 
     @Test

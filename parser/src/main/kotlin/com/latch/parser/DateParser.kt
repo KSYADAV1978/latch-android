@@ -108,6 +108,30 @@ object DateParser {
     }
 
     /**
+     * The opening date of a range, with the closing date's year applied where the writer did
+     * not give the opening one a year of its own.
+     *
+     * "from September 20 to September 24, 2027" writes the year once, at the end — the shape
+     * SRS §5.7 already notes when ruling confidence out as a ranking key. FR-513 resolves a
+     * bare "September 20" to the current year, correctly for a date standing alone; inside a
+     * range it produces an opening in one year and a close in another, and the item drafted
+     * from it spans them both. That was invisible while the only ranges under test were
+     * written in the current year.
+     *
+     * Where the opening then falls after the close, the range crosses a new year — "from
+     * December 28 to January 3, 2028" opens in 2027 — so it steps back one. FR-513 is not
+     * weakened by either: the year is still one the writer wrote, taken from the other end of
+     * the same phrase rather than advanced by the app.
+     */
+    private fun openingDateOf(start: RawDate, end: RawDate): LocalDate {
+        if (start.hasWrittenYear || !end.hasWrittenYear) return start.date
+        if (start.date.year == end.date.year) return start.date
+
+        val sameYear = start.date.withYear(end.date.year)
+        return if (sameYear.isAfter(end.date)) sameYear.minusYears(1) else sameYear
+    }
+
+    /**
      * Everything that may sit between two dates and still leave them one range.
      *
      * Deliberately a closed list rather than a distance, for the reason [samePhrase] is
@@ -144,6 +168,7 @@ object DateParser {
                 consumed[index + 1] = true
                 val span = start.span.spanning(listOf(next!!.span))
                 merged += start.copy(
+                    date = openingDateOf(start, next),
                     endDate = next.date,
                     span = span,
                     // A range is only as certain as its weaker end.

@@ -91,6 +91,7 @@ internal object WrittenDateRule : DateRule {
             span = span,
             confidence = if (yearRaw.isEmpty()) Confidence.HIGH else Confidence.CERTAIN,
             source = DateSource.EXPLICIT,
+            hasWrittenYear = yearRaw.isNotEmpty(),
         )
     }
 }

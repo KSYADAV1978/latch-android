@@ -66,6 +66,7 @@ internal object NumericDateRule : DateRule {
                 confidence = confidence,
                 source = DateSource.EXPLICIT,
                 ambiguousOrder = bothPlausible,
+                hasWrittenYear = hasYear,
             )
         }.toList()
 }
