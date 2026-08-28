@@ -702,7 +702,14 @@ class CaptureSaver(
                     duplicateWasCapped = duplicate.scanCapped,
                 )
                 SaveState.RescheduleOffered(
-                    title = item.title,
+                    // The **stored** item's title, not this capture's. The question is about
+                    // the item already in the account, and for a short capture FR-509 makes
+                    // this capture's title the whole text — which read as a contradiction:
+                    // "<the new text>" is already saved for <the old date>. After a "create
+                    // new" the two titles genuinely differ, and only this one names the item
+                    // the offer would actually move. Falls back to the drafted title where
+                    // the stored item carries none, so the sentence still has a subject.
+                    title = decision.match.title.ifBlank { item.title },
                     existing = decision.match.dates,
                     proposed = proposed,
                 )

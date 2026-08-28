@@ -35,7 +35,7 @@ class WriteDecisionTest {
         timeZone = "Asia/Kolkata",
     )
 
-    private val match = RescheduleMatch("ev_1", existing)
+    private val match = RescheduleMatch("ev_1", existing, "Project sync")
 
     // ----- row 1: the hash matches, and the key is not consulted -----
 
@@ -102,7 +102,7 @@ class WriteDecisionTest {
         // The reason keeping the original source_hash is safe. The moved item carries the
         // hash of the capture that created it, so this text is not caught by row 1 — it is
         // caught here, because the item now sits exactly where this text says.
-        val alreadyMoved = RescheduleMatch("ev_1", moved)
+        val alreadyMoved = RescheduleMatch("ev_1", moved, "Project sync")
 
         assertEquals(
             WriteDecision.Duplicate,
@@ -112,7 +112,7 @@ class WriteDecisionTest {
 
     @Test
     fun `row 3 — an unchanged task due date is a duplicate`() {
-        val due = RescheduleMatch("t_1", ItemDates.Task(LocalDate.parse("2030-03-05")))
+        val due = RescheduleMatch("t_1", ItemDates.Task(LocalDate.parse("2030-03-05")), "Project sync")
 
         assertEquals(
             WriteDecision.Duplicate,

@@ -502,7 +502,7 @@ internal fun eventMatchesFrom(page: JSONObject): List<RescheduleMatch> {
         val entry = items.optJSONObject(index) ?: continue
         val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
         val dates = eventDatesFrom(entry) ?: continue
-        matches += RescheduleMatch(id, dates)
+        matches += RescheduleMatch(id, dates, entry.optString("summary"))
     }
     return matches
 }
@@ -556,7 +556,7 @@ internal fun taskMatchesFrom(page: JSONObject, itemKey: String): List<Reschedule
         val metadata = remoteMetadataFromTaskNotes(entry.optString("notes")) ?: continue
         if (metadata.itemKey != itemKey) continue
         val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
-        matches += RescheduleMatch(id, ItemDates.Task(taskDueFrom(entry)))
+        matches += RescheduleMatch(id, ItemDates.Task(taskDueFrom(entry)), entry.optString("title"))
     }
     return matches
 }

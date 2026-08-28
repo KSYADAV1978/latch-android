@@ -142,7 +142,25 @@ sealed interface ItemDates {
  * write back are the ones that were there *before* this app changed them, and after the
  * patch they are gone from the account — the only place they exist is here.
  */
-data class RescheduleMatch(val remoteId: String, val dates: ItemDates)
+data class RescheduleMatch(
+    val remoteId: String,
+    val dates: ItemDates,
+    /**
+     * The matched item's **own** title, as it stands in the account — an event's `summary`,
+     * a task's `title`.
+     *
+     * Read here because FR-804's offer asks about the item that already exists, and the only
+     * title the app would otherwise have is the one derived from the capture doing the
+     * moving. For a short capture FR-509 makes that the whole text, so the question came out
+     * as «"Project sync on Thursday, March 7, 2030 at 21:30" is already saved for Tue 5 Mar»,
+     * which reads as a contradiction. It matters most after a "create new": the two items
+     * genuinely have different titles from then on, and only this one names the right item.
+     *
+     * Empty where the item carries no title. The app decides what to show for that; a blank
+     * is a fact about the item, not a failure to read it.
+     */
+    val title: String,
+)
 
 /**
  * The result of the FR-804 search by `latch.item_key`.

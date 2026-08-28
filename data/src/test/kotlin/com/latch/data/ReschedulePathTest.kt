@@ -237,6 +237,62 @@ class ReschedulePathTest {
         eventDatesFrom(JSONObject(event.toString()).also { it.remove("recurrence") })
 
     @Test
+    fun `an event match carries the stored summary, not anything derived from the capture`() {
+        val page = JSONObject().put(
+            "items",
+            JSONArray().put(
+                JSONObject()
+                    .put("id", "ev_1")
+                    .put("summary", "Project sync")
+                    .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+                    .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30")),
+            ),
+        )
+
+        // FR-804's offer asks about the item already in the account, so the item's own name
+        // has to travel with the match — the app has no other way to reach it.
+        assertEquals("Project sync", eventMatchesFrom(page).single().title)
+    }
+
+    @Test
+    fun `an event with no summary matches with a blank title rather than not matching`() {
+        val page = JSONObject().put(
+            "items",
+            JSONArray().put(
+                JSONObject()
+                    .put("id", "ev_1")
+                    .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+                    .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30")),
+            ),
+        )
+
+        // A nameless item is still the item to move. What to show for it is the app's
+        // problem, not a reason to lose the match.
+        assertEquals("", eventMatchesFrom(page).single().title)
+    }
+
+    @Test
+    fun `a task match carries the stored title`() {
+        val metadata = RemoteMetadata(
+            sourceHash = sourceHashOf("Project sync on Tuesday 5 March 2030"),
+            itemKey = key,
+            chainId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            capturedAt = java.time.Instant.parse("2030-03-01T09:00:00Z"),
+        )
+        val page = JSONObject().put(
+            "items",
+            JSONArray().put(
+                JSONObject()
+                    .put("id", "t_1")
+                    .put("title", "Project sync")
+                    .put("notes", metadata.toTaskNotes("body")),
+            ),
+        )
+
+        assertEquals("Project sync", taskMatchesFrom(page, key).single().title)
+    }
+
+    @Test
     fun `a task's due date is read back`() {
         assertEquals(
             LocalDate.parse("2030-03-05"),
@@ -285,8 +341,8 @@ class ReschedulePathTest {
 
     @Test
     fun `where several events share a key the latest wins`() {
-        val early = RescheduleMatch("ev_early", eventAt("2030-03-05T21:30:00"))
-        val late = RescheduleMatch("ev_late", eventAt("2030-03-07T21:30:00"))
+        val early = RescheduleMatch("ev_early", eventAt("2030-03-05T21:30:00"), "Project sync")
+        val late = RescheduleMatch("ev_late", eventAt("2030-03-07T21:30:00"), "Project sync")
 
         // Whichever order the API returned them in.
         assertEquals("ev_late", latestEventMatch(null, listOf(early, late))?.remoteId)
@@ -298,8 +354,8 @@ class ReschedulePathTest {
 
     @Test
     fun `an undated task never outranks a dated one`() {
-        val dated = RescheduleMatch("t_dated", ItemDates.Task(LocalDate.parse("2030-03-05")))
-        val undated = RescheduleMatch("t_undated", ItemDates.Task(null))
+        val dated = RescheduleMatch("t_dated", ItemDates.Task(LocalDate.parse("2030-03-05")), "Project sync")
+        val undated = RescheduleMatch("t_undated", ItemDates.Task(null), "Project sync")
 
         // It has no position, so it cannot be the latest position.
         assertEquals("t_dated", latestTaskMatch(null, listOf(dated, undated))?.remoteId)
@@ -310,7 +366,7 @@ class ReschedulePathTest {
 
     @Test
     fun `no candidates leaves the running best alone`() {
-        val best = RescheduleMatch("ev_1", eventAt("2030-03-05T21:30:00"))
+        val best = RescheduleMatch("ev_1", eventAt("2030-03-05T21:30:00"), "Project sync")
         assertEquals(best, latestEventMatch(best, emptyList()))
         assertNull(latestEventMatch(null, emptyList()))
     }
@@ -318,7 +374,7 @@ class ReschedulePathTest {
     @Test
     fun `a search with no match is not found`() {
         assertFalse(RescheduleSearch().found)
-        assertTrue(RescheduleSearch(RescheduleMatch("ev_1", eventAt("2030-03-05T21:30:00"))).found)
+        assertTrue(RescheduleSearch(RescheduleMatch("ev_1", eventAt("2030-03-05T21:30:00"), "Project sync")).found)
     }
 
     private fun eventAt(start: String) = ItemDates.Event(

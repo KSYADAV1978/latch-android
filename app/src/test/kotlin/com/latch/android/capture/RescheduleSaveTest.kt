@@ -66,7 +66,11 @@ class RescheduleSaveTest {
         timeZone = "Asia/Kolkata",
     )
 
-    private fun matchAt(dates: ItemDates = standingAt) = RescheduleSearch(RescheduleMatch("ev_1", dates))
+    /** What the item in the account is actually called — not what this capture says. */
+    private val storedTitle = "Project sync"
+
+    private fun matchAt(dates: ItemDates = standingAt, title: String = storedTitle) =
+        RescheduleSearch(RescheduleMatch("ev_1", dates, title))
 
     // ----- the query, and when it is not made -----
 
@@ -115,6 +119,33 @@ class RescheduleSaveTest {
         assertEquals(LocalDateTime.parse("2030-03-07T21:30"), (offered.proposed as ItemDates.Event).start)
         // FR-804 forbids a silent update, so nothing may be written before the answer.
         assertTrue(calendar.patched.isEmpty(), "nothing may be written while the offer stands")
+    }
+
+    @Test
+    fun `the offer names the stored item, not the text of the capture moving it`() = runTest {
+        val saver = saver(calendar = RecordingCalendarApi(rescheduleMatch = matchAt()))
+
+        saver.save(captured(movedText), parse(movedText), context)
+        runCurrent()
+
+        val offered = assertIs<SaveState.RescheduleOffered>(saver.state.value)
+        // Not "Project sync on Thursday, March 7, 2030 at 21:30", which is what FR-509 makes
+        // of this short capture and what would read as «"<the new date>" is already saved for
+        // <the old date>». The question is about the item in the account.
+        assertEquals(storedTitle, offered.title)
+        assertTrue(movedText !in offered.title)
+    }
+
+    @Test
+    fun `an item with no stored title falls back to the drafted one`() = runTest {
+        val saver = saver(calendar = RecordingCalendarApi(rescheduleMatch = matchAt(title = "")))
+
+        saver.save(captured(movedText), parse(movedText), context)
+        runCurrent()
+
+        // The sentence still needs a subject; a blank would read as a missing word.
+        val offered = assertIs<SaveState.RescheduleOffered>(saver.state.value)
+        assertTrue(offered.title.isNotBlank())
     }
 
     @Test
