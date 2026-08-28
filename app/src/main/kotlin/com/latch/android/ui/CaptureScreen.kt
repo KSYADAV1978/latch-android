@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.CapturedText
@@ -56,6 +59,7 @@ private const val UNDO_TICK_MS = 250L
  * Still to come, and deliberately absent rather than faked: the Event/Task override
  * (FR-507), per-date checkboxes for multiple dates (FR-511) and FR-506 row 3's date picker.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CaptureScreen(
     captured: CapturedText?,
@@ -136,10 +140,15 @@ fun CaptureScreen(
 
             SaveOutcome(saveState, destination)
 
-            Row(
+            // FlowRow, not Row: with an FR-804 offer up this holds three actions on a narrow
+            // floating dialog. A Row gives the labels whatever is left and they clip, which is
+            // silent — "Update" became "Up…" on a Pixel 6 Pro. This wraps to a second line
+            // instead, so the failure mode for a longer translation is a taller dialog rather
+            // than a word the user cannot read.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.Center,
             ) {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
@@ -360,7 +369,11 @@ private fun whenLine(candidate: DatedCandidate): String {
  */
 @Composable
 private fun ActionLabel(text: String) {
-    Text(text = text, maxLines = 1, softWrap = false)
+    // softWrap = false stops the label breaking one syllable per line; the FlowRow around it
+    // is what stops it being clipped instead. Ellipsis rather than Clip so that if a
+    // translation ever does overflow both, it reads as truncated rather than as a shorter
+    // word that happens to be wrong.
+    Text(text = text, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
 }
 
 /**

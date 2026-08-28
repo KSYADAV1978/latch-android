@@ -36,8 +36,8 @@
         the date rather than taken from the captured text, which may contradict it.
     -->
     <string name="capture_reschedule_offer">This looks like a reschedule. \"%1$s\" is already saved for %2$s. Move it to %3$s?</string>
-    <string name="capture_reschedule_update">Update it</string>
-    <string name="capture_reschedule_create_new">Create new</string>
+    <string name="capture_reschedule_update">Update</string>
+    <string name="capture_reschedule_create_new">New</string>
     <string name="capture_reschedule_no_date">no date</string>
     <!-- The duplicate check gave up before reading every task; see the reading against FR-803. -->
     <string name="capture_saved_unchecked">Saved. Latch could not check every task for a duplicate, so this may be a second copy.</string>
