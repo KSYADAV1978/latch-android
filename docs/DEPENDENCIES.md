@@ -161,12 +161,17 @@ NFR-202 and NFR-104 consequences, per the WorkManager precedent.
 **NFR-101's 2.5 s budget for OCR of a full-screen image remains unmeasured** and is in the
 device pass. No JVM test can see it.
 
-**A note on the figure above, so a later re-measurement is not read as a regression.** With
-`:ocr` declared but not yet called from `:app`, the release APK measures 14,540,616 per device
-(+12.73 MB) — R8 strips the Kotlin and ML Kit classes nothing reaches, while the native library
-and the model assets ship regardless. The **+12.83 MB in the table is the figure to hold**: it
-was measured against a reachable call, per the methodology at the top of this file, and the
-APK will return to it once the capture path calls the reader.
+**Confirmed on the capture path, 28 Aug 2026.** With the reader actually called from
+`CaptureActivity`, the release APK is **14,639,556 per device — +13,447,390, or +12.82 MB**,
+against the +12.83 MB the original spike measured. The two agree to within 8 KB, which is
+what the methodology at the top of this file is for: a spike with a reachable call measures
+what ships.
+
+Worth keeping, because it is the shape of every later re-measurement of this dependency. In
+the intermediate commit, with `:ocr` declared but nothing in `:app` calling it, the same tree
+measured 14,540,616 (+12.73 MB) — R8 strips the Kotlin and ML Kit classes nothing reaches
+while the native library and the 1.82 MB of model assets ship regardless. **A 100 KB movement
+in this row means reachability changed, not that the models did.**
 
 **PDFs add no dependency** (FR-207). `android.graphics.pdf.PdfRenderer` has been in the
 platform since API 21, well below the minSdk FR-516 fixes at 26. Pages are rendered to

@@ -13,6 +13,8 @@ import com.latch.data.QueueStatus
 import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
 import com.latch.data.googleTasksApi
+import com.latch.ocr.MlKitOcrReader
+import com.latch.ocr.OcrReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -104,6 +106,23 @@ class LatchApplication : Application() {
 
     /** FR-806, NFR-302. See [EncryptedWriteQueueStore] for why the payload lives here. */
     val writeQueue: WriteQueue by lazy { EncryptedWriteQueueStore(this) }
+
+    /**
+     * FR-215, FR-207. Held here rather than by `CaptureActivity` because loading ML Kit's
+     * native pipeline is not free and NFR-101 allows 2.5 s for the whole capture — a reader
+     * built per capture would pay that cost every time.
+     *
+     * `by lazy` twice over. It is the rule this whole class follows (a property initializer
+     * runs before `attachBaseContext`), and it also means the great majority of captures —
+     * text, which never reaches OCR — never construct one. `MlKitOcrReader` defers the
+     * recogniser itself a second time for the same reason, so holding this costs nothing
+     * until an image actually arrives.
+     *
+     * Deliberately not closed in [onTerminate]: that callback is not called on a real device,
+     * and a recogniser released while a capture is still reading would fail the capture. The
+     * process ending releases it, which is the only lifecycle this object has.
+     */
+    val ocrReader: OcrReader by lazy { MlKitOcrReader(this) }
 
     private val _queueStatus = MutableStateFlow(QueueStatus(waiting = 0, givenUp = 0))
 

@@ -30,6 +30,15 @@ data class CaptureSource(
     val layer: CaptureLayer,
     /** Package name of the originating app, where the platform discloses it (FR-802). */
     val appId: String? = null,
+    /**
+     * FR-215: this text was recognised from an image or a PDF rather than read as text.
+     *
+     * Not a [CaptureLayer]. An image can arrive through the share sheet today and through
+     * the screenshot watcher (FR-219) later, so how the text was *obtained* is a different
+     * axis from which layer delivered it — the same reason §7.1's `Capture` carries
+     * `ocr_used` beside `source` rather than folded into it.
+     */
+    val ocrUsed: Boolean = false,
 ) {
     /** FR-210a. */
     val webhookEligible: Boolean get() = layer != CaptureLayer.NOTIFICATION
@@ -43,4 +52,22 @@ data class CaptureSource(
      * the confirmed item — but the message itself does not.
      */
     val storesSourceText: Boolean get() = layer != CaptureLayer.NOTIFICATION
+
+    /**
+     * FR-805b. An OCR-derived capture stores a **capped extract** around the matched dates,
+     * never the whole recognised text.
+     *
+     * The third of these three properties, and they compose in the one direction that
+     * matters: [storesSourceText] decides whether there is any text at all, and this decides
+     * how much. A notification capture that was somehow also OCR-derived stores nothing,
+     * because an extract of nothing is nothing.
+     *
+     * The reason is privacy rather than length. What a recogniser returns from a shared
+     * screenshot is everything that was on the screen — the messages above and below the one
+     * that mattered, whatever sat in the status area — and writing that into a calendar
+     * description would synchronise a screen dump to every device on the account. Design
+     * principle 2 confines what leaves the device to the finished entry, and a screen dump is
+     * not one.
+     */
+    val storesWholeSourceText: Boolean get() = storesSourceText && !ocrUsed
 }

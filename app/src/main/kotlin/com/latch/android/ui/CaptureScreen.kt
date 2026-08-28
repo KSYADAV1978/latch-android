@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -39,6 +41,7 @@ import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
 import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
+import com.latch.ocr.OcrFailure
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
 import java.time.Instant
@@ -85,6 +88,10 @@ fun CaptureScreen(
     /** FR-511: the candidates still ticked, by index. All of them to begin with. */
     selected: Set<Int> = emptySet(),
     onToggleCandidate: (Int) -> Unit = {},
+    /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
+    extracting: Boolean = false,
+    /** FR-215: recognition finished and produced nothing usable. */
+    ocrFailure: OcrFailure? = null,
 ) {
     val blocker = if (captured == null) SaveBlocker.NEEDS_A_DATE else saveBlocker(destination, result, saveState)
 
@@ -112,17 +119,46 @@ fun CaptureScreen(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (captured == null || result == null) {
+            if (extracting) {
+                // NFR-102: the screen is up and says what it is doing, rather than the user
+                // looking at nothing for up to NFR-101's 2.5 seconds and wondering whether
+                // the share worked at all.
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = stringResource(R.string.capture_extracting),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            } else if (captured == null || result == null) {
                 Text(
-                    text = if (fromEmptyClipboard) {
-                        stringResource(R.string.capture_clipboard_empty)
-                    } else {
-                        stringResource(R.string.capture_nothing_shared)
+                    text = when {
+                        // FR-215's three outcomes are told apart on screen, because they ask
+                        // different things of the user: share it again, share something with
+                        // text in it, or nothing at all.
+                        ocrFailure == OcrFailure.UNREADABLE_SOURCE ->
+                            stringResource(R.string.capture_ocr_unreadable)
+                        ocrFailure == OcrFailure.NO_TEXT_FOUND ->
+                            stringResource(R.string.capture_ocr_no_text)
+                        ocrFailure == OcrFailure.RECOGNITION_FAILED ->
+                            stringResource(R.string.capture_ocr_failed)
+                        fromEmptyClipboard -> stringResource(R.string.capture_clipboard_empty)
+                        else -> stringResource(R.string.capture_nothing_shared)
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
             } else {
                 CaptureBody(captured, result, selected, onToggleCandidate)
+
+                // FR-207: the cap is reported, never applied silently. Only where it bit —
+                // "first 10 of 10 pages read" is a message about nothing, and a user who
+                // reads it will reasonably think a page was dropped.
+                captured.pages?.takeIf { it.capped }?.let { pages ->
+                    Note(stringResource(R.string.capture_pdf_capped, pages.read, pages.total))
+                }
 
                 // FR-904: the destination is on screen before the user confirms, which is
                 // also what FR-906 means by never routing somewhere they have not seen.

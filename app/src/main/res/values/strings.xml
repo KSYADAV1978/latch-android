@@ -64,6 +64,22 @@
     <string name="capture_nothing_shared">Nothing was shared with Latch</string>
     <string name="capture_clipboard_empty">The clipboard is empty. Copy some text, then tap the tile.</string>
 
+    <!--
+      FR-215 and FR-207: on-device OCR. NFR-102 is why capture_extracting exists at all — the
+      screen renders and fills in rather than waiting, so there has to be something to say
+      while it waits.
+    -->
+    <string name="capture_extracting">Reading the text…</string>
+    <string name="capture_ocr_unreadable">Latch could not open that file. Try sharing it again, or share the text instead.</string>
+    <string name="capture_ocr_no_text">No text found in that image.</string>
+    <string name="capture_ocr_failed">Latch could not read that image. Nothing was sent anywhere — the reading happens on your phone.</string>
+    <!--
+      FR-207's cap, reported rather than applied silently. The requirement is explicit that a
+      search which stopped looking must say so, because the user cannot otherwise tell it
+      apart from there having been nothing on page eleven.
+    -->
+    <string name="capture_pdf_capped">First %1$d of %2$d pages read.</string>
+
 
     <!-- FR-806: the queue, visible to the user. -->
     <plurals name="home_queue_waiting">

@@ -426,7 +426,13 @@ class CaptureSaver(
         }
         val items = (draft as DraftResult.Ready).items
 
-        val source = CaptureSource(layer = captured.layer, appId = captured.appId)
+        // ocrUsed reaches FR-805b through sourceBlock below: an OCR capture's description
+        // carries an extract around the dates, not everything the recogniser saw.
+        val source = CaptureSource(
+            layer = captured.layer,
+            appId = captured.appId,
+            ocrUsed = captured.ocrUsed,
+        )
         val metadata = RemoteMetadata(
             // The whole capture, so every item of one save shares it and FR-803 asks
             // "was this message saved", not "was this item created".
@@ -441,11 +447,13 @@ class CaptureSaver(
             // FR-600 recipes are not applied on this path yet.
             recipeId = null,
         )
-        // FR-805, and FR-805a for the notification layer — composed once, here, so no call
-        // site can compose it differently.
+        // FR-805, FR-805a for the notification layer and FR-805b for an OCR capture —
+        // composed once, here, so no call site can compose it differently.
         val body = sourceBlock(
             source = source,
             sourceText = captured.text,
+            // The same spans itemKeyTitle blanks. FR-805b excerpts around what §7.2 removes.
+            dateSpans = dateSpans(result),
             sourceLink = captured.appId?.let { String.format(sourceLinkTemplate, it) },
         )
 

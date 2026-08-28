@@ -11,20 +11,49 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
 import com.latch.android.LatchApplication
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
+import com.latch.ocr.OcrFailure
+import com.latch.ocr.OcrResult
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import java.time.LocalDateTime
 import java.time.ZoneId
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+
+/**
+ * What this screen has to show, which since FR-215 is not always known when it opens.
+ *
+ * NFR-102 requires the confirmation UI to render before the content is ready rather than
+ * delaying display, and this type is what lets it: [Extracting] is a state the screen can
+ * draw, where before there were only a capture and its parse.
+ */
+sealed interface CaptureContent {
+    /** FR-215: an image or PDF is being recognised. Only ever reached by an OCR capture. */
+    data object Extracting : CaptureContent
+
+    /** Everything that is known. [captured] is null where nothing usable arrived. */
+    data class Ready(val captured: CapturedText?) : CaptureContent
+
+    /** FR-215: recognition ran and produced nothing usable. */
+    data class Failed(val reason: OcrFailure) : CaptureContent
+}
 
 /**
  * The confirmation screen behind every capture layer (§5.2).
  *
- * The parse is synchronous and touches no I/O, which is what keeps NFR-101's 800 ms budget
- * from gesture to confirmation achievable — and why the FR-904 destination is read from
- * stored defaults rather than fetched.
+ * **A text capture is parsed synchronously, exactly as it was before FR-215.** The parse
+ * touches no I/O, which is what keeps NFR-101's 800 ms budget from gesture to confirmation
+ * achievable — and why the FR-904 destination is read from stored defaults rather than
+ * fetched. An image or a PDF cannot be: NFR-101 allows it 2.5 s, which is a wait the user
+ * watches rather than sits behind a blank window, so it renders first and fills in.
+ *
+ * The gating is deliberate and is recorded against NFR-102 in the SRS. The risk of adding an
+ * asynchronous path is that it quietly captures the synchronous one, which is why a device
+ * pass re-verifies an ordinary text capture end to end whenever this file is touched.
  */
 class CaptureActivity : ComponentActivity() {
 
@@ -37,16 +66,39 @@ class CaptureActivity : ComponentActivity() {
         // Setup may have completed in another task since this process read its defaults.
         app.refreshAccounts()
 
-        val captured = intent.toCapturedText(this)?.copy(appId = referrerPackage())
-        val context = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
-        val result = captured?.let { DateParser.parse(it.text, context) }
+        val request = intent.toCaptureRequest(this)
+        val parseContext = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
+        val referrer = referrerPackage()
+
+        // Text is resolved before the first frame, as it always was. Only an OCR capture
+        // starts as Extracting and arrives later.
+        val content = MutableStateFlow<CaptureContent>(
+            when (request) {
+                is CaptureRequest.Ready -> CaptureContent.Ready(request.captured.copy(appId = referrer))
+                is CaptureRequest.Nothing -> CaptureContent.Ready(null)
+                is CaptureRequest.Image, is CaptureRequest.Pdf -> CaptureContent.Extracting
+            }
+        )
+        if (request is CaptureRequest.Image || request is CaptureRequest.Pdf) {
+            extract(request, referrer, content)
+        }
 
         setContent {
             LatchTheme {
                 val destinations by app.configuredAccounts.collectAsState()
                 val saveState by app.captureSaver.state.collectAsState()
+                val captureContent by content.collectAsState()
 
                 HoldWindowOpenForUndo(saveState)
+
+                val captured = (captureContent as? CaptureContent.Ready)?.captured
+                // Parsed here rather than beside the extraction so that both paths reach the
+                // parser by exactly one route. `remember` keyed on the text keeps a
+                // recomposition from re-parsing; it is cheap, but it is not free and the
+                // FR-807 countdown recomposes this screen every 200 ms.
+                val result = remember(captured?.text) {
+                    captured?.let { DateParser.parse(it.text, parseContext) }
+                }
 
                 // FR-511: every date starts ticked, and the choice belongs to this screen
                 // rather than to the saver — nothing is written until Save, so there is
@@ -72,14 +124,14 @@ class CaptureActivity : ComponentActivity() {
                     // FR-512, interim: shown rather than blocking the save, until the
                     // Capture Inbox exists to send it to instead.
                     lowConfidence = result != null &&
-                        result.overallConfidence < context.confidenceThreshold,
+                        result.overallConfidence < parseContext.confidenceThreshold,
                     selected = selected,
                     onToggleCandidate = { index ->
                         selected = if (index in selected) selected - index else selected + index
                     },
                     onSave = {
                         if (captured != null && result != null) {
-                            app.captureSaver.save(captured, result, context, selected)
+                            app.captureSaver.save(captured, result, parseContext, selected)
                         }
                     },
                     onUndo = { app.captureSaver.undo() },
@@ -87,7 +139,59 @@ class CaptureActivity : ComponentActivity() {
                     // saver ignores both unless an offer is genuinely standing.
                     onUpdateExisting = { app.captureSaver.updateExisting() },
                     onCreateNew = { app.captureSaver.createNewInstead() },
-                    fromEmptyClipboard = intent.getBooleanExtra(EXTRA_READ_CLIPBOARD, false),
+                    fromEmptyClipboard = (request as? CaptureRequest.Nothing)?.fromEmptyClipboard == true,
+                    // NFR-102: the screen draws these rather than waiting on them.
+                    extracting = captureContent is CaptureContent.Extracting,
+                    ocrFailure = (captureContent as? CaptureContent.Failed)?.reason,
+                )
+            }
+        }
+    }
+
+    /**
+     * FR-215 and FR-207, off the main thread.
+     *
+     * In `lifecycleScope`, so a capture the user closes stops being recognised rather than
+     * finishing into a window that has gone. That is the opposite of the choice `CaptureSaver`
+     * makes — a *write* in flight is held by the application precisely so it survives this
+     * window — and the two differ because they have opposite failure modes. An abandoned
+     * write leaves an item in the user's account that nothing will report; an abandoned read
+     * leaves nothing anywhere, so cancelling it costs only the work.
+     *
+     * **A rotation re-runs the recognition**, because the activity is recreated and this
+     * starts again. That is accepted rather than solved: recognition is idempotent, the URI
+     * grant survives in the redelivered intent, and holding the result on the application
+     * would mean a second object with a lifecycle to reason about for a case measured in
+     * seconds. It is recorded here so that it is recognised rather than diagnosed.
+     */
+    private fun extract(
+        request: CaptureRequest,
+        referrer: String?,
+        content: MutableStateFlow<CaptureContent>,
+    ) {
+        lifecycleScope.launch {
+            val app = application as LatchApplication
+            val (result, layer, title) = when (request) {
+                is CaptureRequest.Image ->
+                    Triple(app.ocrReader.readImage(request.uri), request.layer, request.preferredTitle)
+                is CaptureRequest.Pdf ->
+                    Triple(app.ocrReader.readPdf(request.uri), request.layer, request.preferredTitle)
+                else -> return@launch
+            }
+
+            content.value = when (result) {
+                is OcrResult.Failed -> CaptureContent.Failed(result.reason)
+                is OcrResult.Text -> CaptureContent.Ready(
+                    CapturedText(
+                        text = result.value,
+                        layer = layer,
+                        // FR-206 still applies: a shared PDF from a mail client carries the
+                        // subject, and it names the thing better than its first recognised line.
+                        preferredTitle = title,
+                        appId = referrer,
+                        ocrUsed = true,
+                        pages = result.pages,
+                    )
                 )
             }
         }

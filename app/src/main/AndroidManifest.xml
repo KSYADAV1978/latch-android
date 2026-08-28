@@ -137,11 +137,32 @@
             </intent-filter>
 
             <!--
-              FR-205 also requires image/* and FR-207 application/pdf. Those filters are not
-              declared yet: on-device OCR (FR-215) is not implemented, and a share target
-              that accepts a file it cannot read is worse than one that does not appear.
-              They go in with the OCR work.
+              FR-205's image/* and FR-207's application/pdf. Declared now that FR-215's OCR
+              can read them — a share target that accepts a file it cannot read is worse
+              than one that does not appear, which is why these waited for :ocr.
+
+              Separate filters rather than two <data> elements in one, because a filter's
+              attributes combine: a single filter listing both types would also advertise
+              every cross-product the merger derives from them. Two filters say exactly two
+              things.
+
+              ACTION_SEND_MULTIPLE is deliberately absent. FR-205 asks for a share target for
+              text/plain and image/*, singular, and several images shared at once is a
+              multi-capture question this app has no answer for yet — each would be its own
+              parse, its own chain and its own undo. Adding the filter without that would
+              accept the share and silently read one image.
             -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
         </activity>
 
         <!--

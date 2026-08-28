@@ -164,6 +164,166 @@ class WritePathTest {
         assertFalse(task.contains("school fee"), "source text leaked into the task body")
     }
 
+    // ----- FR-805b: an OCR capture stores an extract, never the screen -----
+
+    /**
+     * A shared screenshot as the recogniser actually returns one: the message that mattered,
+     * with everything else that was on the screen above and below it.
+     */
+    private val screenful = buildString {
+        append("9:41  Vodafone IN  4G  87%\n")
+        append("Ritu: did you see the balance on the joint account, it is down to 4,120\n")
+        append("Amit: I will move some across tonight\n")
+        append("Ritu: also the card ending 8891 was declined at the chemist\n")
+        append("Amit: I have told the bank, they are sending a replacement card\n")
+        append("Ritu: fine. did Meera drop off the books she borrowed last month\n")
+        append("Amit: yes on Sunday, they are on the shelf in the hall\n")
+        append("Ritu: good. the plumber still has not called back about the kitchen tap\n")
+        append("School office: Parent teacher meeting on 12 September at 11:00 AM in Hall B\n")
+        append("Amit: noted, I will go\n")
+        append("Ritu: my appointment with Dr Nair is the same week, do not double book\n")
+        append("Amit: I will check the calendar tonight and move things around if I have to\n")
+        append("Ritu: also the car service is overdue now, it has been fourteen months\n")
+        append("Amit: I will book it in for the week after next\n")
+        append("Ritu: the insurance renewal quote came in at 41,900 by the way\n")
+        append("Ritu: that is a good deal higher than last year, ask them why\n")
+    }
+
+    /** Where "12 September" and "11:00 AM" sit in [screenful]. */
+    private val screenfulDates: List<IntRange>
+        get() = listOf(
+            screenful.indexOf("12 September").let { it until it + "12 September".length },
+            screenful.indexOf("11:00 AM").let { it until it + "11:00 AM".length },
+        )
+
+    private val ocrShare = CaptureSource(CaptureLayer.SHARE_SHEET, appId = "com.google.android.apps.photos", ocrUsed = true)
+
+    @Test
+    fun `an ocr capture keeps the clause its date sits in`() {
+        val block = sourceBlock(ocrShare, screenful, screenfulDates)
+
+        assertTrue(block.contains("Parent teacher meeting"), "the commitment itself must survive")
+        assertTrue(block.contains("12 September"))
+    }
+
+    @Test
+    fun `an ocr capture does not carry the whole screen`() {
+        val block = sourceBlock(ocrShare, screenful, screenfulDates)
+
+        // The far ends of the screen are what this rule exists to drop: a bank balance and a
+        // card number above, an insurance quote below. None of it is what the user captured.
+        assertFalse(block.contains("4,120"), "a balance from the top of the screen was stored")
+        assertFalse(block.contains("8891"), "a card number from the top of the screen was stored")
+        assertFalse(block.contains("41,900"), "a quote from the bottom of the screen was stored")
+        assertTrue(block.length < screenful.length)
+    }
+
+    @Test
+    fun `the same screen captured as text stores it whole`() {
+        // The discriminator is ocrUsed and nothing else. A user who selected this text meant
+        // to send it; a recogniser that read it off a screenshot did not.
+        val asText = sourceBlock(shareSheet, screenful, screenfulDates)
+        assertTrue(asText.contains("4,120"))
+        assertTrue(asText.contains("41,900"))
+    }
+
+    @Test
+    fun `an extract says where it was cut`() {
+        val block = sourceBlock(ocrShare, screenful, screenfulDates)
+        // A reader has to be able to see they are looking at an extract rather than at a
+        // short capture, or the description misrepresents what was there.
+        assertTrue(block.contains("…"), "no ellipsis marks the elision")
+    }
+
+    @Test
+    fun `an extract stays inside its budget`() {
+        val block = sourceExcerpt(screenful, screenfulDates)
+        assertTrue(block.length <= EXCERPT_BUDGET + 8, "budget overrun: ${block.length}")
+    }
+
+    @Test
+    fun `a short note is kept whole because its window covers it`() {
+        // Not because it fits the budget — the window is what decides. Every character of
+        // this note is within 160 of the date, so all of it is context.
+        val short = "Parent teacher meeting on 12 September at 11:00 AM in Hall B"
+        val spans = listOf(26 until 38)
+        assertEquals(short, sourceExcerpt(short, spans))
+    }
+
+    @Test
+    fun `a screenful under the budget is still excerpted`() {
+        // The case the requirement was written for. A rule that only excerpted over-budget
+        // text would have exempted exactly the capture FR-805b exists to bound.
+        val short = "9,999 " + "x".repeat(250) +
+            "\nMeeting on 12 September at 11:00 AM.\n" +
+            "y".repeat(250) + " 8,888"
+        val date = short.indexOf("12 September").let { it until it + 12 }
+
+        assertTrue(short.length < EXCERPT_BUDGET, "fixture no longer tests the under-budget case")
+        val block = sourceExcerpt(short, listOf(date))
+        assertTrue(block.length < short.length, "an under-budget capture was stored whole")
+        assertFalse(block.contains("9,999"))
+        assertFalse(block.contains("8,888"))
+    }
+
+    @Test
+    fun `the radius is a character count, so density decides how much context comes along`() {
+        // Recorded as a property rather than asserted as a virtue. 160 characters either side
+        // of a date is roughly two messages in a dense chat and a single sentence in a
+        // sparsely laid-out document, so how much unrelated content an extract carries
+        // depends on what the screen looked like. The bound FR-805b actually guarantees is
+        // the budget; the radius is a heuristic for keeping the clause the date sits in.
+        val dense = "a".repeat(200) + " 12 September " + "b".repeat(200)
+        val extract = sourceExcerpt(dense, listOf(200 until 214), radius = 160)
+
+        assertTrue(extract.contains("12 September"))
+        assertTrue(extract.length <= 14 + 2 * 160 + 4, "the window grew past its radius")
+        assertTrue(extract.startsWith("…") && extract.endsWith("…"))
+    }
+
+    @Test
+    fun `an ocr capture with no date found still carries provenance`() {
+        // Design principle 1: the item is undated rather than invented, and it still needs to
+        // say where it came from. The opening of the text is the extract.
+        val block = sourceExcerpt(screenful, dateSpans = emptyList())
+        assertTrue(block.isNotEmpty())
+        assertTrue(block.startsWith("9:41"))
+        assertTrue(block.length <= EXCERPT_BUDGET + 8)
+    }
+
+    @Test
+    fun `two distant dates each keep their own context`() {
+        val text = "Kickoff on 8 September at 9am." + " filler.".repeat(60) + "Retro on 20 October at 4pm."
+        val spans = listOf(
+            text.indexOf("8 September").let { it until it + 11 },
+            text.indexOf("20 October").let { it until it + 10 },
+        )
+        val block = sourceExcerpt(text, spans)
+
+        assertTrue(block.contains("Kickoff"), "the first date lost its clause")
+        assertTrue(block.contains("Retro"), "the second date lost its clause")
+        assertTrue(block.contains("…"), "the gap between them is not marked")
+    }
+
+    @Test
+    fun `dates close together produce one window rather than a torn one`() {
+        // An ellipsis standing in for a handful of characters costs more to read than the
+        // characters would, which is what the merge gap is for.
+        val text = "Review on 12 September at 11:00 AM in Hall B. " + "x".repeat(900)
+        val spans = listOf(10 until 22, 26 until 34)
+        val block = sourceExcerpt(text, spans)
+
+        assertFalse(block.take(200).contains(" … "), "adjacent dates were split into two windows")
+    }
+
+    @Test
+    fun `a notification that was also ocr stores nothing`() {
+        // The two rules compose in the one direction that matters: an extract of nothing is
+        // nothing. FR-805a decides whether there is text at all; FR-805b only how much.
+        val both = CaptureSource(CaptureLayer.NOTIFICATION, ocrUsed = true)
+        assertEquals("", sourceBlock(both, screenful, screenfulDates))
+    }
+
     // ----- FR-803: the event query -----
 
     @Test

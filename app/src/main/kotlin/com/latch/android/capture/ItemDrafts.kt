@@ -199,14 +199,27 @@ private fun itemId(chainId: String, index: Int) = "$chainId#$index"
 fun itemKeyTitle(captured: CapturedText, result: ParseResult): String {
     captured.preferredTitle?.takeIf { it.isNotBlank() }?.let { return it }
 
-    // §7.2 step 2 blanks **every** date, time and end-time span, not merely the primary's.
-    // This blanked only the primary's until SRS 1.23, which was invisible while a capture
-    // produced one item and wrong the moment it held two dates: a neighbour's date left
-    // standing in the title moves the key whenever any date in the message changes, which is
-    // the failure item_key exists to prevent. One capture, one key — so every item of a
-    // chain shares it, and FR-804 identifies what the message is about rather than which
-    // occurrence of it.
-    val spans = result.candidates.flatMap { candidate ->
+    return TitleExtractor.extract(captured.text.blankOut(dateSpans(result))).value
+}
+
+/**
+ * Every span the parser matched as a date, a time or an end of either, in document order.
+ *
+ * Two callers, and they want it for opposite reasons: [itemKeyTitle] blanks these out to
+ * derive §7.2's `latch.item_key`, and FR-805b's extract keeps the text *around* them. Shared
+ * so the two cannot drift — a span one of them counted as a date and the other did not would
+ * put a date into an identity that is supposed to be date-free, or excerpt around a date that
+ * is not there.
+ *
+ * §7.2 step 2 blanks **every** date, time and end-time span, not merely the primary's. This
+ * covered only the primary's until SRS 1.23, which was invisible while a capture produced one
+ * item and wrong the moment it held two dates: a neighbour's date left standing in the title
+ * moves the key whenever any date in the message changes, which is the failure `item_key`
+ * exists to prevent. One capture, one key — so every item of a chain shares it, and FR-804
+ * identifies what the message is about rather than which occurrence of it.
+ */
+fun dateSpans(result: ParseResult): List<IntRange> =
+    result.candidates.flatMap { candidate ->
         listOfNotNull(
             candidate.date?.span,
             candidate.time?.span,
@@ -214,8 +227,6 @@ fun itemKeyTitle(captured: CapturedText, result: ParseResult): String {
             candidate.endDate?.span,
         )
     }
-    return TitleExtractor.extract(captured.text.blankOut(spans)).value
-}
 
 private fun String.blankOut(spans: List<IntRange>): String {
     if (spans.isEmpty()) return this
