@@ -31,14 +31,16 @@ class WriteQueueDrainTest {
     ) = QueuedWrite(
         id = id,
         write = PendingWrite(
-            item = Item(
-                id = "$id#0",
-                captureId = "cap-$id",
-                type = ItemType.EVENT,
-                title = "Team sync",
-                start = LocalDateTime.parse("2026-09-05T15:00"),
-                end = LocalDateTime.parse("2026-09-05T16:00"),
-                calendarId = "latch-cal",
+            items = listOf(
+                Item(
+                    id = "$id#0",
+                    captureId = "cap-$id",
+                    type = ItemType.EVENT,
+                    title = "Team sync",
+                    start = LocalDateTime.parse("2026-09-05T15:00"),
+                    end = LocalDateTime.parse("2026-09-05T16:00"),
+                    calendarId = "latch-cal",
+                ),
             ),
             metadata = RemoteMetadata(
                 sourceHash = "a".repeat(64),

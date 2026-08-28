@@ -54,7 +54,7 @@ class WriteQueueRecordTest {
         givenUp: Boolean = false,
     ) = QueuedWrite(
         id = "queue-1",
-        write = PendingWrite(item = item, metadata = metadata, body = body, timeZone = "Asia/Kolkata"),
+        write = PendingWrite(items = listOf(item), metadata = metadata, body = body, timeZone = "Asia/Kolkata"),
         operation = WriteOperation.CREATE,
         attempts = attempts,
         lastError = lastError,
@@ -244,6 +244,49 @@ class WriteQueueRecordTest {
         assertNull(decodeQueuedWrite(update.toString())?.write?.priorState)
     }
 
+    // ----- FR-511: a chain is one entry (SRS §7.1 at v1.23) -----
+
+    @Test
+    fun `a chain of items survives the round trip in order`() {
+        val second = event.copy(
+            id = "chain-1#1",
+            title = "Team sync follow-up",
+            start = LocalDateTime.parse("2026-09-12T15:00"),
+            end = LocalDateTime.parse("2026-09-12T16:00"),
+        )
+        val chain = entry().let { it.copy(write = it.write.copy(items = listOf(event, second))) }
+
+        val decoded = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(chain)))
+
+        // Order matters: the items are written in it, and #0 is the one FR-803 is asked of.
+        assertEquals(listOf("chain-1#0", "chain-1#1"), decoded.write.items.map { it.id })
+        assertEquals(LocalDateTime.parse("2026-09-12T15:00"), decoded.write.items[1].start)
+        // One source_hash for the whole capture, so one entry carries one metadata block.
+        assertEquals(metadata.sourceHash, decoded.write.metadata.sourceHash)
+    }
+
+    @Test
+    fun `a version 2 record decodes as a chain of one, which is what it was`() {
+        // v1 and v2 held a single item under "item". Nothing has to be inferred to read one:
+        // a capture that produced one item is a chain of one.
+        val v2 = JSONObject(encodeQueuedWrite(entry()))
+        val items = v2.getJSONArray("items")
+        v2.remove("items")
+        v2.put("item", items.getJSONObject(0))
+        v2.put("v", 2)
+
+        val decoded = assertNotNull(decodeQueuedWrite(v2.toString()), "a v2 entry must still drain")
+        assertEquals(1, decoded.write.items.size)
+        assertEquals("Team sync", decoded.write.item.title)
+    }
+
+    @Test
+    fun `an entry with no items at all is refused rather than drained to nothing`() {
+        val empty = JSONObject(encodeQueuedWrite(entry()))
+        empty.put("items", org.json.JSONArray())
+        assertNull(decodeQueuedWrite(empty.toString()))
+    }
+
     // ----- refusing what it cannot trust -----
 
     @Test
@@ -257,13 +300,17 @@ class WriteQueueRecordTest {
         // One unreadable entry must not take out a drain that would have written the others.
         assertNull(decodeQueuedWrite("not json at all"))
         assertNull(decodeQueuedWrite("{}"))
-        assertNull(decodeQueuedWrite(JSONObject(encodeQueuedWrite(entry())).remove("item").toString()))
+        // JSONObject.remove returns the value it removed, not the object — stringifying the
+        // call was testing the item rather than the record it had been taken out of.
+        val noItems = JSONObject(encodeQueuedWrite(entry()))
+        noItems.remove("items")
+        assertNull(decodeQueuedWrite(noItems.toString()))
 
         val badTime = JSONObject(encodeQueuedWrite(entry())).put("queued_at", "half past three")
         assertNull(decodeQueuedWrite(badTime.toString()))
 
         val badType = JSONObject(encodeQueuedWrite(entry()))
-        badType.getJSONObject("item").put("type", "REMINDER")
+        badType.getJSONArray("items").getJSONObject(0).put("type", "REMINDER")
         assertNull(decodeQueuedWrite(badType.toString()))
     }
 
@@ -272,7 +319,7 @@ class WriteQueueRecordTest {
         // A task carrying a start: Item's init refuses it (§8.1), and that refusal must
         // surface as an unreadable record rather than as a crash inside the worker.
         val impossible = JSONObject(encodeQueuedWrite(entry()))
-        impossible.getJSONObject("item").put("type", "TASK")
+        impossible.getJSONArray("items").getJSONObject(0).put("type", "TASK")
         assertNull(decodeQueuedWrite(impossible.toString()))
     }
 

@@ -11,6 +11,7 @@ import java.time.LocalDateTime
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -164,21 +165,58 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  * to null and is dropped rather than mis-parsed into a write that would reach the user's
  * account wrong.
  *
- * **Version 2 added FR-804's `target` and `prior` (SRS §7.1, corrected at v1.16), and
- * version 1 records are still read.** This is the opposite of the account-defaults store's
+ * **Version 3 holds a chain of items where 1 and 2 held one** (SRS §7.1, corrected at
+ * v1.23), and **version 2 added FR-804's `target` and `prior` (v1.16). Both older layouts are
+ * still read**, a v1 or v2 record decoding to a chain of one, which is exactly what it was.** This is the opposite of the account-defaults store's
  * answer, where a v1 record is dropped and setup simply runs again, and the difference is
  * what is lost: dropping a queue entry loses a capture that exists nowhere else, which is
  * the one thing NFR-302 forbids. Nothing has to be inferred to read one, either — an UPDATE
  * was never issued at v1, so every v1 record is a CREATE, and a CREATE carries neither of
  * the new fields anyway.
  */
-internal const val QUEUE_RECORD_VERSION = 2
+internal const val QUEUE_RECORD_VERSION = 3
 
 /** The oldest record layout still readable. See [QUEUE_RECORD_VERSION]. */
 internal const val QUEUE_RECORD_MIN_VERSION = 1
 
+internal fun encodeItem(item: Item): JSONObject = JSONObject()
+    .put("id", item.id)
+    .put("capture_id", item.captureId)
+    .putOpt("chain_id", item.chainId)
+    .put("type", item.type.name)
+    .put("title", item.title)
+    .putOpt("start", item.start?.toString())
+    .putOpt("end", item.end?.toString())
+    .put("all_day", item.allDay)
+    .putOpt("due_date", item.dueDate?.toString())
+    .putOpt("location", item.location)
+    .putOpt("calendar_id", item.calendarId)
+    .putOpt("task_list_id", item.taskListId)
+
+internal fun decodeItem(itemJson: JSONObject): Item? {
+    // Not valueOf: a type written by a later version must decode to null rather than throw,
+    // so one unreadable entry cannot take out a drain.
+    val type = ItemType.entries.firstOrNull { it.name == itemJson.getString("type") } ?: return null
+    return Item(
+        id = itemJson.getString("id"),
+        captureId = itemJson.getString("capture_id"),
+        chainId = itemJson.optString("chain_id").takeIf { it.isNotBlank() },
+        type = type,
+        title = itemJson.getString("title"),
+        start = itemJson.optString("start").takeIf { it.isNotBlank() }?.let(LocalDateTime::parse),
+        end = itemJson.optString("end").takeIf { it.isNotBlank() }?.let(LocalDateTime::parse),
+        allDay = itemJson.optBoolean("all_day"),
+        dueDate = itemJson.optString("due_date").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
+        location = itemJson.optString("location").takeIf { it.isNotBlank() },
+        calendarId = itemJson.optString("calendar_id").takeIf { it.isNotBlank() },
+        taskListId = itemJson.optString("task_list_id").takeIf { it.isNotBlank() },
+        // Read back as queued, not as the draft it was: this record exists because the
+        // write is outstanding.
+        syncState = SyncState.QUEUED,
+    )
+}
+
 internal fun encodeQueuedWrite(entry: QueuedWrite): String {
-    val item = entry.write.item
     val metadata = entry.write.metadata
 
     val json = JSONObject()
@@ -199,22 +237,9 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
     entry.write.targetRemoteId?.let { json.put("target", it) }
     entry.write.priorState?.let { json.put("prior", encodeItemDates(it)) }
 
-    json.put(
-        "item",
-        JSONObject()
-            .put("id", item.id)
-            .put("capture_id", item.captureId)
-            .putOpt("chain_id", item.chainId)
-            .put("type", item.type.name)
-            .put("title", item.title)
-            .putOpt("start", item.start?.toString())
-            .putOpt("end", item.end?.toString())
-            .put("all_day", item.allDay)
-            .putOpt("due_date", item.dueDate?.toString())
-            .putOpt("location", item.location)
-            .putOpt("calendar_id", item.calendarId)
-            .putOpt("task_list_id", item.taskListId),
-    )
+    val items = JSONArray()
+    for (one in entry.write.items) items.put(encodeItem(one))
+    json.put("items", items)
 
     json.put(
         "metadata",
@@ -270,15 +295,22 @@ internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
     if (version < QUEUE_RECORD_MIN_VERSION || version > QUEUE_RECORD_VERSION) {
         null
     } else {
-        val itemJson = json.getJSONObject("item")
         val metadataJson = json.getJSONObject("metadata")
 
-        // Not valueOf, here and for the operation: a type written by a later version must
-        // decode to null rather than throw, so one unreadable entry cannot take out a drain.
-        val type = ItemType.entries.firstOrNull { it.name == itemJson.getString("type") }
+        // A v3 record holds a chain; v1 and v2 held exactly one item, which is a chain of
+        // one and decodes as such — nothing has to be inferred to read them.
+        val itemsJson = json.optJSONArray("items")
+        val items = if (itemsJson != null) {
+            (0 until itemsJson.length()).map { itemsJson.getJSONObject(it) }
+        } else {
+            listOf(json.getJSONObject("item"))
+        }.map(::decodeItem)
+
+        // Not valueOf: an operation written by a later version must decode to null rather
+        // than throw, so one unreadable entry cannot take out a drain.
         val operation = WriteOperation.entries.firstOrNull { it.name == json.getString("op") }
 
-        if (type == null || operation == null) {
+        if (items.isEmpty() || items.any { it == null } || operation == null) {
             null
         } else {
             QueuedWrite(
@@ -289,26 +321,7 @@ internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
                 givenUp = json.optBoolean("given_up"),
                 queuedAt = Instant.parse(json.getString("queued_at")),
                 write = PendingWrite(
-                    item = Item(
-                        id = itemJson.getString("id"),
-                        captureId = itemJson.getString("capture_id"),
-                        chainId = itemJson.optString("chain_id").takeIf { it.isNotBlank() },
-                        type = type,
-                        title = itemJson.getString("title"),
-                        start = itemJson.optString("start").takeIf { it.isNotBlank() }
-                            ?.let(LocalDateTime::parse),
-                        end = itemJson.optString("end").takeIf { it.isNotBlank() }
-                            ?.let(LocalDateTime::parse),
-                        allDay = itemJson.optBoolean("all_day"),
-                        dueDate = itemJson.optString("due_date").takeIf { it.isNotBlank() }
-                            ?.let(LocalDate::parse),
-                        location = itemJson.optString("location").takeIf { it.isNotBlank() },
-                        calendarId = itemJson.optString("calendar_id").takeIf { it.isNotBlank() },
-                        taskListId = itemJson.optString("task_list_id").takeIf { it.isNotBlank() },
-                        // Read back as queued, not as the draft it was: this record exists
-                        // because the write is outstanding.
-                        syncState = SyncState.QUEUED,
-                    ),
+                    items = items.filterNotNull(),
                     metadata = RemoteMetadata(
                         sourceHash = metadataJson.getString("source_hash"),
                         itemKey = metadataJson.getString("item_key"),

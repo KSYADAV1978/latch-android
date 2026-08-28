@@ -87,7 +87,21 @@ interface WriteQueue {
  * here, so there is no raw capture on this type for a future call site to store by accident.
  */
 data class PendingWrite(
-    val item: Item,
+    /**
+     * The whole chain one capture produced, in the order it will be written (SRS §7.1,
+     * corrected a third time at v1.23).
+     *
+     * Not one item. FR-803 asks its question of the **message** — §7.2 says every item of a
+     * capture shares a `source_hash` and that the question is "has this message already been
+     * saved" — so an entry per item would have the check asked once per item, and the second
+     * entry to drain would find the first entry's item and remove itself without writing.
+     * The chain would reach the account one item short, silently, losing more the longer it
+     * was. One entry per chain also keeps an FR-807 undo of a queued save atomic, and stops
+     * a process death between two drains leaving half a chain on disk.
+     *
+     * An `UPDATE` carries exactly one, because an update targets one existing item.
+     */
+    val items: List<Item>,
     val metadata: RemoteMetadata,
     val body: String,
     /** An IANA zone id. `Item.start` is a `LocalDateTime` and needs one to resolve. */
@@ -112,7 +126,14 @@ data class PendingWrite(
      * restoring anything.
      */
     val priorState: ItemDates? = null,
-)
+) {
+    init {
+        require(items.isNotEmpty()) { "A queued write with no items would drain to nothing" }
+    }
+
+    /** The chain's first item, which is every item for an `UPDATE` and for a single capture. */
+    val item: Item get() = items.first()
+}
 
 data class QueuedWrite(
     val id: String,

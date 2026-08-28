@@ -48,6 +48,14 @@ class CaptureActivity : ComponentActivity() {
 
                 HoldWindowOpenForUndo(saveState)
 
+                // FR-511: every date starts ticked, and the choice belongs to this screen
+                // rather than to the saver — nothing is written until Save, so there is
+                // nothing for the saver to hold. Keyed on the parse so a capture arriving
+                // over this one starts ticked again rather than inheriting a stale set.
+                var selected by remember(result) {
+                    mutableStateOf(result?.candidates?.indices?.toSet() ?: emptySet())
+                }
+
                 CaptureScreen(
                     captured = captured,
                     result = result,
@@ -65,9 +73,13 @@ class CaptureActivity : ComponentActivity() {
                     // Capture Inbox exists to send it to instead.
                     lowConfidence = result != null &&
                         result.overallConfidence < context.confidenceThreshold,
+                    selected = selected,
+                    onToggleCandidate = { index ->
+                        selected = if (index in selected) selected - index else selected + index
+                    },
                     onSave = {
                         if (captured != null && result != null) {
-                            app.captureSaver.save(captured, result, context)
+                            app.captureSaver.save(captured, result, context, selected)
                         }
                     },
                     onUndo = { app.captureSaver.undo() },

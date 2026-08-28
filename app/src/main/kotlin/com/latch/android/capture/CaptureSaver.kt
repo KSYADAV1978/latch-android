@@ -324,10 +324,19 @@ class CaptureSaver(
      */
     private var offer: PendingOffer? = null
 
-    fun save(captured: CapturedText, result: ParseResult, context: ParseContext) {
+    /**
+     * @param selected FR-511's answer: the candidates left ticked, by index. Defaults to all
+     *   of them, which is what the checkboxes start as.
+     */
+    fun save(
+        captured: CapturedText,
+        result: ParseResult,
+        context: ParseContext,
+        selected: Set<Int> = result.candidates.indices.toSet(),
+    ) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
-        scope.launch { perform(captured, result, context) }
+        scope.launch { perform(captured, result, context, selected) }
     }
 
     /**
@@ -387,7 +396,12 @@ class CaptureSaver(
         }
     }
 
-    private suspend fun perform(captured: CapturedText, result: ParseResult, context: ParseContext) {
+    private suspend fun perform(
+        captured: CapturedText,
+        result: ParseResult,
+        context: ParseContext,
+        selected: Set<Int>,
+    ) {
         val defaults = try {
             defaultsStore.allAccounts().firstOrNull()
         } catch (cancelled: CancellationException) {
@@ -405,7 +419,7 @@ class CaptureSaver(
         val chainId = UUID.randomUUID().toString()
         val capturedAt = Instant.now()
 
-        val draft = draftItems(captured, result, context, defaults, captureId, chainId)
+        val draft = draftItems(captured, result, context, defaults, captureId, chainId, selected)
         if (draft is DraftResult.Blocked) {
             _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)
             return
@@ -436,7 +450,7 @@ class CaptureSaver(
         )
 
         val outcome = try {
-            write(items.first(), defaults, metadata, body, context)
+            write(items, defaults, metadata, body, context)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -444,7 +458,7 @@ class CaptureSaver(
             // on its own still is one, and is reported rather than hidden in a queue the
             // user would watch never drain.
             if (isWorthRetrying(failure)) {
-                queue(items.first(), metadata, body, context)
+                queue(items, metadata, body, context)
             } else {
                 SaveState.Failed(SaveFailure.WRITE_FAILED)
             }
@@ -486,14 +500,17 @@ class CaptureSaver(
      * connectivity constraint, so this means "when there is a network", not "now".
      */
     private suspend fun queue(
-        item: Item,
+        items: List<Item>,
         metadata: RemoteMetadata,
         body: String,
         context: ParseContext,
     ): SaveState {
+        // One entry for the chain, not one per item: SRS §7.1 at v1.23. Per item, the second
+        // entry to drain would find the first entry's item under the shared source_hash and
+        // remove itself without writing.
         val queueId = writeQueue.enqueue(
             PendingWrite(
-                item = item,
+                items = items,
                 metadata = metadata,
                 body = body,
                 timeZone = context.zone.id,
@@ -557,7 +574,7 @@ class CaptureSaver(
     private suspend fun completeAsCreate(standing: PendingOffer) {
         val outcome = try {
             create(
-                item = standing.item,
+                items = standing.items,
                 defaults = standing.defaults,
                 metadata = standing.metadata,
                 body = standing.body,
@@ -568,7 +585,7 @@ class CaptureSaver(
             throw cancelled
         } catch (failure: Exception) {
             if (isWorthRetrying(failure)) {
-                queue(standing.item, standing.metadata, standing.body, standing.context)
+                queue(standing.items, standing.metadata, standing.body, standing.context)
             } else {
                 SaveState.Failed(SaveFailure.WRITE_FAILED)
             }
@@ -580,7 +597,8 @@ class CaptureSaver(
     private suspend fun queueUpdate(standing: PendingOffer): SaveState {
         val queueId = writeQueue.enqueue(
             PendingWrite(
-                item = standing.item,
+                // An update targets one existing item, so this chain is always of one.
+                items = listOf(standing.items.first()),
                 metadata = standing.metadata,
                 body = standing.body,
                 timeZone = standing.context.zone.id,
@@ -672,27 +690,33 @@ class CaptureSaver(
      * reschedule. Only on a miss is the key searched, and only then can an offer arise.
      */
     private suspend fun write(
-        item: Item,
+        items: List<Item>,
         defaults: AccountDefaults,
         metadata: RemoteMetadata,
         body: String,
         context: ParseContext,
     ): SaveState {
-        val proposed = itemDatesOf(item, context.zone.id)
-        val duplicate = findDuplicate(item, defaults, metadata)
-        val reschedule = if (duplicate.found) null else findReschedule(item, defaults, metadata)
+        // FR-803 is asked of the **message**, once, before the chain is written — §7.2 says
+        // every item of a capture shares a source_hash and that the question is "has this
+        // message already been saved". Asked per item, the second insert would find the
+        // first and abandon the rest of the chain. The same rule holds at drain (SRS §7.1,
+        // v1.23), so the two sites cannot drift.
+        val leader = items.first()
+        val proposed = itemDatesOf(leader, context.zone.id)
+        val duplicate = findDuplicate(leader, defaults, metadata)
+        val reschedule = if (duplicate.found) null else findReschedule(leader, defaults, metadata)
 
         return when (val decision = writeDecision(duplicate, reschedule, proposed)) {
             WriteDecision.Duplicate -> SaveState.AlreadySaved
 
             WriteDecision.Create ->
-                create(item, defaults, metadata, body, context, duplicate.scanCapped)
+                create(items, defaults, metadata, body, context, duplicate.scanCapped)
 
             is WriteDecision.Reschedule -> {
                 // Held aside rather than put in the state: the state is what the screen
                 // renders, and the write's internals are not its business.
                 offer = PendingOffer(
-                    item = item,
+                    items = items,
                     defaults = defaults,
                     metadata = metadata,
                     body = body,
@@ -709,7 +733,7 @@ class CaptureSaver(
                     // new" the two titles genuinely differ, and only this one names the item
                     // the offer would actually move. Falls back to the drafted title where
                     // the stored item carries none, so the sentence still has a subject.
-                    title = decision.match.title.ifBlank { item.title },
+                    title = decision.match.title.ifBlank { leader.title },
                     existing = decision.match.dates,
                     proposed = proposed,
                 )
@@ -758,13 +782,30 @@ class CaptureSaver(
     }
 
     private suspend fun create(
-        item: Item,
+        items: List<Item>,
         defaults: AccountDefaults,
         metadata: RemoteMetadata,
         body: String,
         context: ParseContext,
         searchWasCapped: Boolean,
     ): SaveState {
+        // No duplicate check between the items of one chain: they share a source_hash by
+        // design, so item two would find item one and the chain would stop there.
+        val created = items.map { item -> insert(item, defaults, metadata, body, context) }
+
+        return SaveState.Saved(
+            searchWasCapped = searchWasCapped,
+            undo = undoWindowFor(metadata, created),
+        )
+    }
+
+    private suspend fun insert(
+        item: Item,
+        defaults: AccountDefaults,
+        metadata: RemoteMetadata,
+        body: String,
+        context: ParseContext,
+    ): CreatedItem {
         val created = when (item.type) {
             ItemType.EVENT -> CreatedItem.Written(
                 type = ItemType.EVENT,
@@ -799,10 +840,7 @@ class CaptureSaver(
             )
         }
 
-        return SaveState.Saved(
-            searchWasCapped = searchWasCapped,
-            undo = undoWindowFor(metadata, listOf(created)),
-        )
+        return created
     }
 }
 
@@ -814,7 +852,7 @@ class CaptureSaver(
  * rather than two means the create branch cannot quietly differ from the one the offer replaced.
  */
 private data class PendingOffer(
-    val item: Item,
+    val items: List<Item>,
     val defaults: AccountDefaults,
     val metadata: RemoteMetadata,
     val body: String,

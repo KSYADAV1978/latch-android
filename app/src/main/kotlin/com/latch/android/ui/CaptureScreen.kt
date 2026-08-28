@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,10 +28,12 @@ import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.CapturedText
 import com.latch.android.capture.DestinationState
+import com.latch.android.capture.DraftBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.saveBlocker
+import com.latch.android.capture.candidateBlocker
 import com.latch.android.capture.saveIsOffered
 import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
@@ -79,6 +82,9 @@ fun CaptureScreen(
     onCreateNew: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
+    /** FR-511: the candidates still ticked, by index. All of them to begin with. */
+    selected: Set<Int> = emptySet(),
+    onToggleCandidate: (Int) -> Unit = {},
 ) {
     val blocker = if (captured == null) SaveBlocker.NEEDS_A_DATE else saveBlocker(destination, result, saveState)
 
@@ -116,7 +122,7 @@ fun CaptureScreen(
                     style = MaterialTheme.typography.bodyLarge,
                 )
             } else {
-                CaptureBody(captured, result)
+                CaptureBody(captured, result, selected, onToggleCandidate)
 
                 // FR-904: the destination is on screen before the user confirms, which is
                 // also what FR-906 means by never routing somewhere they have not seen.
@@ -191,7 +197,12 @@ fun CaptureScreen(
 }
 
 @Composable
-private fun CaptureBody(captured: CapturedText, result: ParseResult) {
+private fun CaptureBody(
+    captured: CapturedText,
+    result: ParseResult,
+    selected: Set<Int>,
+    onToggleCandidate: (Int) -> Unit,
+) {
     val candidate = result.primary
 
     ItemTypeBadge(candidate)
@@ -201,10 +212,15 @@ private fun CaptureBody(captured: CapturedText, result: ParseResult) {
         style = MaterialTheme.typography.titleMedium,
     )
 
-    Text(
-        text = whenLine(candidate),
-        style = MaterialTheme.typography.bodyLarge,
-    )
+    // FR-511: with one date this is the whole story and a checkbox beside it would be a
+    // control with nothing to choose. With several, the list below carries them all and this
+    // line would be repeating its first row.
+    if (result.candidates.size == 1) {
+        Text(
+            text = whenLine(candidate),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
 
     // FR-510: a past date never becomes a dated item; the user is offered a follow-up.
     if (candidate.isPast) {
@@ -225,12 +241,58 @@ private fun CaptureBody(captured: CapturedText, result: ParseResult) {
         Note(stringResource(R.string.capture_undated_explanation))
     }
 
-    // FR-511: the remaining dates become a multi-select list once that UI exists.
-    val extraDates = result.candidates.size - 1
-    if (extraDates > 0) {
-        Note(pluralStringResource(R.plurals.capture_extra_dates, extraDates, extraDates))
+    // FR-511: every date the capture holds, each tickable, all ticked to begin with.
+    if (result.candidates.size > 1) {
+        Note(pluralStringResource(R.plurals.capture_dates_found, result.candidates.size, result.candidates.size))
+        result.candidates.forEachIndexed { index, each ->
+            CandidateRow(
+                candidate = each,
+                checked = index in selected,
+                onToggle = { onToggleCandidate(index) },
+            )
+        }
     }
 
+}
+
+/**
+ * FR-511: one date from a multi-date capture, with its own checkbox and its own
+ * classification.
+ *
+ * The badge is per row rather than per capture because the rows genuinely differ: a range is
+ * an Event while the line under it may be a Task with a due date, and a user ticking boxes
+ * has to see which is which before they save.
+ *
+ * A row that cannot be written — FR-506 row 3, a time with no day — says so and cannot be
+ * ticked. It does not disable the save: SRS 1.23 makes such a candidate block itself and not
+ * its neighbours.
+ */
+@Composable
+private fun CandidateRow(candidate: DatedCandidate, checked: Boolean, onToggle: () -> Unit) {
+    val blocker = candidateBlocker(candidate)
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = checked && blocker == null,
+            onCheckedChange = { onToggle() },
+            enabled = blocker == null,
+        )
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ItemTypeBadge(candidate)
+                Spacer(Modifier.width(8.dp))
+                Text(text = whenLine(candidate), style = MaterialTheme.typography.bodyMedium)
+            }
+            if (blocker == DraftBlocker.NEEDS_A_DATE) {
+                Note(stringResource(R.string.capture_row_needs_date))
+            }
+            // FR-510, per row now rather than per capture: a past date is still saved as
+            // read, and the follow-up that requirement describes is not built.
+            if (candidate.isPast) {
+                Note(stringResource(R.string.capture_past_date))
+            }
+        }
+    }
 }
 
 /**

@@ -40,11 +40,16 @@ sealed interface DraftResult {
 /**
  * [captureId] and [chainId] are the caller's to mint, so this stays clock-free and
  * deterministic under test. Every item of one save shares the chain id — §2.4's chain is the
- * items produced by one save, which is what FR-807 undo will group by.
+ * items produced by one save, which is what FR-807 undo groups by.
  *
- * Only [ParseResult.primary] is drafted. FR-511's other dates are shown to the user as a
- * count today and become checkboxes when that requirement is built; drafting them now would
- * write items nobody chose.
+ * [selected] is FR-511's answer: the candidates the user left ticked, by index into
+ * [ParseResult.candidates]. Defaults to all of them, which is what the requirement asks the
+ * checkboxes to start as, and is also what a caller with no list of its own should get.
+ *
+ * Blocked only where **nothing** is left to write. A candidate that cannot be completed —
+ * FR-506 row 3, a time with no day — is dropped from the chain and its neighbours are still
+ * saved (SRS 1.23); it is the caller's job to have said so on screen, and [candidateBlocker]
+ * is what it asks.
  */
 fun draftItems(
     captured: CapturedText,
@@ -53,34 +58,58 @@ fun draftItems(
     defaults: AccountDefaults,
     captureId: String,
     chainId: String,
+    selected: Set<Int> = result.candidates.indices.toSet(),
 ): DraftResult {
-    val candidate = result.primary
     // FR-206: a mail client's subject line beats the first line of the body.
     val title = captured.preferredTitle?.takeIf { it.isNotBlank() } ?: result.title.value
 
-    draftBlocker(result)?.let { return DraftResult.Blocked(it) }
+    val drafted = result.candidates
+        .withIndex()
+        .filter { (index, _) -> index in selected }
+        .filter { (_, candidate) -> candidateBlocker(candidate) == null }
+        .map { (_, candidate) -> candidate }
 
-    val item = when (candidate.classification.itemType) {
-        ItemType.EVENT -> {
-            val date = requireNotNull(candidate.date).value
-            eventItem(candidate, date, title, result.location?.value, context, defaults, captureId, chainId)
-        }
-
-        ItemType.TASK -> Item(
-            id = itemId(chainId, 0),
-            captureId = captureId,
-            chainId = chainId,
-            type = ItemType.TASK,
-            title = title,
-            // A task never carries a start: Google Tasks discards the time (§9.1), and
-            // Item's own init rejects one.
-            dueDate = candidate.date?.value,
-            location = result.location?.value,
-            taskListId = defaults.taskListId,
-        )
+    if (drafted.isEmpty()) {
+        // Everything the user chose is unsaveable, or they chose nothing. The first reason a
+        // candidate could not be drafted is the one worth reporting; with an empty selection
+        // there is none, and NEEDS_A_DATE is still the only blocker there is.
+        val reason = result.candidates
+            .filterIndexed { index, _ -> index in selected }
+            .firstNotNullOfOrNull(::candidateBlocker)
+            ?: DraftBlocker.NEEDS_A_DATE
+        return DraftResult.Blocked(reason)
     }
 
-    return DraftResult.Ready(listOf(item))
+    val items = drafted.mapIndexed { index, candidate ->
+        when (candidate.classification.itemType) {
+            ItemType.EVENT -> eventItem(
+                candidate = candidate,
+                date = requireNotNull(candidate.date).value,
+                title = title,
+                location = result.location?.value,
+                context = context,
+                defaults = defaults,
+                captureId = captureId,
+                chainId = chainId,
+                index = index,
+            )
+
+            ItemType.TASK -> Item(
+                id = itemId(chainId, index),
+                captureId = captureId,
+                chainId = chainId,
+                type = ItemType.TASK,
+                title = title,
+                // A task never carries a start: Google Tasks discards the time (§9.1), and
+                // Item's own init rejects one.
+                dueDate = candidate.date?.value,
+                location = result.location?.value,
+                taskListId = defaults.taskListId,
+            )
+        }
+    }
+
+    return DraftResult.Ready(items)
 }
 
 private fun eventItem(
@@ -92,6 +121,7 @@ private fun eventItem(
     defaults: AccountDefaults,
     captureId: String,
     chainId: String,
+    index: Int,
 ): Item {
     val time = candidate.time?.value
 
@@ -130,7 +160,7 @@ private fun eventItem(
     }
 
     return Item(
-        id = itemId(chainId, 0),
+        id = itemId(chainId, index),
         captureId = captureId,
         chainId = chainId,
         type = ItemType.EVENT,
@@ -169,8 +199,21 @@ private fun itemId(chainId: String, index: Int) = "$chainId#$index"
 fun itemKeyTitle(captured: CapturedText, result: ParseResult): String {
     captured.preferredTitle?.takeIf { it.isNotBlank() }?.let { return it }
 
-    val candidate = result.primary
-    val spans = listOfNotNull(candidate.date?.span, candidate.time?.span, candidate.endTime?.span)
+    // §7.2 step 2 blanks **every** date, time and end-time span, not merely the primary's.
+    // This blanked only the primary's until SRS 1.23, which was invisible while a capture
+    // produced one item and wrong the moment it held two dates: a neighbour's date left
+    // standing in the title moves the key whenever any date in the message changes, which is
+    // the failure item_key exists to prevent. One capture, one key — so every item of a
+    // chain shares it, and FR-804 identifies what the message is about rather than which
+    // occurrence of it.
+    val spans = result.candidates.flatMap { candidate ->
+        listOfNotNull(
+            candidate.date?.span,
+            candidate.time?.span,
+            candidate.endTime?.span,
+            candidate.endDate?.span,
+        )
+    }
     return TitleExtractor.extract(captured.text.blankOut(spans)).value
 }
 
@@ -192,8 +235,22 @@ private fun String.blankOut(spans: List<IntRange>): String {
  * have refused it. One source of truth: a screen that decided separately would eventually
  * disagree with the mapping.
  */
-fun draftBlocker(result: ParseResult): DraftBlocker? {
-    val candidate = result.primary
+fun draftBlocker(result: ParseResult): DraftBlocker? =
+    // The capture as a whole is blocked only where every candidate is. One unsaveable date
+    // among several stops itself and not its neighbours (SRS 1.23), and a Save button
+    // disabled because of one row would be the all-or-nothing behaviour that reading ends.
+    result.candidates.map(::candidateBlocker).let { blockers ->
+        if (blockers.all { it != null }) blockers.firstOrNull() else null
+    }
+
+/**
+ * Why this one candidate cannot be written, or null where it can.
+ *
+ * Per candidate rather than per capture since SRS 1.23. FR-506 row 3 — a time with no day —
+ * needs the date picker that requirement describes, which is not built; until it is, such a
+ * row is shown with its reason and left untickable while the rest of the capture saves.
+ */
+fun candidateBlocker(candidate: DatedCandidate): DraftBlocker? {
     val needsDate = candidate.classification.itemType == ItemType.EVENT && candidate.date == null
     return if (needsDate) DraftBlocker.NEEDS_A_DATE else null
 }

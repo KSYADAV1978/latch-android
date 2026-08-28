@@ -18,11 +18,13 @@
     <string name="capture_past_date">That date has already passed. Latch will offer a follow-up instead of a dated item.</string>
     <string name="capture_ambiguous_order">Read as %1$s. Change the date order in Settings.</string>
     <string name="capture_ambiguous_relative">Pick a day to finish this one.</string>
-    <!-- FR-511: more than one date in a single capture. -->
-    <plurals name="capture_extra_dates">
-        <item quantity="one">%1$d more date found in this capture</item>
-        <item quantity="other">%1$d more dates found in this capture</item>
+    <!-- FR-511: more than one date in a single capture, each with its own checkbox. -->
+    <plurals name="capture_dates_found">
+        <item quantity="one">%1$d date found in this capture</item>
+        <item quantity="other">%1$d dates found in this capture</item>
     </plurals>
+    <!-- FR-506 row 3, per row: this one cannot be saved, but its neighbours still can. -->
+    <string name="capture_row_needs_date">No day for this time yet — this one cannot be saved.</string>
     <string name="capture_dismiss">Close</string>
     <string name="capture_save">Save</string>
     <string name="capture_saving">Saving…</string>

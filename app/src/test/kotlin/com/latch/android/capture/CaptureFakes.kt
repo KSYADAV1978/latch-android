@@ -70,26 +70,38 @@ internal class RecordingCalendarApi(
     private val failInsert: Exception? = null,
     private val rescheduleMatch: RescheduleSearch = RescheduleSearch(),
     private val failPatch: Boolean = false,
+    /** Deletes succeed this many times, then refuse — for a partly-undone chain. */
+    private val failDeleteAfter: Int? = null,
 ) : CalendarApi {
     val deleted = mutableListOf<Pair<String, String>>()
     val patched = mutableListOf<Triple<String, String, ItemDates.Event>>()
-    var inserted = 0
-        private set
+
+    /** Every event written, in order, so a chain's shared metadata can be asserted. */
+    val written = mutableListOf<EventWrite>()
+    val inserted: Int get() = written.size
 
     /** Every key this fake was asked about, so a test can assert exactly one query shape. */
     val itemKeysQueried = mutableListOf<String>()
 
+    /** The same, for FR-803 — one message should mean one duplicate check. */
+    val sourceHashesQueried = mutableListOf<String>()
+
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
         failInsert?.let { throw it }
-        inserted++
-        return "event-1"
+        written += event
+        return "event-${written.size}"
     }
 
-    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String) =
-        DuplicateSearch(existingEventId)
+    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {
+        sourceHashesQueried += sourceHash
+        return DuplicateSearch(existingEventId)
+    }
 
     override suspend fun deleteEvent(calendarId: String, eventId: String) {
         if (failDelete) throw IllegalStateException("events.delete refused")
+        if (failDeleteAfter != null && deleted.size >= failDeleteAfter) {
+            throw IllegalStateException("events.delete refused")
+        }
         deleted += calendarId to eventId
     }
 
@@ -116,18 +128,22 @@ internal class RecordingTasksApi(
 ) : TasksApi {
     val deleted = mutableListOf<Pair<String, String>>()
     val patched = mutableListOf<Triple<String, String, ItemDates.Task>>()
-    var inserted = 0
-        private set
+    val inserted: Int get() = written.size
 
     val itemKeysQueried = mutableListOf<String>()
 
+    val written = mutableListOf<TaskWrite>()
+    val sourceHashesQueried = mutableListOf<String>()
+
     override suspend fun insertTask(taskListId: String, task: TaskWrite): String {
-        inserted++
-        return "task-1"
+        written += task
+        return "task-${written.size}"
     }
 
-    override suspend fun findTaskBySourceHash(taskListId: String, sourceHash: String, due: LocalDate?) =
-        DuplicateSearch(existingId = null)
+    override suspend fun findTaskBySourceHash(taskListId: String, sourceHash: String, due: LocalDate?): DuplicateSearch {
+        sourceHashesQueried += sourceHash
+        return DuplicateSearch(existingId = null)
+    }
 
     override suspend fun deleteTask(taskListId: String, taskId: String) {
         if (failDelete) throw IllegalStateException("tasks.delete refused")
