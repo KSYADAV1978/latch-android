@@ -161,11 +161,11 @@ fun CaptureScreen(
                 if (saveState is SaveState.RescheduleOffered) {
                     Spacer(Modifier.width(8.dp))
                     TextButton(onClick = onCreateNew) {
-                        Text(stringResource(R.string.capture_reschedule_create_new))
+                        ActionLabel(stringResource(R.string.capture_reschedule_create_new))
                     }
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = onUpdateExisting) {
-                        Text(stringResource(R.string.capture_reschedule_update))
+                        ActionLabel(stringResource(R.string.capture_reschedule_update))
                     }
                 }
                 // FR-807. Takes the Save button's place rather than sitting beside it: the
@@ -347,6 +347,20 @@ private fun whenLine(candidate: DatedCandidate): String {
         time != null -> time
         else -> stringResource(R.string.capture_no_date)
     }
+}
+
+/**
+ * A button label that stays on one line.
+ *
+ * This row can hold four actions at once when an FR-804 offer is up — Close, Create new,
+ * Update — and the capture sheet is a narrow floating dialog. Compose hands a `Text` whatever
+ * width is left and lets it wrap, which on a Pixel 6 Pro broke "Update it" one syllable per
+ * line rather than shrinking anything. `softWrap = false` makes the label ask for its full
+ * width instead, so the row runs out of space before the word does.
+ */
+@Composable
+private fun ActionLabel(text: String) {
+    Text(text = text, maxLines = 1, softWrap = false)
 }
 
 /**
