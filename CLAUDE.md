@@ -118,6 +118,11 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-807 over an update** — undo restores, never deletes | 28 Aug 2026 | **Pass.** Undo inside the window put the event back on its previous date; nothing was deleted. Also observed on the way: an offer left untaken closed itself at ten seconds and the save stood, which is FR-807's lapse behaviour seen rather than reasoned about. |
 | **`tasks.delete` and `tasks.patch`** | 28 Aug 2026 | **Pass, first run against the live API.** Both had only ever run against a fake. `tasks.delete` via undo of a created task, `tasks.patch` via an update and again via its undo restoring the due date. |
 | **§7.2 write-once, observed** | 28 Aug 2026 | **Pass.** After an update the event's description still showed the **original** capture's text, March 5 and all, while its dates read March 7. That is SRS 1.18's reading seen on a device: the description is provenance, not current state. |
+| **AC-11** — a four-item chain, undone | 28 Aug 2026 | **Pass. The criterion is met in full**, closing the half owed since 27 Aug. Four dates in one capture, four rows ticked, four items written — two events and two tasks — and one Undo inside the window removed all four from Calendar and Tasks. The removal loop had been written for a chain of any size since FR-807 and had never run against more than one item; FR-511 is what made it reachable. Verified undo-first and inspected after, with the previous step having already established that the writes reach Google — inspecting before undoing is what loses the window. |
+| **FR-511** — per-date checkboxes | 28 Aug 2026 | **Pass.** Four rows in document order, all ticked, badges EVENT/TASK/EVENT/TASK against dates 6·1·10·14 Sep 2027, and "4 dates found in this capture". Unticking one wrote exactly three items and left nothing on the unticked date. Mixed badges confirmed separately on a range-plus-task capture: one all-day EVENT row beside a TASK row. |
+| **FR-502** — a date range on the wire | 28 Aug 2026 | **Pass.** "from September 20 to September 24, 2027" landed as one all-day event covering the 20th through the **24th**, not the 25th — so the inclusive-to-exclusive conversion is right where it actually matters. This is the text whose opening date resolved to the wrong year until SRS 1.25; the pass is of the fix, not of the original behaviour. |
+| **FR-804 suppression for a chain** (SRS 1.25) | 28 Aug 2026 | **Pass.** A four-date capture re-captured with one date amended produced **no** offer at all — an ordinary four-row sheet — and saving wrote four items including three visible duplicates of the unchanged dates. That is the reading's accepted cost seen rather than argued about: visible on screen and removed by one undo, where the behaviour it replaced would have moved one item and discarded three in silence. |
+| **FR-804 for a single date** | 28 Aug 2026 | **Pass, as a regression check.** "Kickoff 8 September 2027 at 9am" saved, then the 9 September form offered the move with computed weekdays — Wed 8 Sep to Thu 9 Sep. The suppression above is confined to multi-item captures and did not disturb the requirement's own case. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
@@ -151,6 +156,24 @@ automated cover at all. FR-804's own gaps join that list: **a queued `UPDATE` ha
 drained** — the 28 Aug pass was online throughout, so the worker's update path and the
 staleness SRS 1.19 records have only ever run on the JVM — and **the task search has never
 capped**, which needs a list longer than ten pages, so the give-up behaviour is JVM-only.
+
+**Two observations from real use, recorded rather than acted on.**
+
+**Ten seconds is tight for anyone who verifies before undoing.** The undo window was missed
+twice across passes, both times while checking Google to confirm the write had landed —
+which is the natural thing to do before deciding to take it back. FR-807 says "not less
+than 10 seconds" so nothing is out of specification, and no change is asked for; but the
+number was chosen against the requirement's floor rather than against how the offer is used,
+and this is the evidence for revisiting it if it is ever revisited.
+
+**Two cosmetic items on the multi-date sheet**, neither worth its own commit today. The
+**ItemTypeBadge above the list is the primary's**, so an EVENT badge can sit over a list that
+contains tasks — the when-line below it was suppressed for a multi-date capture and the badge
+was not, which is an oversight rather than a decision; the **title** above the list is
+deliberate and names the capture. And a past **primary** would show FR-510's note twice, once
+in the header and once in its own row, for the same reason. Also seen: FR-509's 50-character
+truncation can end a title on a dangling preposition ("…September 6, 2027 at"), which is the
+truncation working as specified and reading badly.
 
 **Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
 **pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
@@ -280,9 +303,19 @@ moves every occurrence, and FR-803 is deliberately **not** re-run when a queued 
 Detection is scoped by transport — a task capture queries only tasks — so two items sharing a
 date-free title across the two transports cannot match each other.
 
-Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a capture with a time but no date
-cannot be saved; FR-511's per-date checkboxes, so only the first date of a multi-date capture
-is saved — which is also why an undo chain is one item on every path reachable today;
+**FR-511 is built and verified on a device.** Every date in a capture is a row with its own
+checkbox, badge and date line, all ticked to begin with, and a save writes a chain of N items
+sharing one `chain_id` and — per SRS 1.23 — one `item_key`, because §7.2 blanks every date
+span rather than the primary's. A date range is one row and an Event even with no time, its
+end held inclusive by the parser and converted to Google's exclusive end date in `ItemDrafts`.
+Two things there are readings rather than mechanics: a multi-item capture is **never** offered
+as an FR-804 reschedule (accepting one would patch a single item and discard the rest), and
+FR-803 runs **once per capture** before the chain is written, at the saver and at the drain
+alike. The queue holds a chain as one entry for the same reason.
+
+Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a
+capture with a time but no date cannot be saved — and its per-row form is unreachable until
+the assembler can leave a time unpaired beside dated candidates (SRS 1.25);
 FR-507's type override; and FR-510's past-date follow-up. Each is recorded against
 its requirement in the SRS. Further out:
 the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
