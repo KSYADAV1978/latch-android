@@ -176,6 +176,11 @@ miss** found while making that change: the ambiguity notes were primary-only, so
 multi-date capture an ambiguous date that was not the primary had its resolved reading shown
 nowhere at all.
 
+**Owed, but not on a device**, so it is not looked for in the list above: **AC-07's second
+half**. Its phone half passed on 27 Aug and is recorded in the table; what is outstanding is
+"capture the same message on phone **and PC**", which needs the Windows client of §4.1 to
+exist. No number of device runs can close it, and it is not a device gap.
+
 **Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
 **pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
 values were deleted from the account on 28 Aug 2026, so the fixture no longer exists, and
