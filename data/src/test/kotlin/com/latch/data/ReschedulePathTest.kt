@@ -175,6 +175,68 @@ class ReschedulePathTest {
     }
 
     @Test
+    fun `a recurring event is refused, and is refused by rule rather than by accident`() {
+        val recurring = JSONObject()
+            .put("id", "ev_series")
+            .put("recurrence", JSONArray().put("RRULE:FREQ=WEEKLY;BYDAY=TU"))
+            .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+            .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30"))
+
+        // The dates are perfectly readable, which is the point: nothing else in this reader
+        // would have stopped it, and events.patch on a series master moves every occurrence.
+        assertNotNull(eventTimePointProbe(recurring), "the dates parse — so the refusal is not incidental")
+        assertNull(eventDatesFrom(recurring))
+    }
+
+    @Test
+    fun `one instance of a series is refused too`() {
+        val instance = JSONObject()
+            .put("id", "ev_instance")
+            .put("recurringEventId", "ev_series")
+            .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+            .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30"))
+
+        assertNull(eventDatesFrom(instance))
+    }
+
+    @Test
+    fun `an empty recurrence array is not a series`() {
+        val notRecurring = JSONObject()
+            .put("recurrence", JSONArray())
+            .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+            .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30"))
+
+        assertNotNull(eventDatesFrom(notRecurring))
+    }
+
+    @Test
+    fun `a refused event is dropped from the matches rather than matched blindly`() {
+        val page = JSONObject().put(
+            "items",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("id", "ev_series")
+                        .put("recurrence", JSONArray().put("RRULE:FREQ=WEEKLY"))
+                        .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+                        .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30")),
+                )
+                .put(
+                    JSONObject()
+                        .put("id", "ev_single")
+                        .put("start", JSONObject().put("dateTime", "2030-03-05T21:30:00+05:30"))
+                        .put("end", JSONObject().put("dateTime", "2030-03-05T22:30:00+05:30")),
+                ),
+        )
+
+        assertEquals(listOf("ev_single"), eventMatchesFrom(page).map { it.remoteId })
+    }
+
+    /** Reads the same start the refusal skips past, to show the refusal is deliberate. */
+    private fun eventTimePointProbe(event: JSONObject): ItemDates.Event? =
+        eventDatesFrom(JSONObject(event.toString()).also { it.remove("recurrence") })
+
+    @Test
     fun `a task's due date is read back`() {
         assertEquals(
             LocalDate.parse("2030-03-05"),

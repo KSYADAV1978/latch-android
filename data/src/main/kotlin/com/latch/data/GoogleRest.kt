@@ -513,6 +513,16 @@ internal fun eventMatchesFrom(page: JSONObject): List<RescheduleMatch> {
  * be an update that could not be undone.
  */
 internal fun eventDatesFrom(event: JSONObject): ItemDates.Event? {
+    // A recurring event is refused outright, and this is a rule rather than a side effect of
+    // parsing: its start and end parse perfectly well, so nothing else here would have
+    // stopped it. `events.list` is not asked for `singleEvents`, so a series comes back as
+    // its master, and `events.patch` on a master moves **every** occurrence. FR-804 offers to
+    // move one meeting; silently moving a weekly stand-up for the rest of time is not a
+    // larger version of that, it is a different act. `recurringEventId` covers the instance
+    // form as well, so a change to that query cannot quietly reopen this.
+    if ((event.optJSONArray("recurrence")?.length() ?: 0) > 0) return null
+    if (event.optString("recurringEventId").isNotBlank()) return null
+
     val start = event.optJSONObject("start") ?: return null
     val end = event.optJSONObject("end") ?: return null
     val allDay = !start.optString("date").isNullOrBlank()
