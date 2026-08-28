@@ -47,3 +47,13 @@ Sprint ends September 6, 2026 and Monday, August 31, 2026 is the review	TASK_WIT
 # A weekday contradicting the date it is written into is still the same phrase, not a second
 # item: 12 September 2026 is a Saturday and the writer simply got it wrong.
 PTM on Friday 12 September	TASK_WITH_DUE_DATE	2026-09-12	-
+# --- KNOWN GAP, awaiting the FR-511 parser work. Commented out so it does not fail the
+# build; the text is kept here verbatim because it is a real voice-typed capture and the
+# next person to touch WrittenDateRule needs the exact input, not a paraphrase.
+#
+# Voice typing on Android punctuates dictated dates: "March, 8, 2030". MONTH_DAY allows an
+# optional period after the month name but not a comma, so the whole date is missed. The
+# bare "friday" beside it then matches on its own and resolves forward, and the 21:30
+# attaches to that — observed on a device as 28 Aug 2026, 21:30.
+#
+# Project sync on friday. March, 8, 2030 at 21:30	EVENT	2030-03-08	21:30
