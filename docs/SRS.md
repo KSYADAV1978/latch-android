@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.30 (draft for developer handover)"
+author: "Version 1.31 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.30 — draft for developer handover |
+| Version | 1.31 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -55,6 +55,8 @@ date: "28 August 2026"
 | 1.29 | 31 Aug 2026 | Records two findings from the first FR-215 device run, both of them properties of OCR that no amount of reasoning about the parser would have produced. **A screenshot's own chrome is read as content** (against FR-215): the status-bar clock satisfies FR-503's time formats exactly as a written time does, so it is paired with the nearest date and the capture acquires a time the writer never gave — which under FR-506 silently turns a Task into an Event and puts it on the calendar at an hour taken from the phone's status bar, while FR-509 draws the title from the same furniture. It is explicitly **not** a parser defect: given the same text typed rather than recognised every rule behaved correctly, and teaching `:parser` about screen layout is what FR-501 and the pure-Kotlin constraint refuse. The likely fix is a top-band drop in `:ocr`, where the bounding boxes are, deferred to its own slice because discarding a band can also discard a real first line. **And the §7.2 OCR wobble is observed in the wild** on the first image capture: `Fees due 20/09/2027` was recognised as 2026, with the parser cleared by isolation. The hash consequence is as already recorded; the confidence consequence is not, and is the part worth having found — a misread digit yields a date the parser is entitled to be *certain* about, so FR-505 scores it at the top and FR-512's threshold sees nothing wrong, the uncertainty living in the recognition where no value in this specification currently carries it. That is direct evidence for the threshold question v1.22 deferred to FR-700, and extends it: an OCR-derived date needs a confidence reflecting how well it was **read**, for which ML Kit's per-element confidence — presently discarded by `:ocr` — is the available material. Both fixes are deferred, both fixtures are kept. No requirement changed. |
 
 | 1.30 | 31 Aug 2026 | Corrects v1.29 rather than editing it, on the rule v1.15 established: a changelog that revises its own past cannot show what was known when. **The same image shared twice on one device is deterministic** — identical character count, identical `latch.source_hash`, FR-803 answering "Already saved" — so v1.29's reading of the 20/09/2027 misread as same-image wobble was wrong. What varies is **two renderings of the same sentence**. FR-803 is therefore stronger than v1.29 feared for the case a user actually meets, and AC-07's image case is weaker than its text case looks: §4.1's three clients never share a file, so a re-render is enough to move the hash and a cross-client duplicate of an image capture should be **expected to fail**, unreachable by normalisation because the divergence is upstream of the text. **Records the graver OCR class**: a misread *inside* a date expression loses the commitment silently, the confirmation screen having no way to say "there was another date here I could not read". The character evidence is kept because it decides where the fix belongs — `1 October` collapsed to `10ctober` (space and capital O into an ASCII zero), `October` to `০ctobe` (**U+09E6 BENGALI DIGIT ZERO**, plus a dropped `r`). A second rendering degraded the range into its **endpoint**, a five-day trip becoming a one-day Task on its last day, which looks plausible and is wrong — worse than the absent form, and a property of FR-511's one-candidate range rule. The Bengali digit is normalisable and the ASCII zero is not, so the measure that reaches all three edits is the recogniser: **the Latin-only artifact rejected at the `:ocr` commit as "declared and never called" is taken**, its +8 KB having bought what NFR-501 reasoning could not predict and the device pass was meant to decide. No requirement changed. |
+
+| 1.31 | 31 Aug 2026 | Records what the FR-215 device pass changed and what it found still broken. **FR-215's artifact set is corrected**: the Devanagari model alone carries a Bengali model that substitutes Bengali codepoints into Latin words, so the dedicated Latin artifact is taken as well at +8,082 bytes, and both recognisers now run over every image with results merged **per block** — a Devanagari-bearing block from the Devanagari pass, every other region from the Latin pass. Latin, Hindi and mixed-script screenshots each get the right model, the test being applied to the Devanagari result because only that pass can prove Devanagari is present. NFR-101 measured for the new shape at a worst of **1673 ms** against 2.5 s; running the passes concurrently rather than sequentially makes **no measurable difference**, ML Kit's recognisers contending for the same native resource, and that is recorded so it is not re-litigated. **§7.2 gains a reading-order rule**: OCR text shall be assembled by block geometry, because `item_key` derives from character positions and a recogniser's own block order is a library internal — leaving it in place would let an ML Kit upgrade move a stored identity silently, which is the v1.14 drift with no decision behind it. Observed, not anticipated: a screenshot returned an early message after a later one, so FR-505's earliest-mention tiebreak was deciding on an order that was not the writer's. **AC-17 passes**, observed: a per-app capture over a cycle including image captures found exactly two destinations, `tasks.googleapis.com` through this app's own guard and `firebaselogging.googleapis.com` from ML Kit, and no non-Google endpoint; the second is Google's traffic, not ours to route, and shall **not** be added to `ALLOWED_HOSTS`, which governs requests this app composes. **FR-805b is recorded as NOT MET in substance**: its character-radius window covers a whole ~270-character chat screenshot, so the note written was the entire recognised text with no elisions — the screen dump the requirement exists to prevent, produced by the rule working as specified. The defect is the shape of the bound, not its size; the fix is a row-based window, available now that reading order is fixed. No requirement changed. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -291,6 +293,30 @@ Four independent capture layers are required. Each must function if the others a
 > **Bengali** model of 443 KB that nothing in this specification asks for and that cannot be
 > excluded, because it ships inside the same bundle as Devanagari.
 >
+> **Both scripts, one recogniser each, merged per block — corrected on the device, 31 Aug 2026.**
+> The Devanagari artifact was taken alone at first, its engine being a combined *Devanagari and
+> Latin* one. That was wrong: it carries a **Bengali** model beside the other two and
+> substitutes Bengali codepoints into Latin words, which broke a date badly enough to lose a
+> commitment. The dedicated Latin artifact is now taken as well, at **+8,082 bytes**, and both
+> recognisers run over every image. The merge is **per block**: a block of the Devanagari result
+> containing a codepoint in `U+0900–U+097F` is kept, every other region comes from the Latin
+> pass, and an overlapping Latin duplicate is dropped. So a Latin screenshot is read by the
+> Latin model, a Hindi screenshot by the Devanagari model, and a **mixed-script** screenshot —
+> the realistic case for §3.1's users — per bubble by whichever suits it. The test is applied to
+> the Devanagari result because only that pass can prove Devanagari is present; given Devanagari
+> glyphs the Latin model returns plausible Latin garbage rather than nothing.
+>
+> **One residual, accepted.** Where the Devanagari model hallucinates a genuine Devanagari
+> codepoint inside what is really a Latin block, that block is kept from the wrong pass. It is
+> rare, it costs one block rather than the capture, and the mixed-script fixture is its check.
+>
+> **NFR-101 measured for that shape**, four image fixtures, three runs each: worst **1673 ms**
+> against the 2.5 s budget. The second recogniser costs about +200 ms rather than a second full
+> inference. Running the two passes concurrently rather than sequentially makes **no measurable
+> difference** — 1384 ms against 1380 ms at the median — because ML Kit's recognisers contend
+> for the same native resource; the concurrent shape is kept as the correct one, not as the one
+> that bought the headroom.
+
 > **What this spends.** 13.97 MB of a 40 MB budget on one feature, under the per-device
 > reading NFR-103 now takes. Every later slice — the Capture Inbox (FR-700), Settings
 > (FR-1000), the Recipes UI (FR-600), the notification listener (FR-208) — draws on what is
@@ -576,6 +602,10 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 > rules compose in the one direction that matters: a notification-sourced capture stores no
 > source text at all, and an OCR extract of nothing is still nothing.
 >
+> **This requirement is presently NOT MET in substance, found on a device 31 Aug 2026.** The parameterisation below is a **character radius**, and on the capture this requirement was written for it does not bite. A chat screenshot recognises to roughly 270 characters with its dates spread through it; a window of 160 characters either side of each date, merged, covers the whole of it. The note written into the user's account was therefore **the entire recognised text with no elisions** — every message in the thread, the amount paid, the sender's name — which is precisely the screen dump this requirement exists to prevent, arrived at by the rule working exactly as specified.
+>
+> The defect is in the **shape** of the bound rather than its size. Shrinking the radius would cut context off mid-sentence on a long capture while still swallowing a short one whole, because a character count does not know where a message begins or ends. **The fix is a row-based window** — the row containing the date, plus at most one neighbouring row either side — which becomes available with §7.2's requirement that OCR text be assembled in geometric reading order, since a row of the image is then a line of the assembled text. The fixture is the note recorded in the device-pass record; the test is that the extract be **strictly shorter** than it.
+
 > **The extract as parameterised.** These are readings, movable by a future revision, and are
 > recorded so that the behaviour is a decision rather than whatever the first implementation
 > did: a window of **160 characters either side** of each matched date span; windows **merged**
@@ -873,6 +903,10 @@ This clause is the one part of §7.2 that depends on parser behaviour rather tha
 
 **This clause is a wire contract, and v1.14 moved it.** Because `item_key` is written into the user's account rather than recomputed on read, any change to which span this clause blanks changes the identity derived from the same message, and is a breaking change to stored data rather than an internal correction. v1.14's move — from proximity alone to the day the weekday falls on — is therefore permitted **only while Android is the sole client deriving keys**. Items written before it may carry keys the derivation above will not reproduce, and FR-804 shall treat such an item as unmatched: a reschedule of one creates a second item rather than updating the first. No migration is offered, because an item already in a user's account is not rewritten. Once a second client derives keys, this clause may only be changed in all clients at once, and a client left behind will degrade FR-804 silently.
 
+**An OCR-derived capture's text shall be assembled in geometric reading order, and this is a wire-contract rule rather than a presentation one.** `latch.item_key` is derived from character positions in the assembled text, so whatever decides that text's order decides an identity written into a user's Google account. A recogniser's own block order is an internal detail of the library: leaving it in place would make `item_key` depend on an ML Kit version, and an upgrade could move it silently — the same class of drift as the v1.14 and v1.23 moves of this clause, but caused by a dependency rather than by a decision, and therefore not even visible as a decision when it happened. A client shall instead order blocks by their positions on the image: grouped into rows by vertical overlap, rows by top edge, blocks within a row by left edge.
+
+> Observed rather than anticipated. A chat screenshot returned `Paid the uniform bill` **after** the line three messages below it, and the final bubble last of all, so FR-505's "earliest mention" tiebreak was deciding on an order that was not the writer's. Genuine multi-column text interleaves under this rule, which is a known limit: detecting columns is a larger problem, and interleaving is at least deterministic.
+
 ### Normalisation
 
 The following is applied to any text before it is hashed, in this order. It is the AC-07 contract, and each step exists because of a way the same message reaches two platforms differently.
@@ -1005,6 +1039,8 @@ Each scenario below shall pass on a physical device before sign-off.
 > **FR-215 adds a second such component.** ML Kit opens its own connections for its own logging, outside that guard, on a schedule this app does not control. As with the OAuth grant the traffic goes to Google, so the criterion holds as written; and as with the OAuth grant it is not ours to route, so it will appear on a monitor and must not be reported as a failure. The bundled variant taken under FR-215 is the quieter of the two here — an unbundled ML Kit would additionally download models on first use — but "quieter" is not "silent", and this is now a criterion resting on **two** components whose traffic is Google's rather than one.
 >
 > **The verification consequence is that the monitored cycle must include an image capture.** A text capture never wakes this component, so a run over text alone would show a clean monitor and would prove nothing about the code path this note is about. Widening the allowlist remains an AC-17 decision rather than a refactor; the same is now true of adding any component that makes connections of its own.
+>
+> **Observed 31 Aug 2026, and AC-17 passes.** A per-app capture across a full cycle including image captures recorded exactly two destinations, both Google: `tasks.googleapis.com`, which is this app's own write path through the `ALLOWED_HOSTS` guard, and **`firebaselogging.googleapis.com`**, which is ML Kit's. **No non-Google endpoint was contacted.** The second host fired three times, each a few seconds after an image capture, which is the batching behaviour predicted above seen in the field — it is Google's traffic, it is not ours to route, it appears on a monitor, and it is not a failure. It is also **not in `ALLOWED_HOSTS` and must not be added**: that list governs requests this app composes, and adding a host it never calls would weaken the guard's meaning to no purpose.
 
 ---
 

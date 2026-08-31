@@ -122,6 +122,115 @@ class OcrDecisionsTest {
         assertEquals(180, rotationDegreesFor(4)) // FLIP_VERTICAL
     }
 
+    // FR-215: which recogniser owns which block.
+
+    private fun block(text: String, top: Int, left: Int = 0, height: Int = 40, width: Int = 300) =
+        TextBlock(text, left, top, left + width, top + height)
+
+    @Test
+    fun `a latin screenshot is read entirely by the latin model`() {
+        // The Devanagari pass returns its own version of every block, and none of it is kept:
+        // no Devanagari codepoint anywhere means no region it can prove ownership of. This is
+        // the case the switch was made for - no Bengali character set in play.
+        val latin = listOf(block("Trip from 1 October", 0), block("to 5 October 2027", 50))
+        val devanagari = listOf(block("Trip from 10ctober", 0), block("to 5 ০ctobe 2027", 50))
+
+        val merged = mergeByScript(latin, devanagari)
+
+        assertEquals(latin, merged)
+        assertFalse(merged.any { it.text.contains('০') }, "a Bengali digit survived into Latin text")
+    }
+
+    @Test
+    fun `a hindi screenshot is read by the devanagari model throughout`() {
+        val devanagari = listOf(block("सोमवार को", 0))
+        // What the Latin model returns for Devanagari glyphs is plausible Latin garbage, not
+        // nothing - which is exactly why the test is applied to the Devanagari result.
+        val latin = listOf(block("HIRER cbl", 0))
+
+        val merged = mergeByScript(latin, devanagari)
+
+        assertEquals(1, merged.size)
+        assertTrue(hasDevanagari(merged.single().text))
+    }
+
+    @Test
+    fun `a mixed screenshot is read per block by whichever model suits it`() {
+        val latinRow = block("Fees due 20/09/2027", 100)
+        val hindiRow = block("बैठक सोमवार", 200)
+
+        val merged = mergeByScript(
+            latin = listOf(latinRow, block("dSch RImah", 200)),
+            devanagari = listOf(block("Fees due 2O/O9/2O27", 100), hindiRow),
+        )
+
+        assertTrue(merged.contains(latinRow), "the Latin row did not come from the Latin model")
+        assertTrue(merged.contains(hindiRow), "the Hindi row did not come from the Devanagari model")
+        assertEquals(2, merged.size, "the overlapping duplicate was not dropped")
+    }
+
+    @Test
+    fun `a hallucinated devanagari codepoint keeps the wrong pass, and that is accepted`() {
+        // The recorded residual. It costs one block rather than the capture, and this test
+        // exists so the behaviour is deliberate rather than discovered.
+        val latinTruth = block("Fees due 20/09/2027", 0)
+        val hallucinated = block("Fees due 20/09/2०27", 0)
+
+        val merged = mergeByScript(listOf(latinTruth), listOf(hallucinated))
+
+        assertEquals(listOf(hallucinated), merged)
+    }
+
+    // §7.2: the order blocks are assembled in, which item_key depends on.
+
+    @Test
+    fun `blocks are ordered by geometry, not by the order ml kit returned them`() {
+        // The observed case: a chat screenshot came back with an early bubble late and the
+        // last bubble later still, so FR-505's earliest-mention tiebreak was deciding on an
+        // order that was not the writer's.
+        val outOfOrder = listOf(
+            block("Ok noted", top = 700),
+            block("Paid the uniform bill", top = 100),
+            block("Fees due 20/09/2027", top = 400),
+            block("Thanks", top = 250),
+        )
+
+        val ordered = inReadingOrder(outOfOrder).map { it.text }
+
+        assertEquals(listOf("Paid the uniform bill", "Thanks", "Fees due 20/09/2027", "Ok noted"), ordered)
+    }
+
+    @Test
+    fun `blocks sharing a row are ordered left to right`() {
+        val right = block("second", top = 100, left = 800, width = 200)
+        val left = block("first", top = 105, left = 40, width = 200)
+
+        assertEquals(listOf("first", "second"), inReadingOrder(listOf(right, left)).map { it.text })
+    }
+
+    @Test
+    fun `blocks that merely come close vertically stay in separate rows`() {
+        // A chat's bubbles alternate sides and must not be welded into one row just because
+        // their boxes graze each other.
+        val upper = block("upper", top = 100, left = 40, height = 40)
+        val lower = block("lower", top = 135, left = 800, height = 40)
+
+        assertEquals(listOf("upper", "lower"), inReadingOrder(listOf(lower, upper)).map { it.text })
+    }
+
+    @Test
+    fun `assembling puts one block per line and drops the empty ones`() {
+        val blocks = listOf(block("one", 0), block("   ", 50), block("two", 100))
+        assertEquals("one\ntwo", assemble(blocks))
+    }
+
+    @Test
+    fun `ordering is stable for a single block and for none`() {
+        assertEquals(emptyList(), inReadingOrder(emptyList()))
+        val only = block("one", 0)
+        assertEquals(listOf(only), inReadingOrder(listOf(only)))
+    }
+
     // FR-207: how pages become one capture, which the parser then reads.
 
     @Test

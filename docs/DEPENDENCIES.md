@@ -20,7 +20,7 @@ baselines is not.
 | Dependency | Version | Universal APK | Per device (App Bundle) | Decision |
 |---|---|---|---|---|
 | `com.google.mlkit:text-recognition-devanagari` (bundled) | 16.0.1 | +41.35 MB (dev artifact) | **+12.83 MB** (arm64-v8a) | **Approved, now in use** |
-| `com.google.mlkit:text-recognition` (bundled, Latin only) | 16.0.1 | +8 KB on top of the above | +8 KB | **Not taken** — redundant |
+| `com.google.mlkit:text-recognition` (bundled, Latin) | 16.0.1 | +8 KB on top of the above | +8 KB | **Approved, now in use** — see reversal |
 | ML Kit text recognition, **unbundled** (Play services) | 19.0.1 / 16.0.1 | +325 KB | +325 KB | **Rejected** — NFR-301 |
 | `androidx.work:work-runtime-ktx` | 2.11.2 | +118 KB (see note) | +118 KB | **Approved, now in use** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | 1.9.0 | 0 | 0 | **Approved** |
@@ -91,21 +91,46 @@ breaches. Adopting bundled therefore makes NFR-103 conditional on shipping an AA
 an APK — which is what Play requires for new applications in any case, but it is a commitment
 this project has not yet made anywhere in writing.
 
-**One artifact serves both scripts, established when the module was built.** The Devanagari
-artifact ships a **combined `gocrdevanagari_and_latin` engine** together with the Latn, Deva
-and Beng models — verified by listing the assets of a built APK, not inferred from
-documentation — so it satisfies FR-215's "at minimum Latin and Devanagari" in a **single
-recognition pass**. Declared alone it measures **44,635,336** universal against the
-44,643,418 of both artifacts together: the Latin-only artifact is **+8,082 bytes** and buys a
-second, dedicated Latin recogniser that nothing would call. It is **not taken** — an artifact
-declared and never called is precisely what NFR-501 exists to prevent. The escalation, if the
-device pass shows the combined engine reading Latin worse than the dedicated model, is one
-line and 8 KB; it is recorded in `OcrReader`'s KDoc rather than pre-empted here.
+**One artifact was tried first, and the device pass reversed it. Both are now taken.** The
+Devanagari artifact ships a **combined `gocrdevanagari_and_latin` engine** together with the
+Latn, Deva **and Beng** models — verified by listing a built APK's assets — so on paper it
+satisfies FR-215's "at minimum Latin and Devanagari" in one pass, and the Latin-only artifact
+looked like +8,082 bytes for a recogniser nothing would call, which is what NFR-501 exists to
+prevent.
 
-Taking one pass rather than two is also the only shape that reads a **mixed-script** image
-correctly. Running Latin and Devanagari separately and choosing the longer output would cost
-twice the time against NFR-101's 2.5 s and would discard one script's text whenever an image
-held both.
+**The Bengali model is not inert, and that is what the reasoning missed.** On real images the
+combined engine substitutes Bengali codepoints into Latin words: `October` came back as
+`০ctobe` (**U+09E6 BENGALI DIGIT ZERO**), `12,500` as `12,50০`, and `also` as `als০`. In one
+fixture that broke a date range badly enough to lose a commitment silently; in another it
+degraded a five-day trip into a one-day task on its last day. The dedicated Latin model has no
+Bengali in its character set at all, and its Latin language model is what resolves `0ctober`
+back to a word. **8,082 bytes bought a correctness fix that no amount of size reasoning could
+have predicted** — which is exactly what the device pass is for, and why the escalation was
+written into `OcrReader`'s KDoc rather than dismissed.
+
+**Measured after the switch: 14,647,638 per device, +13,455,472 — +12.83 MB**, the same figure
+to two decimal places as the original both-artifacts spike. The second artifact is free in
+practice because the models were already shipping.
+
+**How the two scripts are read now.** Both recognisers run over the same image and the results
+are merged **per block**, not per image: any block of the Devanagari result containing a
+codepoint in `U+0900–U+097F` is kept, every other region comes from the Latin pass, and a
+Latin block substantially overlapping a kept Devanagari block is dropped. A Latin screenshot is
+therefore read entirely by the Latin model, a Hindi one entirely by the Devanagari model, and a
+mixed one per bubble. The test is applied to the Devanagari result because that is the pass
+which can *prove* Devanagari is present — given Devanagari glyphs the Latin model returns
+plausible Latin garbage rather than nothing, which no test on its own output could catch.
+
+**Concurrency buys nothing measurable, and this is recorded so it is not re-litigated.** The
+two passes are launched concurrently, on the expectation that wall-clock would approach the
+slower pass rather than the sum. Measured over four fixtures, three runs each: **concurrent
+median 1384 ms, sequential median 1380 ms** — a 4 ms difference inside a 1282–1673 ms spread.
+ML Kit's recognisers evidently contend for the same native inference resource and serialise
+however they are launched. The concurrent shape is kept because it is not slower, it is correct
+if ML Kit ever does parallelise, and it is no more code — but it is **not** what bought the
+headroom. What did is that the second pass costs only about **+200 ms**, not a second full
+inference: a single pass ran 700–950 ms and two run 950–1100 ms, so most of the work is shared
+setup. Worst NFR-101 observed either shape: **1673 ms against 2500 ms.**
 
 **Devanagari is not what costs.** The second script adds **640,814 bytes (626 KB)** over
 Latin alone — model assets only; the native pipeline `.so` is byte-identical in both builds

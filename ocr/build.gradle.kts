@@ -21,6 +21,7 @@ dependencies {
     // implementation, not api. Nothing in Ocr.kt's contracts exposes an ML Kit type, which
     // is the point of this module existing: :app sees OcrReader and OcrResult and never a
     // com.google.mlkit class. The blast radius stops at this build file.
+    implementation(libs.mlkit.text.recognition.latin)
     implementation(libs.mlkit.text.recognition.devanagari)
 
     // Recognition and PDF rendering are both blocking, and readImage/readPdf are `suspend`.

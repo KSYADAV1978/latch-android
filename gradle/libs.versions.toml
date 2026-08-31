@@ -46,10 +46,14 @@ androidx-work = { module = "androidx.work:work-runtime-ktx", version.ref = "work
 
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 
-# One artifact, both of FR-215's scripts: this ships a combined `gocrdevanagari_and_latin`
-# engine and the Latn, Deva and Beng models, so Latin needs no second recogniser. Adding
-# `com.google.mlkit:text-recognition` beside it measured +8,082 bytes and would be declared and
-# never called. See OcrReader's KDoc for the escalation if the device pass disagrees.
+# FR-215's two scripts, one artifact each. The Devanagari artifact alone was tried first, on
+# the reasoning that its combined `gocrdevanagari_and_latin` engine covers Latin too and a
+# second artifact would be declared and never called. The device pass reversed that: the
+# combined engine has the Bengali model loaded beside the other two and substitutes Bengali
+# codepoints into Latin words — `October` came back as `০ctobe` (U+09E6) and `12,500` as
+# `12,50০`. The dedicated Latin model has no Bengali character set and a Latin language model
+# that resolves `0ctober` to a word. +8,082 bytes, measured. See docs/DEPENDENCIES.md.
+mlkit-text-recognition-latin = { module = "com.google.mlkit:text-recognition", version.ref = "mlkitTextRecognition" }
 mlkit-text-recognition-devanagari = { module = "com.google.mlkit:text-recognition-devanagari", version.ref = "mlkitTextRecognition" }
 
 org-json = { module = "org.json:json", version.ref = "orgJson" }

@@ -180,6 +180,116 @@ private const val ORIENTATION_ROTATE_270 = 8
 private const val ORIENTATION_ROTATE_180 = 3
 
 /**
+ * One recognised block of text and where it sat on the image.
+ *
+ * Deliberately not an ML Kit type. The two decisions that matter — which recogniser's version
+ * of a block to keep, and what order the blocks go in — are then pure functions over this,
+ * testable on the JVM beside the page cap and the downscale, which is the only way they get
+ * tested at all given `:ocr` has no other JVM-reachable surface.
+ */
+data class TextBlock(
+    val text: String,
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+) {
+    val height: Int get() = (bottom - top).coerceAtLeast(1)
+}
+
+/** Devanagari's Unicode block. The test that decides which recogniser owns a region. */
+fun hasDevanagari(text: String): Boolean = text.any { it.code in 0x0900..0x097F }
+
+/**
+ * FR-215's two scripts, merged per block rather than per image.
+ *
+ * Both recognisers read the whole image; this decides which one's version of each region to
+ * keep. The test is applied to the **Devanagari** result, because that is the pass which can
+ * prove Devanagari is present — a block of it containing a Devanagari codepoint is kept, and
+ * every other region falls to the Latin pass. Keying off the Devanagari result rather than
+ * asking whether the Latin pass "failed" matters: given Devanagari glyphs the Latin model does
+ * not return nothing, it returns plausible Latin garbage, which no test on its own output
+ * could distinguish from real text.
+ *
+ * The three cases this has to get right. **A Latin screenshot** keeps no Devanagari block, so
+ * it is read entirely by the Latin model — no Bengali character set in play, and a Latin
+ * language model that knows `October` is a word where `0ctober` is not. **A Hindi screenshot**
+ * has Devanagari in every block, so the Devanagari model's text is used throughout and the
+ * Latin pass contributes nothing. **A mixed screenshot** — English and Hindi in one thread,
+ * which is the realistic Indian case — is read per bubble by whichever model suits it.
+ *
+ * **One residual, accepted.** Where the Devanagari model hallucinates a genuine Devanagari
+ * codepoint inside what is really a Latin block, that block is kept from the wrong pass and
+ * the Latin version is discarded. It is rare, it costs one block rather than the capture, and
+ * the mixed-script fixture is what would catch it becoming common.
+ */
+fun mergeByScript(latin: List<TextBlock>, devanagari: List<TextBlock>): List<TextBlock> {
+    val owned = devanagari.filter { hasDevanagari(it.text) }
+    if (owned.isEmpty()) return latin
+    val kept = latin.filterNot { block -> owned.any { it.substantiallyOverlaps(block) } }
+    return owned + kept
+}
+
+/** True where the two blocks cover enough of the same area to be the same region read twice. */
+private fun TextBlock.substantiallyOverlaps(other: TextBlock, minFraction: Double = 0.5): Boolean {
+    val width = (minOf(right, other.right) - maxOf(left, other.left)).coerceAtLeast(0)
+    val tall = (minOf(bottom, other.bottom) - maxOf(top, other.top)).coerceAtLeast(0)
+    val intersection = width.toLong() * tall
+    if (intersection == 0L) return false
+    val smaller = minOf(
+        (right - left).toLong() * (bottom - top),
+        (other.right - other.left).toLong() * (other.bottom - other.top),
+    ).coerceAtLeast(1)
+    return intersection.toDouble() / smaller >= minFraction
+}
+
+/**
+ * Blocks in the order a person reads them, from their positions on the image.
+ *
+ * **Recorded as a reading against §7.2, because it is one.** `latch.item_key` is derived from
+ * character positions in the assembled text, so whatever decides the order of that text
+ * decides an identity written into a user's Google account. ML Kit's own block order is an
+ * internal detail of the library: leaving it in place makes `item_key` depend on an ML Kit
+ * version, and an upgrade could move it silently — the same class of wire-contract drift as
+ * the v1.14 and v1.23 moves, but caused by a dependency rather than by a decision. Sorting on
+ * geometry replaces a library internal with a property of the image.
+ *
+ * It is not hypothetical. A chat screenshot returned `Paid the uniform bill` *after* the line
+ * three messages below it, and `Ok noted…` last of all, so FR-505's "earliest mention"
+ * tiebreak was deciding on an order that was not the writer's.
+ *
+ * Blocks are grouped into rows by vertical overlap — two share a row when they overlap
+ * vertically by more than [ROW_OVERLAP] of the shorter one — then rows go by top edge and
+ * blocks within a row by left edge. A chat screenshot, whose bubbles stack vertically at
+ * alternating x, comes out exactly right; so does a single-column document. **Genuine
+ * multi-column text interleaves**, which is a known limit rather than a solved problem:
+ * detecting columns is a larger job than this slice, and interleaving is at least predictable.
+ */
+fun inReadingOrder(blocks: List<TextBlock>): List<TextBlock> {
+    if (blocks.size <= 1) return blocks
+    val rows = ArrayList<MutableList<TextBlock>>()
+    blocks.sortedBy { it.top }.forEach { block ->
+        val row = rows.lastOrNull()?.takeIf { current ->
+            current.any { it.sharesRowWith(block) }
+        }
+        if (row != null) row += block else rows += mutableListOf(block)
+    }
+    return rows.flatMap { row -> row.sortedBy { it.left } }
+}
+
+private fun TextBlock.sharesRowWith(other: TextBlock): Boolean {
+    val overlap = (minOf(bottom, other.bottom) - maxOf(top, other.top)).coerceAtLeast(0)
+    return overlap.toDouble() / minOf(height, other.height) > ROW_OVERLAP
+}
+
+/** How much two blocks must overlap vertically to count as the same row. */
+const val ROW_OVERLAP: Double = 0.5
+
+/** The blocks as one string, one block per line. Ordering is [inReadingOrder]'s business. */
+fun assemble(blocks: List<TextBlock>): String =
+    blocks.map { it.text.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+
+/**
  * Joins the per-page texts of a PDF into one capture.
  *
  * A blank line between pages, and pages that recognised nothing dropped rather than left as

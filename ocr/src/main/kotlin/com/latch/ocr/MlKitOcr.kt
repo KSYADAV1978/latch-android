@@ -12,12 +12,15 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.IOException
 import java.io.InputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
@@ -36,19 +39,27 @@ import kotlinx.coroutines.withContext
 class MlKitOcrReader(private val context: Context) : OcrReader {
 
     /**
-     * FR-215's two scripts in one pass. ML Kit's Devanagari model is a combined
-     * *Devanagari and Latin* engine — see [OcrReader]'s KDoc for why that is the whole
-     * recognition strategy rather than an optimisation of it.
+     * FR-215's two scripts, one recogniser each.
      *
-     * Lazy so that constructing a reader costs nothing: `:app` builds one at process start,
-     * and the great majority of captures are text and never reach it.
+     * The Devanagari model alone was tried first, its engine being a combined *Devanagari and
+     * Latin* one. The device pass reversed that: it has the Bengali model loaded beside the
+     * other two and substitutes Bengali codepoints into Latin words. See [OcrReader]'s KDoc.
+     *
+     * Both lazy, so constructing a reader costs nothing: `:app` builds one at process start
+     * and the great majority of captures are text that never reach it.
      */
-    private var recognizer: TextRecognizer? = null
+    private var latin: TextRecognizer? = null
+    private var devanagari: TextRecognizer? = null
 
-    private fun recogniser(): TextRecognizer =
-        recognizer ?: TextRecognition
+    private fun latin(): TextRecognizer =
+        latin ?: TextRecognition
+            .getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            .also { latin = it }
+
+    private fun devanagari(): TextRecognizer =
+        devanagari ?: TextRecognition
             .getClient(DevanagariTextRecognizerOptions.Builder().build())
-            .also { recognizer = it }
+            .also { devanagari = it }
 
     override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.Default) {
         val bitmap = decodeBitmap(uri)
@@ -138,15 +149,43 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
     }
 
     /**
+     * FR-215's two scripts, both models over the same image, **concurrently**.
+     *
+     * ML Kit's `process` is asynchronous and each recogniser has its own native pipeline, so
+     * launching both and awaiting them costs the slower pass rather than the sum. Sequentially
+     * this would be two full inferences added end to end against NFR-101's 2.5 s, which is the
+     * budget this whole path has to fit inside.
+     *
+     * The merge and the ordering are pure functions in `Ocr.kt`; this method's only job is to
+     * get two block lists off the device and hand them over.
+     */
+    private suspend fun recognise(bitmap: Bitmap, rotationDegrees: Int): String = coroutineScope {
+        val image = InputImage.fromBitmap(bitmap, rotationDegrees)
+        val latinPass = async { blocksOf(latin(), image) }
+        val devanagariPass = async { blocksOf(devanagari(), image) }
+        assemble(inReadingOrder(mergeByScript(latinPass.await(), devanagariPass.await())))
+    }
+
+    /**
      * ML Kit's `Task` API is callback-based. Bridging it is about ten lines of
      * `suspendCancellableCoroutine`, which is why `kotlinx-coroutines-play-services` is not
      * taken here — the same decision, for the same reason, that `GoogleAuthClient` records
      * for the OAuth grant.
+     *
+     * Blocks are converted to `:ocr`'s own [TextBlock] here and nowhere else, so no ML Kit
+     * type escapes this file.
      */
-    private suspend fun recognise(bitmap: Bitmap, rotationDegrees: Int): String =
+    private suspend fun blocksOf(recognizer: TextRecognizer, image: InputImage): List<TextBlock> =
         suspendCancellableCoroutine { continuation ->
-            recogniser().process(InputImage.fromBitmap(bitmap, rotationDegrees))
-                .addOnSuccessListener { continuation.resume(it.text) }
+            recognizer.process(image)
+                .addOnSuccessListener { text ->
+                    continuation.resume(
+                        text.textBlocks.mapNotNull { block ->
+                            val box = block.boundingBox ?: return@mapNotNull null
+                            TextBlock(block.text, box.left, box.top, box.right, box.bottom)
+                        }
+                    )
+                }
                 .addOnFailureListener { continuation.resumeWithException(it) }
         }
 
@@ -219,7 +258,9 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
 
     /** Idempotent, and does not construct a recogniser merely to close one. */
     override fun close() {
-        recognizer?.close()
-        recognizer = null
+        latin?.close()
+        latin = null
+        devanagari?.close()
+        devanagari = null
     }
 }
