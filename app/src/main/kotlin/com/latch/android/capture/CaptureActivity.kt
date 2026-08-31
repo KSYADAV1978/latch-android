@@ -2,6 +2,8 @@ package com.latch.android.capture
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import com.latch.android.BuildConfig
 import com.latch.android.LatchApplication
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
@@ -66,6 +69,7 @@ class CaptureActivity : ComponentActivity() {
         // Setup may have completed in another task since this process read its defaults.
         app.refreshAccounts()
 
+        val openedAt = SystemClock.elapsedRealtime()
         val request = intent.toCaptureRequest(this)
         val parseContext = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
         val referrer = referrerPackage()
@@ -80,7 +84,9 @@ class CaptureActivity : ComponentActivity() {
             }
         )
         if (request is CaptureRequest.Image || request is CaptureRequest.Pdf) {
-            extract(request, referrer, content)
+            extract(request, referrer, content, openedAt)
+        } else {
+            logContentReady(openedAt, content.value)
         }
 
         setContent {
@@ -168,6 +174,7 @@ class CaptureActivity : ComponentActivity() {
         request: CaptureRequest,
         referrer: String?,
         content: MutableStateFlow<CaptureContent>,
+        openedAt: Long,
     ) {
         lifecycleScope.launch {
             val app = application as LatchApplication
@@ -179,7 +186,7 @@ class CaptureActivity : ComponentActivity() {
                 else -> return@launch
             }
 
-            content.value = when (result) {
+            val next = when (result) {
                 is OcrResult.Failed -> CaptureContent.Failed(result.reason)
                 is OcrResult.Text -> CaptureContent.Ready(
                     CapturedText(
@@ -194,7 +201,47 @@ class CaptureActivity : ComponentActivity() {
                     )
                 )
             }
+            // Before publishing, so the logged duration is the recognition and not whatever
+            // recomposition the new state kicks off.
+            logContentReady(openedAt, next)
+            content.value = next
         }
+    }
+
+    /**
+     * NFR-101's clock stop, on debug builds only.
+     *
+     * The requirement budgets "time from capture gesture to confirmation UI **displayed**" —
+     * 800 ms for text, 2.5 s for OCR of a full-screen image — and since NFR-102's progressive
+     * render landed, that moment is no longer one the platform logs. `ActivityTaskManager`'s
+     * own `Displayed` line marks the **first frame**, which for an OCR capture is the spinner:
+     * taking it for NFR-101 would let NFR-102 satisfy NFR-101 by drawing nothing, which is
+     * plainly not what either requirement means. So the confirmation UI having its content is
+     * marked here.
+     *
+     * Read against `ActivityTaskManager`'s `START` line for the same capture — both carry
+     * logcat wall-clock timestamps, so NFR-101 is the gap between them:
+     *
+     *     adb logcat -d -v time | grep -E "ActivityTaskManager.*START.*latch|LatchTiming"
+     *
+     * Debug-only, the same guard and for the same reason as `GoogleAuthClient`'s status-code
+     * logging: a release build has no one reading logcat, and `BuildConfig.DEBUG` is a
+     * compile-time constant there, so R8 removes the branch and the strings with it. It logs
+     * **no capture content** — a duration, which path ran, and how many characters came back.
+     * NFR-202's instinct applies to a log as much as to an analytics SDK.
+     */
+    private fun logContentReady(openedAt: Long, content: CaptureContent) {
+        if (!BuildConfig.DEBUG) return
+        val elapsed = SystemClock.elapsedRealtime() - openedAt
+        val outcome = when (content) {
+            is CaptureContent.Extracting -> "extracting"
+            is CaptureContent.Failed -> "failed=${content.reason}"
+            is CaptureContent.Ready -> content.captured?.let { captured ->
+                val pages = captured.pages?.let { ", pages=${it.read}/${it.total}" }.orEmpty()
+                "ready, ocr=${captured.ocrUsed}, chars=${captured.text.length}$pages"
+            } ?: "ready, nothing captured"
+        }
+        Log.i("LatchTiming", "content $outcome in ${elapsed}ms")
     }
 
     /**
