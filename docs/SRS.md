@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.31 (draft for developer handover)"
+author: "Version 1.32 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.31 — draft for developer handover |
+| Version | 1.32 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -57,6 +57,8 @@ date: "28 August 2026"
 | 1.30 | 31 Aug 2026 | Corrects v1.29 rather than editing it, on the rule v1.15 established: a changelog that revises its own past cannot show what was known when. **The same image shared twice on one device is deterministic** — identical character count, identical `latch.source_hash`, FR-803 answering "Already saved" — so v1.29's reading of the 20/09/2027 misread as same-image wobble was wrong. What varies is **two renderings of the same sentence**. FR-803 is therefore stronger than v1.29 feared for the case a user actually meets, and AC-07's image case is weaker than its text case looks: §4.1's three clients never share a file, so a re-render is enough to move the hash and a cross-client duplicate of an image capture should be **expected to fail**, unreachable by normalisation because the divergence is upstream of the text. **Records the graver OCR class**: a misread *inside* a date expression loses the commitment silently, the confirmation screen having no way to say "there was another date here I could not read". The character evidence is kept because it decides where the fix belongs — `1 October` collapsed to `10ctober` (space and capital O into an ASCII zero), `October` to `০ctobe` (**U+09E6 BENGALI DIGIT ZERO**, plus a dropped `r`). A second rendering degraded the range into its **endpoint**, a five-day trip becoming a one-day Task on its last day, which looks plausible and is wrong — worse than the absent form, and a property of FR-511's one-candidate range rule. The Bengali digit is normalisable and the ASCII zero is not, so the measure that reaches all three edits is the recogniser: **the Latin-only artifact rejected at the `:ocr` commit as "declared and never called" is taken**, its +8 KB having bought what NFR-501 reasoning could not predict and the device pass was meant to decide. No requirement changed. |
 
 | 1.31 | 31 Aug 2026 | Records what the FR-215 device pass changed and what it found still broken. **FR-215's artifact set is corrected**: the Devanagari model alone carries a Bengali model that substitutes Bengali codepoints into Latin words, so the dedicated Latin artifact is taken as well at +8,082 bytes, and both recognisers now run over every image with results merged **per block** — a Devanagari-bearing block from the Devanagari pass, every other region from the Latin pass. Latin, Hindi and mixed-script screenshots each get the right model, the test being applied to the Devanagari result because only that pass can prove Devanagari is present. NFR-101 measured for the new shape at a worst of **1673 ms** against 2.5 s; running the passes concurrently rather than sequentially makes **no measurable difference**, ML Kit's recognisers contending for the same native resource, and that is recorded so it is not re-litigated. **§7.2 gains a reading-order rule**: OCR text shall be assembled by block geometry, because `item_key` derives from character positions and a recogniser's own block order is a library internal — leaving it in place would let an ML Kit upgrade move a stored identity silently, which is the v1.14 drift with no decision behind it. Observed, not anticipated: a screenshot returned an early message after a later one, so FR-505's earliest-mention tiebreak was deciding on an order that was not the writer's. **AC-17 passes**, observed: a per-app capture over a cycle including image captures found exactly two destinations, `tasks.googleapis.com` through this app's own guard and `firebaselogging.googleapis.com` from ML Kit, and no non-Google endpoint; the second is Google's traffic, not ours to route, and shall **not** be added to `ALLOWED_HOSTS`, which governs requests this app composes. **FR-805b is recorded as NOT MET in substance**: its character-radius window covers a whole ~270-character chat screenshot, so the note written was the entire recognised text with no elisions — the screen dump the requirement exists to prevent, produced by the rule working as specified. The defect is the shape of the bound, not its size; the fix is a row-based window, available now that reading order is fixed. No requirement changed. |
+
+| 1.32 | 31 Aug 2026 | Changes FR-805b's mechanism from a character radius to a **row window**, before the fix is written. The unit is a row of the image, which §7.2's reading-order rule makes a line of the assembled text: every line carrying a matched date span is kept, plus at most one neighbouring line either side, with ellipses marking what was dropped. The previous readings — 160 characters either side, windows merged within 40 — are **superseded**, and with them the idea that a distance in characters is the right bound at all: a character count does not know where a message begins or ends, so it swallowed a short capture whole while cutting a long one off mid-word, and the row is the unit the writer actually composed in. The **600-character budget is retained as an outer bound** rather than as the mechanism, because a capture whose rows are individually enormous still needs a ceiling and a rendered PDF page is exactly that, arriving as one very long line. The evidence is not theoretical and is quoted in full against the requirement: a ~270-character chat screenshot produced a task note carrying the sender's name, the amount paid and every message in the thread, with no elisions. That note is kept as the conformance fixture, and the test of any implementation is that its extract be strictly shorter and no longer carry the lines that are not about a date. No requirement changed; FR-805b's parameterisation is replaced. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -606,14 +608,34 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 >
 > The defect is in the **shape** of the bound rather than its size. Shrinking the radius would cut context off mid-sentence on a long capture while still swallowing a short one whole, because a character count does not know where a message begins or ends. **The fix is a row-based window** — the row containing the date, plus at most one neighbouring row either side — which becomes available with §7.2's requirement that OCR text be assembled in geometric reading order, since a row of the image is then a line of the assembled text. The fixture is the note recorded in the device-pass record; the test is that the extract be **strictly shorter** than it.
 
-> **The extract as parameterised.** These are readings, movable by a future revision, and are
-> recorded so that the behaviour is a decision rather than whatever the first implementation
-> did: a window of **160 characters either side** of each matched date span; windows **merged**
-> where they fall within 40 characters of one another; the whole body capped at **600
-> characters**; an ellipsis at each join and at either end where text was dropped, so the user
-> can see that they are reading an extract. Where the capture is OCR-derived and **no** date
-> was matched, the first 600 characters are taken — the item is undated under design principle
-> 1 and still needs provenance.
+> **The extract as parameterised — a row window.** These are readings, movable by a future
+> revision, and are recorded so that the behaviour is a decision rather than whatever the
+> implementation happened to do. The unit is a **row of the image**, which §7.2's reading-order
+> rule makes a line of the assembled text: the extract keeps every line carrying a matched date
+> span, **plus at most one neighbouring line either side**; runs of kept lines separated by
+> dropped ones are joined by an ellipsis, and an ellipsis marks either end that was trimmed, so
+> the user can see they are reading an extract. The whole body remains capped at **600
+> characters** — retained as an **outer bound** rather than as the mechanism, because a capture
+> whose rows are individually enormous still needs a ceiling and a rendered PDF page is exactly
+> that, arriving as one very long line. Where the capture is OCR-derived and **no** date was
+> matched, the first 600 characters are taken: the item is undated under design principle 1 and
+> still needs provenance.
+>
+> **The character radius this replaces is superseded, not merely retuned.** The previous
+> reading — 160 characters either side of a date, windows merged within 40 — is withdrawn, and
+> so is the idea that a distance in characters is the right bound at all. A character count does
+> not know where a message begins or ends, so it swallowed a short capture whole while cutting a
+> long one off mid-word. The row is the unit the writer actually composed in.
+>
+> **Nothing here is theoretical: the evidence is a note that was written into a real account.**
+> A ~270-character chat screenshot produced a task whose note read, in full and with no
+> elisions, `Sharma Ji / online / Thanks. Did the school send the circular? / Yes. PTM on Monday
+> 14 September 2026. / Fees due 20/09/2027. / Paid the uniform bill, / Rs 12,50o in total. /
+> Trip from 10ctober to 5 octobe 2027. / Will forward it tonight. / Message / Ok noted. Can you
+> also send the form?` — the sender's name, the amount paid and every message in the thread.
+> That note is kept as the conformance fixture for this clause, and the test of any
+> implementation is that its extract be **strictly shorter** than it and no longer carry the
+> lines that are not about a date.
 
 **FR-806 [MUST]** All writes shall be queued locally when offline and retried on reconnection, with the queue visible to the user.
 
