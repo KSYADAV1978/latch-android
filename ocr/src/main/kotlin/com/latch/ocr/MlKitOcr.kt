@@ -156,8 +156,17 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
      * before the allocation that could fail.
      */
     private fun decodeBitmap(uri: Uri): Bitmap? {
+        // `decodeStream` returns **null by contract** when `inJustDecodeBounds` is set: the
+        // answer comes back in `options`, not as a bitmap. So the null check here must guard
+        // the *stream*, never the decode result — writing it as
+        // `openStream(uri)?.use { decodeStream(...) } ?: return null` binds the elvis to the
+        // decode and makes this function return null for every image ever passed to it. That
+        // is not a hypothetical: it shipped, and it took a device to find, because
+        // `BitmapFactory` is a throwing stub under JVM unit tests and the bounds pass is the
+        // one call whose success looks exactly like failure.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        openStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+        val header = openStream(uri) ?: return null
+        header.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         val options = BitmapFactory.Options().apply {
