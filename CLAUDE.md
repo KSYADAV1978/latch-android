@@ -17,10 +17,12 @@ requirement ID in your summary so work can be traced back.
 | `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1 |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
+| `:ocr` | Android library | On-device OCR (FR-215, FR-207). The only module that names an ML Kit type; `:app` sees `OcrReader` and `OcrResult`. Bundled models, +12.83 MB per device — the largest single thing this app ships |
 | `:data` | Android library | Storage — Inbox, write queue and secret store contracts, account defaults persisted — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
-Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes` → `:core-model`.
+Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes`/`:ocr` → `:core-model`.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
+`:ocr` depends on neither — it returns text, and what that text means is the parser's business.
 
 ## How to build and test
 Requires JDK 17+ on `JAVA_HOME`. Android Studio's bundled JBR works:
@@ -73,9 +75,10 @@ Subject line in the present tense, imperative, one line. The body carries the re
 which requirements the change serves, and any decision the code cannot state for itself.
 
 ## State of the build
-Skeleton only. Working: the five-module structure, the parser (87-case corpus, all passing),
+Skeleton only. Working: the six-module structure, the parser (87-case corpus, all passing),
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
-confirmation screen, and first-run setup (FR-100 series) end to end.
+confirmation screen, first-run setup (FR-100 series) end to end, and on-device OCR of
+images and PDFs (FR-215, FR-207) verified on a device.
 
 Setup runs against real Google. `StubGoogle.kt` is gone. The NFR-501 question it was waiting
 on is settled: `play-services-auth` for the OAuth grant and nothing else (+135 KB, measured),
@@ -123,11 +126,63 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-502** — a date range on the wire | 28 Aug 2026 | **Pass.** "from September 20 to September 24, 2027" landed as one all-day event covering the 20th through the **24th**, not the 25th — so the inclusive-to-exclusive conversion is right where it actually matters. This is the text whose opening date resolved to the wrong year until SRS 1.25; the pass is of the fix, not of the original behaviour. |
 | **FR-804 suppression for a chain** (SRS 1.25) | 28 Aug 2026 | **Pass.** A four-date capture re-captured with one date amended produced **no** offer at all — an ordinary four-row sheet — and saving wrote four items including three visible duplicates of the unchanged dates. That is the reading's accepted cost seen rather than argued about: visible on screen and removed by one undo, where the behaviour it replaced would have moved one item and discarded three in silence. |
 | **FR-804 for a single date** | 28 Aug 2026 | **Pass, as a regression check.** "Kickoff 8 September 2027 at 9am" saved, then the 9 September form offered the move with computed weekdays — Wed 8 Sep to Thu 9 Sep. The suppression above is confined to multi-item captures and did not disturb the requirement's own case. |
+| **NFR-102 gating — an ordinary text capture** | 31 Aug 2026 | **Pass, and it is the gate on the whole FR-215 slice.** "Kickoff 8 September 2027 at 9am" opened with EVENT, the right date and time, destination chip and Save enabled, and **no spinner at any point**; `content ready, ocr=false, chars=31 in 4ms` says the synchronous path stayed synchronous. Saved, undo counted down, the window closed itself on lapse, and the event reached Google at 2027-09-08 09:00 IST with the whole source text in its description — the FR-805 text path unchanged. |
+| **NFR-101 for text, and `MlKitInitProvider`'s cost** | 31 Aug 2026 | **Pass.** Cold start to a filled sheet, worst of seven runs **577 ms** against 800 ms. Warm 64–67 ms. The cost of ML Kit's init provider — which runs before `Application.onCreate` on every launch, including the text captures that never use OCR — was measured by building `0f248fb` in a throwaway worktree and running the same capture: **+27 ms median** (549 → 576), +20 ms mean. Measurable, imperceptible, 223 ms of headroom left. |
+| **FR-205 / FR-207 share targets** | 31 Aug 2026 | **Pass, by real gesture.** Latch appears in the system resolver for `image/*` and for `application/pdf`. Every image and PDF step below went through the resolver rather than a named component, because `am start -n` does not propagate the URI read grant — which is a property of the harness, not of the app, and is written up in `testdata/fr215/share-to-latch.ps1`. |
+| **FR-215 — a screenshot becomes items** | 31 Aug 2026 | **Pass.** Three dates read off a rendered chat image, each with its own badge and date line. NFR-101 worst **1673 ms** against 2.5 s across four image fixtures, three runs each. |
+| **FR-215 — EXIF rotation** | 31 Aug 2026 | **Pass.** A page photographed portrait, stored 2800×2000 with EXIF orientation 6, read correctly: `TASK 22 Nov 2027`, title from the document. This is the total-failure case — an unread tag hands ML Kit a sideways page and it returns nothing at all. |
+| **FR-207 — a text-layer PDF** | 31 Aug 2026 | **Pass.** `letter.pdf`, 2 pages, → `TASK 14 Oct 2027` from `Renewal due 14 October 2027`. `pages=2/2`, so the cap line is correctly **not** shown. |
+| **FR-207 — the page cap, reported** | 31 Aug 2026 | **Pass.** `long.pdf`, 14 pages → the page-2 date found, **"First 10 of 14 pages read."** on screen, the page-12 date correctly absent. That string is the only part of FR-207's reporting no JVM test can reach. It also produced NFR-101a: 10 pages took **5074 ms**, which is what a document budget now exists for. |
+| **FR-803 over an OCR capture** | 31 Aug 2026 | **Pass.** Re-sharing an identical image answered "Already saved. Nothing was written again." — Google's own index, through the app's client. Also the measurement behind SRS 1.30: the same file recognised twice gave an identical character count and an identical hash, so the §7.2 wobble lives in re-renderings and across §4.1's clients, not in re-sharing one file. |
+| **FR-805b — the row window** | 31 Aug 2026 | **Pass, at the second attempt, and the first attempt is why the rule changed.** The character-radius version wrote the **entire** recognised screen into a task note. Rebuilt as a row window, the note carries the dated rows and one neighbour each: no sender name, no amount, no chrome. The failing note is committed as the conformance fixture at `data/src/test/resources/fr805b/device-note.txt`. |
+| **AC-17 — network monitor over an image capture** | 31 Aug 2026 | **Pass.** A per-app capture across a full cycle including image captures recorded exactly two destinations, both Google: `tasks.googleapis.com`, this app's own writes through the `ALLOWED_HOSTS` guard, and **`firebaselogging.googleapis.com`**, which is ML Kit's, firing three times a few seconds after each image capture. **No non-Google endpoint.** The second host is not in `ALLOWED_HOSTS` and must not be added: that list governs requests this app composes. SRS 1.27's structural restatement, observed rather than reasoned about. |
+| **AC-05 — a screenshot with three dates** | 31 Aug 2026 | **Pass**, on `three-dates-v4.png`. Exactly three dates — `TASK 14 Sept 2026`, `TASK 20 Sept 2027`, `EVENT 1 Oct 2027`, the range correctly one candidate and an Event. Three checkboxes all `checked=true` at open, read from the view hierarchy rather than eyeballed; unticking the middle gave `true,false,true`; the save wrote **two** items, not three; nothing on the unticked date; and a re-capture answered "Already saved", which is Google confirming both landed. **Provenance:** v4 is a *rendered* chat image, not a device screenshot, so the criterion is met by a proxy and is to be re-run if a real screenshot is supplied. **The undo half was not re-run here** and is not silently omitted: it is covered by AC-11's four-item chain undo of 28 Aug. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
 encrypts against a real Keystore, a completed setup survives a cold start, and the stored
 preference key is a hex digest rather than an email address.
+
+**What the FR-215 pass found, 31 Aug 2026.** Four defects, all fixed in the pass and each
+invisible to the 328 JVM tests that were green throughout.
+
+**The image path was dead on every image.** `openStream(uri)?.use { decodeStream(it, null,
+bounds) } ?: return null` — `decodeStream` returns null **by contract** under
+`inJustDecodeBounds`, so the elvis guarded the decode result rather than the stream and
+`decodeBitmap` returned null always. No JVM test could see it: `BitmapFactory` is a throwing
+stub in the `android.jar` unit tests compile against, which is the same property that makes the
+parser corpus cheap. This failure class — a platform call whose stubbed behaviour inverts a
+null check — has no guard, and an instrumented test that decodes a real asset would have caught
+it in seconds. **Owed: a small instrumented suite, beyond the launch canary.**
+
+**The Devanagari model was substituting Bengali digits into Latin words.** `October` came back
+as `০ctobe` (U+09E6), `12,500` as `12,50০`. The Latin-only artifact had been refused as
+"declared and never called"; it is +8,082 bytes and it was the fix. NFR-501 reasoning was
+sound and the outcome was wrong, which is what a device pass is for.
+
+**FR-805b wrote the whole screen.** Its character radius covered a ~270-character chat
+screenshot entirely, so the note carried every message, the sender's name and the amount paid.
+Rebuilt as a row window.
+
+**Block order was not reading order.** ML Kit returned an early message after a later one, so
+FR-505's earliest-mention tiebreak — and §7.2's `item_key`, which derives from character
+positions — were resting on a library internal that an upgrade could move silently.
+
+**Deferred, with fixtures, none of it in this slice.** *Chrome-bleed and the OCR title*, one
+defect seen twice: a screenshot's status-bar clock parses as a time and manufactures an Event
+(`three-dates-chrome.png`), and FR-509's opening-of-the-text rule puts the header and first
+message into the title — where it undoes FR-805b's exclusion in the most visible field
+(`three-dates-v4.png`). *Document progress*, so NFR-102's spinner can say "Reading page N of
+M". *Skipping the second recogniser* for a document whose first page shows no Devanagari, worth
+roughly half the per-page cost, to be measured before adopted. All four are written up against
+their requirements in the SRS.
+
+**One thing about the harness is worth keeping.** `testdata/fr215/share-to-latch.ps1` drives
+captures through the real resolver, because `am start -n` does not propagate the URI read
+grant. It carries a hard rule in code: it taps only inside Latch or the system resolver and
+aborts otherwise. An earlier version tapped a stale coordinate when an intent went to a default
+handler instead of a resolver, and the taps landed in a WhatsApp contact picker. Nothing was
+sent; nothing in the script prevented it either.
 
 **`latch.item_key` now survives a reschedule**, after two attempts that did not. It first came
 back byte-identical to `latch.source_hash`, because `TitleExtractor` implements FR-509 — "use
@@ -147,10 +202,22 @@ The spans exist for §7.2's derivation, not for display. §7.2 specifies the der
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-Not yet run on a device: **the FR-803 re-check at drain**, and
+**FR-803's re-check at drain is PENDING OBSERVATION**, and for once there is a live experiment
+rather than a gap. A Wi-Fi outage during the 31 Aug pass — PCAPdroid, still running with a
+filter on this package — left **two queue entries** behind: the AC-05 chain of two items, and a
+single "Kickoff 8 September 2027 at 9am" capture made as a read-only diagnostic. Both were
+subsequently written to Google by other means, so **both should retire at drain without writing
+anything**, which is exactly what FR-803-at-drain exists to do and has never been watched
+doing. Exponential backoff put the next attempt around **19:35 IST on 31 Aug 2026**;
+`ExistingWorkPolicy.KEEP` correctly refuses to reset it and WorkManager refuses
+`cmd jobscheduler run -f` before the scheduled time, so it cannot be hurried. **If either entry
+writes a duplicate instead, that is an FR-806 defect and the queue is the fixture.** Nothing in
+the account is to be deleted until this has been observed. Append the result here.
+
+Not yet run on a device:
 **NFR-302's other two limbs** — app termination and device restart while queued — none of which
 AC-10's run exercised; **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
-**AC-17** (network monitor over a full cycle), and the consent-bridge cases: rotation and
+and the consent-bridge cases: rotation and
 process death with the consent screen up, which are the only part of this app with no
 automated cover at all. FR-804's own gaps join that list: **a queued `UPDATE` has never
 drained** — the 28 Aug pass was online throughout, so the worker's update path and the

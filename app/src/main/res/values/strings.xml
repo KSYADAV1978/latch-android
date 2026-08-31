@@ -155,6 +155,12 @@
     <string name="latch_calendar_description">Created by Latch. Dates and deadlines captured on your devices are saved here.</string>
 
     <string name="home_headline">Latch</string>
-    <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google. Undo is not built yet, so remove anything unwanted in Google Calendar.</string>
-    <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text to Latch.</string>
+    <!--
+      Says what the app can do, and is therefore a claim that goes stale as things are built.
+      It has been wrong once: it told users undo was not built for the four days after FR-807
+      landed, on the same screen that was correctly reporting a write queue. Anything asserting
+      what is or is not built belongs under review whenever a slice lands.
+    -->
+    <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google, and every save can be undone for ten seconds afterwards.</string>
+    <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text, a screenshot or a PDF to Latch.</string>
 </resources>
