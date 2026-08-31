@@ -42,34 +42,30 @@ fun sourceBlock(
     }.joinToString("\n\n")
 
 /**
- * FR-805b's extract: a capped window of [text] around each of [dateSpans].
+ * FR-805b's extract: the **rows** of [text] that carry a date, plus one either side.
  *
- * The parameters are the readings recorded in the SRS against FR-805b, and are movable by a
- * future revision. They are named constants rather than literals so that the requirement and
- * the code can be read against one another.
+ * **The unit is a row of the image, not a distance in characters**, and that is the whole of
+ * this function's design. §7.2 requires OCR text to be assembled in geometric reading order,
+ * one image row per line, so a line here is a message in a chat or a line of a document —
+ * the unit the writer actually composed in.
  *
- * The shape is: a window either side of every matched date, windows merged where they nearly
- * touch, joined with an ellipsis where they do not, and the whole capped. An ellipsis at
- * either end says that text was dropped there, so a reader can see they are looking at an
- * extract rather than at a short capture.
+ * **The character radius this replaces was measured failing on a device and is superseded.**
+ * It kept 160 characters either side of each date; on a chat screenshot, which recognises to
+ * roughly 270 characters with its dates spread through it, the merged windows covered the
+ * whole text and the note written into the user's account was the entire screen — every
+ * message in the thread, the amount paid, the sender's name. Shrinking the radius would not
+ * have fixed it: a character count does not know where a message begins or ends, so it
+ * swallowed a short capture whole while cutting a long one off mid-word. Both failures are
+ * the same mistake about what the bound should be measured in.
  *
- * **The window decides, not the total length**, and this is the correction that matters. An
- * earlier version returned any text already inside [budget] whole, on the reasoning that the
- * rule was a cap rather than an omission. That is wrong twice over. FR-805b says the source
- * text "shall never be the whole recognised text", without qualification; and a phone
- * screenshot of a chat is *typically* five hundred characters, so the carve-out would have
- * exempted the exact case the requirement was written for — the balance and the card number
- * beside the message would have been stored after all. The budget is a second, independent
- * bound on the worst case, not the thing that decides whether to excerpt.
- *
- * Where a window happens to cover the whole text, the whole text is kept. That is the window
- * saying every character is context for the date, which for a short note it is.
+ * [budget] is retained as an **outer bound rather than the mechanism**. A capture whose rows
+ * are individually enormous still needs a ceiling, and a rendered PDF page is exactly that: it
+ * arrives as one very long line.
  */
 fun sourceExcerpt(
     text: String,
     dateSpans: List<IntRange>,
-    radius: Int = EXCERPT_RADIUS,
-    mergeGap: Int = EXCERPT_MERGE_GAP,
+    neighbours: Int = EXCERPT_NEIGHBOUR_ROWS,
     budget: Int = EXCERPT_BUDGET,
 ): String {
     val whole = text.trim()
@@ -77,79 +73,63 @@ fun sourceExcerpt(
 
     // No date matched: there is nothing to window around, so the opening of the text is the
     // extract. The item is undated under design principle 1 and still needs provenance.
-    val windows = if (dateSpans.isEmpty()) {
-        if (whole.length <= budget) return whole
-        listOf(0 until budget.coerceAtMost(whole.length))
-    } else {
-        dateSpans
-            .map { span ->
-                (span.first - radius).coerceAtLeast(0)..(span.last + radius).coerceAtMost(whole.lastIndex)
-            }
-            .filter { !it.isEmpty() }
-            .sortedBy { it.first }
-            .merged(mergeGap)
-    }
-    if (windows.isEmpty()) return whole.take(budget).trimEnd() + ELLIPSIS
-
-    val pieces = ArrayList<String>(windows.size)
-    var remaining = budget
-    var droppedTail = false
-    for (window in windows) {
-        if (remaining <= 0) {
-            droppedTail = true
-            break
-        }
-        val slice = whole.substring(window.first, window.last + 1)
-        if (slice.length > remaining) {
-            pieces += slice.take(remaining).trimEnd()
-            remaining = 0
-            droppedTail = true
-        } else {
-            pieces += slice.trim()
-            remaining -= slice.length
-        }
+    if (dateSpans.isEmpty()) {
+        return if (whole.length <= budget) whole else whole.take(budget).trimEnd() + ELLIPSIS
     }
 
-    val openedMidText = windows.first().first > 0
-    val closedMidText = droppedTail || windows.last().last < whole.lastIndex
-
-    return buildString {
-        if (openedMidText) append(ELLIPSIS)
-        append(pieces.joinToString(" $ELLIPSIS "))
-        if (closedMidText) append(ELLIPSIS)
+    val lines = whole.lines()
+    val bounds = lineBounds(whole, lines)
+    val carriesDate = lines.indices.filter { index ->
+        dateSpans.any { span -> span.first <= bounds[index].last && span.last >= bounds[index].first }
+    }.toSet()
+    if (carriesDate.isEmpty()) {
+        return if (whole.length <= budget) whole else whole.take(budget).trimEnd() + ELLIPSIS
     }
+
+    val kept = carriesDate.flatMap { index ->
+        (index - neighbours).coerceAtLeast(0)..(index + neighbours).coerceAtMost(lines.lastIndex)
+    }.toSortedSet()
+
+    // Consecutive kept lines form a run; a gap between runs becomes one ellipsis.
+    val runs = ArrayList<MutableList<String>>()
+    var previous = -2
+    kept.forEach { index ->
+        if (index == previous + 1) runs.last() += lines[index] else runs += mutableListOf(lines[index])
+        previous = index
+    }
+
+    val body = runs.joinToString("\n$ELLIPSIS\n") { run ->
+        run.map(String::trim).filter(String::isNotEmpty).joinToString("\n")
+    }
+    val openedMidText = kept.first() > 0
+    val closedMidText = kept.last() < lines.lastIndex
+
+    val assembled = buildString {
+        if (openedMidText) append("$ELLIPSIS\n")
+        append(body)
+        if (closedMidText) append("\n$ELLIPSIS")
+    }
+    return if (assembled.length <= budget) assembled else assembled.take(budget).trimEnd() + ELLIPSIS
 }
 
-/** Windows that overlap or sit within [gap] characters become one. Input must be sorted. */
-private fun List<IntRange>.merged(gap: Int): List<IntRange> {
-    if (isEmpty()) return this
-    val merged = ArrayList<IntRange>(size)
-    var current = first()
-    for (next in drop(1)) {
-        current = if (next.first - current.last <= gap) {
-            current.first..maxOf(current.last, next.last)
-        } else {
-            merged += current
-            next
-        }
+/** Where each line of [whole] starts and ends, so a date span can be mapped to its line. */
+private fun lineBounds(whole: String, lines: List<String>): List<IntRange> {
+    val bounds = ArrayList<IntRange>(lines.size)
+    var start = 0
+    lines.forEach { line ->
+        bounds += start..(start + line.length)
+        start += line.length + 1 // the newline the split consumed
     }
-    merged += current
-    return merged
+    return bounds
 }
 
 /**
- * Characters kept either side of a matched date. Enough to carry the clause the date sits in
- * — who, and what for — without carrying the rest of the screen.
+ * Rows kept either side of the one carrying a date. One is enough to say who was speaking and
+ * what about; two begins to carry the thread again, which is what FR-805b exists to stop.
  */
-const val EXCERPT_RADIUS: Int = 160
+const val EXCERPT_NEIGHBOUR_ROWS: Int = 1
 
-/**
- * Two windows closer than this are joined rather than separated by an ellipsis. An ellipsis
- * standing in for a handful of characters costs more to read than the characters would.
- */
-const val EXCERPT_MERGE_GAP: Int = 40
-
-/** The whole extract, ellipses included. Google's task notes cap is 8192; this is a privacy bound, not a platform one. */
+/** The outer bound, ellipses included — not the mechanism. See [sourceExcerpt]. */
 const val EXCERPT_BUDGET: Int = 600
 
 private const val ELLIPSIS = "…"

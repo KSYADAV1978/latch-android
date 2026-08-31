@@ -92,8 +92,10 @@ $pkg = Assert-Safe
 $picked = $false
 for ($attempt = 1; $attempt -le 4; $attempt++) {
     if ((Get-ForegroundPackage) -eq "com.latch.android") { $picked = $true; break }
+    # Latch first, then confirm. "Just once" is present but DISABLED until an app is
+    # selected, so trying it first taps a dead button and looks like success.
+    if (Tap-Node "Latch") { Start-Sleep -Seconds 2 }
     if (Tap-Node "Just once") { $picked = $true; break }
-    if (Tap-Node "Latch") { Start-Sleep -Seconds 2; continue }
     Assert-Safe | Out-Null
     & $adb shell input swipe 718 2650 718 2000 300
     Start-Sleep -Seconds 2

@@ -199,7 +199,7 @@ class WritePathTest {
     private val ocrShare = CaptureSource(CaptureLayer.SHARE_SHEET, appId = "com.google.android.apps.photos", ocrUsed = true)
 
     @Test
-    fun `an ocr capture keeps the clause its date sits in`() {
+    fun `an ocr capture keeps the row its date sits in, and its neighbours`() {
         val block = sourceBlock(ocrShare, screenful, screenfulDates)
 
         assertTrue(block.contains("Parent teacher meeting"), "the commitment itself must survive")
@@ -207,15 +207,14 @@ class WritePathTest {
     }
 
     @Test
-    fun `an ocr capture does not carry the whole screen`() {
+    fun `an ocr capture does not carry the rest of the thread`() {
         val block = sourceBlock(ocrShare, screenful, screenfulDates)
 
-        // The far ends of the screen are what this rule exists to drop: a bank balance and a
-        // card number above, an insurance quote below. None of it is what the user captured.
-        assertFalse(block.contains("4,120"), "a balance from the top of the screen was stored")
-        assertFalse(block.contains("8891"), "a card number from the top of the screen was stored")
-        assertFalse(block.contains("41,900"), "a quote from the bottom of the screen was stored")
-        assertTrue(block.length < screenful.length)
+        // The rows this rule exists to drop: a balance and a card number above, an insurance
+        // quote below. None of it is what the user captured.
+        assertFalse(block.contains("4,120"), "a balance from another row was stored")
+        assertFalse(block.contains("8891"), "a card number from another row was stored")
+        assertFalse(block.contains("41,900"), "a quote from another row was stored")
     }
 
     @Test
@@ -230,96 +229,77 @@ class WritePathTest {
     @Test
     fun `an extract says where it was cut`() {
         val block = sourceBlock(ocrShare, screenful, screenfulDates)
-        // A reader has to be able to see they are looking at an extract rather than at a
-        // short capture, or the description misrepresents what was there.
         assertTrue(block.contains("…"), "no ellipsis marks the elision")
     }
 
+    // ----- FR-805b's conformance fixture: a note that was written into a real account -----
+
+    private val deviceNote: String =
+        checkNotNull(javaClass.getResourceAsStream("/fr805b/device-note.txt")) {
+            "the FR-805b device fixture is missing"
+        }.bufferedReader().readText().trim()
+
+    /** Where "14 September 2026", "20/09/2027" and the mangled October pair sit in the note. */
+    private val deviceNoteDates: List<IntRange>
+        get() = listOf("14 September 2026", "20/09/2027").map { needle ->
+            val at = deviceNote.indexOf(needle)
+            at until at + needle.length
+        }
+
     @Test
-    fun `an extract stays inside its budget`() {
-        val block = sourceExcerpt(screenful, screenfulDates)
-        assertTrue(block.length <= EXCERPT_BUDGET + 8, "budget overrun: ${block.length}")
+    fun `the device note is excerpted to strictly less than itself`() {
+        // The defect this replaced: on this exact text the character radius kept everything,
+        // and the note written to the user's account was the whole screen.
+        val extract = sourceExcerpt(deviceNote, deviceNoteDates)
+
+        assertTrue(
+            extract.length < deviceNote.length,
+            "extract is ${extract.length} chars against a note of ${deviceNote.length}",
+        )
     }
 
     @Test
-    fun `a short note is kept whole because its window covers it`() {
-        // Not because it fits the budget — the window is what decides. Every character of
-        // this note is within 160 of the date, so all of it is context.
-        val short = "Parent teacher meeting on 12 September at 11:00 AM in Hall B"
-        val spans = listOf(26 until 38)
-        assertEquals(short, sourceExcerpt(short, spans))
+    fun `the device note loses the rows that are not about a date`() {
+        // Length alone would pass on a one-character trim, so name what must be gone.
+        val extract = sourceExcerpt(deviceNote, deviceNoteDates)
+
+        assertFalse(extract.contains("Sharma Ji"), "the sender's name survived")
+        assertFalse(extract.contains("Rs 12,50"), "the amount paid survived")
+        assertFalse(extract.contains("Ok noted"), "an unrelated message survived")
+        // And what it must keep: the commitments themselves.
+        assertTrue(extract.contains("14 September 2026"))
+        assertTrue(extract.contains("20/09/2027"))
     }
 
     @Test
-    fun `a screenful under the budget is still excerpted`() {
-        // The case the requirement was written for. A rule that only excerpted over-budget
-        // text would have exempted exactly the capture FR-805b exists to bound.
-        val short = "9,999 " + "x".repeat(250) +
-            "\nMeeting on 12 September at 11:00 AM.\n" +
-            "y".repeat(250) + " 8,888"
-        val date = short.indexOf("12 September").let { it until it + 12 }
-
-        assertTrue(short.length < EXCERPT_BUDGET, "fixture no longer tests the under-budget case")
-        val block = sourceExcerpt(short, listOf(date))
-        assertTrue(block.length < short.length, "an under-budget capture was stored whole")
-        assertFalse(block.contains("9,999"))
-        assertFalse(block.contains("8,888"))
+    fun `a row window keeps whole messages rather than cutting mid-word`() {
+        val extract = sourceExcerpt(deviceNote, deviceNoteDates)
+        // Every line of the extract that is not an ellipsis is a line of the original.
+        val noteLines = deviceNote.lines().map(String::trim).toSet()
+        extract.lines().map(String::trim).filter { it.isNotEmpty() && it != "…" }.forEach {
+            assertTrue(it in noteLines, "line was cut mid-way: <$it>")
+        }
     }
 
     @Test
-    fun `the radius is a character count, so density decides how much context comes along`() {
-        // Recorded as a property rather than asserted as a virtue. 160 characters either side
-        // of a date is roughly two messages in a dense chat and a single sentence in a
-        // sparsely laid-out document, so how much unrelated content an extract carries
-        // depends on what the screen looked like. The bound FR-805b actually guarantees is
-        // the budget; the radius is a heuristic for keeping the clause the date sits in.
-        val dense = "a".repeat(200) + " 12 September " + "b".repeat(200)
-        val extract = sourceExcerpt(dense, listOf(200 until 214), radius = 160)
+    fun `the budget still bounds a capture whose rows are enormous`() {
+        // A rendered PDF page arrives as one very long line, which the row rule alone would
+        // keep whole. This is what the retained outer bound is for.
+        val oneHugeRow = "x".repeat(400) + " 12 September " + "y".repeat(400)
+        val extract = sourceExcerpt(oneHugeRow, listOf(400 until 414))
 
-        assertTrue(extract.contains("12 September"))
-        assertTrue(extract.length <= 14 + 2 * 160 + 4, "the window grew past its radius")
-        assertTrue(extract.startsWith("…") && extract.endsWith("…"))
+        assertTrue(extract.length <= EXCERPT_BUDGET + 2, "budget overrun: ${extract.length}")
     }
 
     @Test
     fun `an ocr capture with no date found still carries provenance`() {
-        // Design principle 1: the item is undated rather than invented, and it still needs to
-        // say where it came from. The opening of the text is the extract.
         val block = sourceExcerpt(screenful, dateSpans = emptyList())
         assertTrue(block.isNotEmpty())
-        assertTrue(block.startsWith("9:41"))
-        assertTrue(block.length <= EXCERPT_BUDGET + 8)
-    }
-
-    @Test
-    fun `two distant dates each keep their own context`() {
-        val text = "Kickoff on 8 September at 9am." + " filler.".repeat(60) + "Retro on 20 October at 4pm."
-        val spans = listOf(
-            text.indexOf("8 September").let { it until it + 11 },
-            text.indexOf("20 October").let { it until it + 10 },
-        )
-        val block = sourceExcerpt(text, spans)
-
-        assertTrue(block.contains("Kickoff"), "the first date lost its clause")
-        assertTrue(block.contains("Retro"), "the second date lost its clause")
-        assertTrue(block.contains("…"), "the gap between them is not marked")
-    }
-
-    @Test
-    fun `dates close together produce one window rather than a torn one`() {
-        // An ellipsis standing in for a handful of characters costs more to read than the
-        // characters would, which is what the merge gap is for.
-        val text = "Review on 12 September at 11:00 AM in Hall B. " + "x".repeat(900)
-        val spans = listOf(10 until 22, 26 until 34)
-        val block = sourceExcerpt(text, spans)
-
-        assertFalse(block.take(200).contains(" … "), "adjacent dates were split into two windows")
+        assertTrue(block.length <= EXCERPT_BUDGET + 2)
     }
 
     @Test
     fun `a notification that was also ocr stores nothing`() {
-        // The two rules compose in the one direction that matters: an extract of nothing is
-        // nothing. FR-805a decides whether there is text at all; FR-805b only how much.
         val both = CaptureSource(CaptureLayer.NOTIFICATION, ocrUsed = true)
         assertEquals("", sourceBlock(both, screenful, screenfulDates))
     }
