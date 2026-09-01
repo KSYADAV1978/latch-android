@@ -43,6 +43,7 @@ import com.latch.data.AccountDefaults
 import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
 import com.latch.ocr.OcrFailure
+import com.latch.ocr.PageProgress
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
 import java.time.Instant
@@ -91,6 +92,14 @@ fun CaptureScreen(
     onToggleCandidate: (Int) -> Unit = {},
     /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
     extracting: Boolean = false,
+    /**
+     * FR-207: how far through a document the reader has got, where this capture is one.
+     *
+     * Null for an image and for the moment before the first page starts. NFR-101a puts a
+     * ten-page document at about five seconds, which is long enough that a spinner saying
+     * only that something is happening stops being enough to say.
+     */
+    extractingPages: PageProgress? = null,
     /** FR-215: recognition finished and produced nothing usable. */
     ocrFailure: OcrFailure? = null,
 ) {
@@ -130,7 +139,9 @@ fun CaptureScreen(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Text(
-                        text = stringResource(R.string.capture_extracting),
+                        text = extractingPages?.let {
+                            stringResource(R.string.capture_extracting_page, it.page, it.total)
+                        } ?: stringResource(R.string.capture_extracting),
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }

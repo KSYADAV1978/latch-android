@@ -81,12 +81,15 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
             ?: OcrResult.Failed(OcrFailure.NO_TEXT_FOUND)
     }
 
-    override suspend fun readPdf(uri: Uri): OcrResult = withContext(Dispatchers.Default) {
+    override suspend fun readPdf(
+        uri: Uri,
+        onPage: (PageProgress) -> Unit,
+    ): OcrResult = withContext(Dispatchers.Default) {
         val descriptor = openDescriptor(uri)
             ?: return@withContext OcrResult.Failed(OcrFailure.UNREADABLE_SOURCE)
 
         val read = try {
-            descriptor.use { fd -> PdfRenderer(fd).use { renderAndRecognise(it) } }
+            descriptor.use { fd -> PdfRenderer(fd).use { renderAndRecognise(it, onPage) } }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (unreadable: IOException) {
@@ -119,12 +122,20 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
      * the resolution [renderScaleFor] asks for would be a third of a gigabyte, so the shape of
      * this loop is a memory bound rather than a matter of style.
      */
-    private suspend fun renderAndRecognise(renderer: PdfRenderer): PagesRead {
+    private suspend fun renderAndRecognise(
+        renderer: PdfRenderer,
+        onPage: (PageProgress) -> Unit,
+    ): PagesRead {
         val total = renderer.pageCount
-        val toRead = pagesToRead(total)
+        val steps = pageProgressSteps(total)
+        val toRead = steps.size
         val texts = ArrayList<String>(toRead)
 
         for (index in 0 until toRead) {
+            // Before the page is read, not after: NFR-102's line describes what is happening
+            // now, and a document that reported completion would sit on "0 of 10" for the
+            // whole of the first page — which is the longest single wait there is.
+            onPage(steps[index])
             renderer.openPage(index).use { page ->
                 val scale = renderScaleFor(page.width, page.height)
                 val bitmap = Bitmap.createBitmap(

@@ -20,6 +20,7 @@ import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
+import com.latch.ocr.PageProgress
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import java.time.LocalDateTime
@@ -35,8 +36,15 @@ import kotlinx.coroutines.launch
  * draw, where before there were only a capture and its parse.
  */
 sealed interface CaptureContent {
-    /** FR-215: an image or PDF is being recognised. Only ever reached by an OCR capture. */
-    data object Extracting : CaptureContent
+    /**
+     * FR-215: an image or PDF is being recognised. Only ever reached by an OCR capture.
+     *
+     * [pages] is null for an image, which is one piece of work with nothing to count, and
+     * present for a PDF once the first page starts — NFR-101a records a 10-page document at
+     * about five seconds, which is long enough that "something is happening" stops being
+     * enough to say.
+     */
+    data class Extracting(val pages: PageProgress? = null) : CaptureContent
 
     /** Everything that is known. [captured] is null where nothing usable arrived. */
     data class Ready(val captured: CapturedText?) : CaptureContent
@@ -80,7 +88,7 @@ class CaptureActivity : ComponentActivity() {
             when (request) {
                 is CaptureRequest.Ready -> CaptureContent.Ready(request.captured.copy(appId = referrer))
                 is CaptureRequest.Nothing -> CaptureContent.Ready(null)
-                is CaptureRequest.Image, is CaptureRequest.Pdf -> CaptureContent.Extracting
+                is CaptureRequest.Image, is CaptureRequest.Pdf -> CaptureContent.Extracting()
             }
         )
         if (request is CaptureRequest.Image || request is CaptureRequest.Pdf) {
@@ -148,6 +156,8 @@ class CaptureActivity : ComponentActivity() {
                     fromEmptyClipboard = (request as? CaptureRequest.Nothing)?.fromEmptyClipboard == true,
                     // NFR-102: the screen draws these rather than waiting on them.
                     extracting = captureContent is CaptureContent.Extracting,
+                    // FR-207: "Reading page N of M…" while a document is read.
+                    extractingPages = (captureContent as? CaptureContent.Extracting)?.pages,
                     ocrFailure = (captureContent as? CaptureContent.Failed)?.reason,
                 )
             }
@@ -181,8 +191,19 @@ class CaptureActivity : ComponentActivity() {
             val (result, layer, title) = when (request) {
                 is CaptureRequest.Image ->
                     Triple(app.ocrReader.readImage(request.uri), request.layer, request.preferredTitle)
-                is CaptureRequest.Pdf ->
-                    Triple(app.ocrReader.readPdf(request.uri), request.layer, request.preferredTitle)
+
+                is CaptureRequest.Pdf -> Triple(
+                    // NFR-102: the page count reaches the screen as it happens, so a document
+                    // is a wait with a number on it rather than an indefinite one. Publishing
+                    // to the same flow the result lands on means the progress cannot outlive
+                    // the result — whichever arrives last is what the screen shows.
+                    app.ocrReader.readPdf(request.uri) { page ->
+                        content.value = CaptureContent.Extracting(page)
+                    },
+                    request.layer,
+                    request.preferredTitle,
+                )
+
                 else -> return@launch
             }
 

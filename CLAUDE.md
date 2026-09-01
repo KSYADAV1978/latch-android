@@ -573,3 +573,26 @@ FR-105 is load-bearing and structural, not a matter of care: `com.latch.android.
 pure Kotlin, `SetupEffect.Commit` is the only effect that can reach `calendars.insert`, and
 `SetupEvent.FinishRequested` is the only event that produces one. AC-15 and AC-16 are JVM
 unit tests over that reducer. Keep it that way.
+
+## Device pass backlog
+
+**Everything in this section is JVM-verified and DEVICE-OWED.** It was built in the autonomous
+session of 1 Sep 2026, in which no device pass was run and nothing was written to the
+developer's Google account. A green `./gradlew build` is not evidence for any of it — the
+launch canary exists because the app once could not start at all with every unit test passing,
+and three load-bearing paths in this project have turned out never to have run while every test
+was green.
+
+Read each row as: *the condition that would make this check fail*, then *the fixture that
+creates that condition*. That order is the standing convention in this file, applied to work
+that has not been watched yet.
+
+### Slice 1 — document page progress (FR-207, NFR-102)
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| "Reading page N of M…" counts up while a PDF is read | The line never appears, or it appears once and sticks at 1 — a progress callback that fires on a thread the flow does not publish from, or one page's recognition so fast the state is overwritten before a frame draws | `testdata/fr215/long.pdf` (14 pages). It must show **M = 10**, not 14, and must count 1→10 |
+| The cap line still follows | "First 10 of 14 pages read." after the sheet fills. The progress line and the cap line are different sentences about different numbers, and showing 10 in both places is correct | the same file |
+| A short PDF still says the same thing | `letter.pdf` (2 pages) counts 1→2 and shows **no** cap line | `testdata/fr215/letter.pdf` |
+| An **image** capture is unchanged | The spinner says "Reading the text…", never "Reading page…". An image has nothing to count, and a progress line on one would be a number invented from nothing | any `testdata/fr215/*.png` |
+| NFR-101 for text is unmoved | An ordinary text capture is still synchronous — `content ready, ocr=false` in `LatchTiming`, no spinner at any point. NFR-102's note requires this re-check whenever the asynchronous path is touched | "Kickoff 8 September 2027 at 9am" |

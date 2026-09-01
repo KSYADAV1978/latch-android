@@ -48,6 +48,28 @@ data class PageCoverage(val read: Int, val total: Int) {
     val capped: Boolean get() = read < total
 }
 
+/**
+ * How far through a document the reader has got, so NFR-102's spinner can say "Reading page N
+ * of M…" rather than only that something is happening.
+ *
+ * **[total] is the number of pages that will be read, not the number in the document.** This is
+ * a progress indicator over work: counting to fourteen while stopping at ten would show a bar
+ * that never fills. FR-207's cap is reported separately and afterwards, by [PageCoverage] and
+ * the "first 10 of 14 pages read" line, which is where the requirement puts it.
+ */
+data class PageProgress(val page: Int, val total: Int)
+
+/**
+ * The progress steps a document of [total] pages will report, in order.
+ *
+ * A pure function so the sequence is testable without a PDF — the arrangement [pagesToRead]
+ * and [renderScaleFor] already have, and the only way anything in this module gets a JVM test.
+ */
+fun pageProgressSteps(total: Int, cap: Int = PDF_PAGE_CAP): List<PageProgress> {
+    val toRead = pagesToRead(total, cap)
+    return (1..toRead).map { PageProgress(page = it, total = toRead) }
+}
+
 /** Either the recognised text, or why there is none. */
 sealed interface OcrResult {
     /**
@@ -87,8 +109,15 @@ interface OcrReader : AutoCloseable {
     /** FR-215, via any layer that can share an image. */
     suspend fun readImage(uri: Uri): OcrResult
 
-    /** FR-207. Reads at most [PDF_PAGE_CAP] pages and reports how many of how many. */
-    suspend fun readPdf(uri: Uri): OcrResult
+    /**
+     * FR-207. Reads at most [PDF_PAGE_CAP] pages and reports how many of how many.
+     *
+     * [onPage] is called before each page is read, so NFR-102's progress state can count.
+     * It is called from whatever thread the recognition runs on and must therefore do nothing
+     * but publish a value; the default is the caller that does not care, which is every caller
+     * for an image.
+     */
+    suspend fun readPdf(uri: Uri, onPage: (PageProgress) -> Unit = {}): OcrResult
 }
 
 /**

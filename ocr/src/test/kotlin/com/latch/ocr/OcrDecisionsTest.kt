@@ -43,6 +43,30 @@ class OcrDecisionsTest {
         assertEquals(0, pagesToRead(total = 0))
     }
 
+    // NFR-102 / FR-207: "Reading page N of M…" while a document is read.
+
+    @Test
+    fun `progress counts from one to the number of pages that will be read`() {
+        assertEquals(
+            listOf(PageProgress(1, 3), PageProgress(2, 3), PageProgress(3, 3)),
+            pageProgressSteps(total = 3),
+        )
+    }
+
+    @Test
+    fun `progress counts to the cap, not to the size of the document`() {
+        // The failure this pins: counting to 34 while stopping at 10 shows a bar that never
+        // fills. FR-207's cap is reported afterwards, by capture_pdf_capped, not here.
+        val steps = pageProgressSteps(total = 34)
+        assertEquals(PDF_PAGE_CAP, steps.size)
+        assertEquals(PageProgress(PDF_PAGE_CAP, PDF_PAGE_CAP), steps.last())
+    }
+
+    @Test
+    fun `a document with no pages reports no progress at all`() {
+        assertEquals(emptyList(), pageProgressSteps(total = 0))
+    }
+
     // FR-215: the downscale, bounded by pixels rather than by an edge.
 
     @Test

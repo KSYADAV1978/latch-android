@@ -70,6 +70,13 @@
       while it waits.
     -->
     <string name="capture_extracting">Reading the text…</string>
+    <!--
+      FR-207 and NFR-102: a document is a wait with a number on it. The second number is how
+      many pages will be read, not how many the document has — this is a progress line, and
+      counting to fourteen while stopping at ten would show a bar that never fills. The cap
+      itself is reported afterwards by capture_pdf_capped, which is where FR-207 puts it.
+    -->
+    <string name="capture_extracting_page">Reading page %1$d of %2$d…</string>
     <string name="capture_ocr_unreadable">Latch could not open that file. Try sharing it again, or share the text instead.</string>
     <string name="capture_ocr_no_text">No text found in that image.</string>
     <string name="capture_ocr_failed">Latch could not read that image. Nothing was sent anywhere — the reading happens on your phone.</string>
