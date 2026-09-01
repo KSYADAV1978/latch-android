@@ -67,8 +67,8 @@ data class RemoteMetadata(
 const val REMOTE_METADATA_VERSION: String = "1"
 
 internal const val KEY_VERSION = "latch.version"
-internal const val KEY_SOURCE_HASH = "latch.source_hash"
-internal const val KEY_ITEM_KEY = "latch.item_key"
+const val KEY_SOURCE_HASH = "latch.source_hash"
+const val KEY_ITEM_KEY = "latch.item_key"
 internal const val KEY_CHAIN_ID = "latch.chain_id"
 internal const val KEY_CAPTURED_AT = "latch.captured_at"
 internal const val KEY_SOURCE_APP = "latch.source_app"

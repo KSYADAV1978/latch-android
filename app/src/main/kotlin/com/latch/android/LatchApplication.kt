@@ -94,7 +94,7 @@ class LatchApplication : Application() {
      * The OAuth grant and the token supply are the same object: the REST clients draw tokens
      * from the grant setup obtained. Nothing persists a token — see [GoogleAuthClient].
      */
-    private val authClient by lazy { GoogleAuthClient(this, authResolution) }
+    internal val authClient by lazy { GoogleAuthClient(this, authResolution) }
 
     /**
      * Internal rather than private: `WriteQueueWorker` is constructed by WorkManager, not by

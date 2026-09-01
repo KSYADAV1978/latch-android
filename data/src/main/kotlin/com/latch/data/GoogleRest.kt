@@ -100,12 +100,29 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
             ?: throw GoogleUnreadable("events.insert returned no id")
     }
 
-    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {
-        val page = http.get(eventDedupUrl(calendarId, sourceHash))
-        // Never capped: Google did the matching, so an empty result means there is none,
-        // not that we stopped looking.
-        return DuplicateSearch(firstEventId(page))
-    }
+    /**
+     * FR-803 for events. **Follows `nextPageToken` to exhaustion**, and that is the whole of
+     * the requirement rather than an optimisation.
+     *
+     * This asked for a single page of one event until 1 Sep 2026, on the reading that Google
+     * had done the matching so one hit was all that could be wanted. That reading was wrong
+     * and it wrote duplicates into a real calendar. A filtered `events.list` applies
+     * `privateExtendedProperty` to **a page of the scan** rather than using it to select the
+     * page, so `maxResults=1` asks Google to take one arbitrary event and test it — which
+     * misses whenever the calendar holds more than about one thing, and says so honestly by
+     * returning an empty page **with a `nextPageToken`**. Measured on a device: the same query
+     * at `maxResults=1` gave `items=0, nextPageToken=YES`, and at 250 gave `items=2`.
+     *
+     * It is also why AC-07 passed on 27 Aug and this was not caught: the calendar then held
+     * about one event, so the single-event page was the whole calendar.
+     *
+     * **The fix is the loop, not the number.** Raising 1 to 250 would have made this
+     * particular calendar work and left correctness a function of how much the user has in
+     * theirs. Reaching the cap is therefore reported the way the task scan reports it — as
+     * having stopped looking, never as having found nothing.
+     */
+    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch =
+        findEventPaged({ token -> eventDedupUrl(calendarId, sourceHash, token) }, get = http::get)
 
     override suspend fun deleteEvent(calendarId: String, eventId: String) {
         http.deleteWhateverIsThere(eventItemUrl(calendarId, eventId))
@@ -354,6 +371,37 @@ internal fun taskListsFrom(page: JSONObject, defaultListId: String?): List<TaskL
     }
 }
 
+/**
+ * Walks a filtered `events.list` until it finds a match or runs out of pages.
+ *
+ * Takes the URL builder and the GET so it can be tested without a socket — the lesson from
+ * the drain's own untested duplicate check, applied one layer down: what is unreachable does
+ * not get tested, and this loop is the one that wrote duplicates into a real calendar.
+ *
+ * A page that is empty but carries a `nextPageToken` is the normal case here, not an oddity,
+ * which is exactly what the old single-page read got wrong.
+ */
+internal suspend fun findEventPaged(
+    urlFor: (String?) -> String,
+    maxPages: Int = MAX_DEDUP_PAGES,
+    get: suspend (String) -> JSONObject,
+): DuplicateSearch {
+    var pageToken: String? = null
+    var pages = 0
+
+    do {
+        currentCoroutineContext().ensureActive()
+        val page = get(urlFor(pageToken))
+        firstEventId(page)?.let { return DuplicateSearch(it) }
+        pageToken = nextPageTokenFrom(page)
+        pages++
+    } while (pageToken != null && pages < maxPages)
+
+    // Reaching the cap means we stopped looking, which must never be read as "no duplicate" —
+    // the rule scanCapped already carries for the task scan.
+    return DuplicateSearch(existingId = null, scanCapped = pageToken != null)
+}
+
 internal fun nextPageTokenFrom(page: JSONObject): String? =
     page.optString("nextPageToken").takeIf { it.isNotBlank() }
 
@@ -417,10 +465,17 @@ internal fun taskRequestBody(task: TaskWrite): JSONObject {
  * query itself stays behind [CalendarApi]. See `DebugDedupProbe` in `:app`'s debug source set,
  * and the open drain defect it exists to diagnose.
  */
-fun eventDedupUrl(calendarId: String, sourceHash: String): String =
-    "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events" +
-        "?privateExtendedProperty=${encodeQuery("$KEY_SOURCE_HASH=$sourceHash")}" +
-        "&maxResults=1"
+fun eventDedupUrl(calendarId: String, sourceHash: String, pageToken: String? = null): String =
+    buildString {
+        append("$CALENDAR_V3/calendars/${encodePath(calendarId)}/events")
+        append("?privateExtendedProperty=").append(encodeQuery("$KEY_SOURCE_HASH=$sourceHash"))
+        // 250, not 1. See findEventBySourceHash: a filtered events.list applies the filter to
+        // a page of the scan rather than using it to choose the page, so a one-event page is
+        // one arbitrary event tested against the filter. The page size is a throughput
+        // choice; the token loop is what makes the answer correct.
+        append("&maxResults=250")
+        pageToken?.let { append("&pageToken=").append(encodeQuery(it)) }
+    }
 
 /**
  * `showCompleted` and `showHidden` are on deliberately: a duplicate the user has already
@@ -675,3 +730,52 @@ private fun encodePath(segment: String): String =
     URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
 
 private fun encodeQuery(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+// ---------------------------------------------------------------------------------------
+// Diagnostics for the open FR-803 defect (CLAUDE.md, SRS 1.37). Not part of any requirement.
+// ---------------------------------------------------------------------------------------
+
+/** One page of a `privateExtendedProperty` query, as the wire returned it. */
+data class DebugPage(
+    val url: String,
+    val status: Int?,
+    val itemCount: Int?,
+    val nextPageToken: String?,
+    val error: String? = null,
+)
+
+/**
+ * Issues one `events.list` filtered by a private extended property and reports the raw shape
+ * of the answer — including whether it carries a `nextPageToken`, which is the fact the
+ * paging hypothesis turns on.
+ *
+ * Exists because `GoogleHttp` is internal to this module and the probe that needs this lives
+ * in `:app`'s debug source set. It builds the URL in the same shape as [eventDedupUrl] and
+ * [eventItemKeyUrl] but with `maxResults` and the key as parameters, which is the whole point:
+ * the two production builders differ in exactly that number, and this is how we find out
+ * whether that is what makes one match and the other not.
+ */
+suspend fun debugProbeProperty(
+    tokens: TokenProvider,
+    calendarId: String,
+    key: String,
+    value: String,
+    maxResults: Int,
+): DebugPage {
+    val url = "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events" +
+        "?privateExtendedProperty=${encodeQuery("$key=$value")}" +
+        "&maxResults=$maxResults"
+    return try {
+        val page = GoogleHttp(tokens).get(url)
+        DebugPage(
+            url = url,
+            status = 200,
+            itemCount = page.optJSONArray("items")?.length() ?: 0,
+            nextPageToken = nextPageTokenFrom(page),
+        )
+    } catch (rejected: GoogleRejected) {
+        DebugPage(url, rejected.status, null, null, rejected.message)
+    } catch (failure: Exception) {
+        DebugPage(url, null, null, null, "${failure::class.simpleName}: ${failure.message}")
+    }
+}

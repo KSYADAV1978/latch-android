@@ -314,7 +314,12 @@ class WritePathTest {
         assertTrue(url.contains("work%40example.com/events"))
         // The key=value pair is one encoded parameter value, not two parameters.
         assertTrue(url.contains("privateExtendedProperty=latch.source_hash%3D" + "a".repeat(64)))
-        assertTrue(url.contains("maxResults=1"))
+        // Was maxResults=1 until 1 Sep 2026, and that assertion passed while the query it
+        // described wrote duplicates into a real calendar: a filtered events.list tests a page
+        // of the scan against the filter rather than selecting the page, so one event per page
+        // is one arbitrary event. The page size is asserted here; that the loop follows
+        // nextPageToken is what actually makes it correct, and lives in EventDedupPagingTest.
+        assertTrue(url.contains("maxResults=250"))
         // Deleted events are excluded by the API default, which is what FR-807 undo needs.
         assertFalse(url.contains("showDeleted"))
     }
