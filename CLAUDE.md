@@ -220,13 +220,36 @@ the case that note describes: there the two captures race each other offline, wh
 item was in the account, indexed and long settled, before the entry was even queued. `AC-07
 failing inside AC-10` is how the SRS puts it.
 
-**What is ruled out.** The drain does call `findEventBySourceHash` before inserting, and a
-throwing query cannot cause this — `WriteQueueWorker` catches it, marks the entry failed and
-retries rather than writing. So the query ran and returned "not found" against a hash that was
-present. The candidates are therefore the query itself (its calendar scoping, or the
-`privateExtendedProperty` filter), the `calendarId` carried on the queued entry, or Google's
-index; and the first two are testable on the JVM against the same fixtures. **Diagnose before
-building anything on top of the queue.**
+**What is ruled out, after a probe on 1 Sep 2026. The fault is drain-specific.**
+
+A throwing query cannot cause it: `WriteQueueWorker` catches, marks the entry failed and
+retries rather than writing, so the query ran and answered "not found" against a hash that was
+present.
+
+**Nor is the event-side query broken in general**, which was the working hypothesis for a
+while and was wrong. Every correctly-detected duplicate in the FR-215 pass came from a capture
+whose `items.first()` is a **task** — a multi-date capture leads with one — so the event query
+had not once been the deciding query, and it looked as though it might never match. The probe
+settles it: at HEAD, re-capturing an event-only item in the **foreground** answers "Already
+saved. Nothing was written again." and writes nothing. AC-07 on 27 Aug says the same for the
+commit it passed at. **The event query works; only the drain's use of it fails.**
+
+**The three remaining candidates are the drain's inputs**, since the query function, the URL
+builder and the filter are shared code and are therefore exonerated with the foreground path:
+the `calendarId` carried on the queued entry, the calendar scoping that id produces, and
+whatever the worker's own auth context resolves. Code inspection cannot separate them —
+`calendarId` round-trips through `putOpt`/`optString` correctly, and a null would
+`requireNotNull`-throw into the retry path rather than write.
+
+**Why it survived to a device, which is the part worth fixing first.** The drain's FR-803
+check is **unreachable from a JVM test**: it is a private method of a `CoroutineWorker` and
+needs a `Context`, which is why all five existing drain tests cover `drainable` — the pure
+scheduling function — and none covers the check the SRS calls "the last line for FR-803". And
+the fake could not have caught it anyway: `CaptureFakes.findEventBySourceHash` **ignores its
+`sourceHash` argument** and returns a preset id, so it answers "found" or "not found" by
+fixture rather than by matching. **The next step is to make that decision testable and give the
+fake a real index**; naming which of the three candidates it is needs either that or a debug
+log of the id and hash the drain actually queries with.
 
 **The AC-05 items are separately unaccounted for.** No event titled `Sharma…` exists on the
 device, deleted or otherwise, and the Latch calendar contains nothing but the two Kickoffs —
