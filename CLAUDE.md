@@ -262,14 +262,42 @@ classifies false, so the entry is marked permanently failed rather than written.
 evidence**: the AC-05 chain retired correctly *in the same drain*, so its task scan reached
 Google and matched — auth was working that session.
 
-**What that leaves is the difference between the two transports' matching.** The task scan
-compares hashes **in the client** (`matchingTaskId`); the event query delegates to Google's
-`privateExtendedProperty` **index**. The entry that retired used the first, the entry that
-duplicated used the second. So the question is whether the URL as issued for that `calendarId`
-is wrong, or the index did not answer — both wire facts, neither reachable from the JVM, which
-is precisely why the four new tests are green. **The instrument is the debug probe hook**,
-which runs the same query in the app process and in a worker and logs the URL, status and item
-count from each.
+**The probe answered on 1 Sep 2026, and the drain was never the fault.** Both halves — app
+process and worker — issued a byte-identical URL against the right calendar with the right
+hash, and **both returned `status=200 items=0`** for a hash carried by two events in that very
+calendar. So `duplicateProbeFor` hands the drain exactly what the saver uses, the store's round
+trip is sound, and the worker's context differs in nothing.
+
+**FR-803's event-side query does not match, in either path.** The earlier reading here — that
+the foreground query worked, because re-capturing an event-only item answered "Already saved" —
+was wrong, and is corrected rather than edited away. With `items=0` that answer cannot have
+come from FR-803. It came from **FR-804's `item_key` query** falling through to §7.2's
+decision-table row 3, *same key, same resolved date, therefore a duplicate*: both events carry
+`latch.item_key=f5d2496e…`, and that query uses the same `privateExtendedProperty` mechanism
+and does match.
+
+That single fact explains every observation, including the asymmetry:
+
+| Path | `source_hash` query | fallback | outcome |
+|---|---|---|---|
+| Foreground, event-only | misses | `item_key` → row 3 | "Already saved" |
+| **Drain, event-only** | misses | **none — the drain runs FR-803 only** | **duplicate written** |
+| Drain, chain leading with a task | not used | task scan matches in-client | retires |
+
+**So the defect is larger than a queue bug: FR-803 is unprotected for every event-only capture,
+online and off.** The saver is accidentally covered by a requirement written for something else,
+and the drain — which has no FR-804 step by design, an update creating nothing — is where the
+absence becomes visible. It is a live duplicate-generator for offline event-only captures and
+takes priority over feature work.
+
+**The leading hypothesis is paging, and it is testable.** `eventDedupUrl` asks for
+`maxResults=1` while `eventItemKeyUrl` asks for 250, and Google's filtered `events.list` can
+return an **empty page carrying a `nextPageToken`** — the filter applies to a page of the scan
+rather than selecting the page — so a one-event page will almost never contain the match, while
+250 covers a small calendar in one go. It also explains why AC-07 passed on 27 Aug: the
+calendar then held about one event. **An empty first page with a `nextPageToken` confirms it**,
+and the fix is then to follow the token to exhaustion rather than to raise the number, so
+correctness stops depending on calendar size.
 
 **The AC-05 items are separately unaccounted for.** No event titled `Sharma…` exists on the
 device, deleted or otherwise, and the Latch calendar contains nothing but the two Kickoffs —
