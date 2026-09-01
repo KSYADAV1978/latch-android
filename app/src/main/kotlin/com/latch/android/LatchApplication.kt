@@ -183,6 +183,24 @@ class LatchApplication : Application() {
         )
     }
 
+    /**
+     * FR-806a. Re-runs the grant interactively, from the one screen that can present a consent
+     * dialog, and then asks for a drain so the held captures go straight out.
+     *
+     * The capture path deliberately cannot do this — that is the requirement — so this button
+     * is the whole of the user's route out of a queue held for a sign-in.
+     */
+    fun reauthorize() {
+        appScope.launch {
+            runCatching { authClient.signIn() }
+                .onSuccess {
+                    WriteQueueWorker.schedule(this@LatchApplication)
+                    refreshQueueStatus()
+                }
+                .onFailure { refreshQueueStatus() }
+        }
+    }
+
     override fun onTerminate() {
         super.onTerminate()
         appScope.cancel()

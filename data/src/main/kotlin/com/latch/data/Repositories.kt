@@ -62,7 +62,17 @@ interface WriteQueue {
      * second, and retrying it forever spends battery on a request that cannot succeed while
      * leaving the entry on screen with nothing said about why it is stuck.
      */
-    suspend fun markFailed(queueId: String, error: String, permanent: Boolean)
+    /**
+     * @param needsSignIn FR-806a: the entry is held because Google wants the user to sign in
+     *   again. Distinct from [permanent] — this entry has **not** been given up on; it is
+     *   waiting on a tap the user can actually make.
+     */
+    suspend fun markFailed(
+        queueId: String,
+        error: String,
+        permanent: Boolean,
+        needsSignIn: Boolean = false,
+    )
 
     /**
      * FR-807: an undo of a write that has not drained yet. Returns true where the entry was
@@ -149,6 +159,14 @@ data class QueuedWrite(
      */
     val givenUp: Boolean = false,
     /**
+     * FR-806a. Set where the last attempt failed because Google wants the user to sign in
+     * again — not a network failure and not a permanent one. The entry keeps being retried,
+     * because a drain after the user has signed in will succeed; what changes is what the
+     * queue is able to tell them, which is the difference between a wait they can end and a
+     * wait they cannot.
+     */
+    val needsSignIn: Boolean = false,
+    /**
      * When this entry was queued. FR-807's undo window is open for ten seconds after a save,
      * and a queued write inside that window must not drain — see `WriteQueueWorker`, which
      * skips young entries so that an undo cannot race a drain it would then have to chase
@@ -164,7 +182,21 @@ data class QueuedWrite(
  * same fact, and a single count would show them alike — which is the silent failure NFR-303
  * forbids, dressed up as a queue that simply never drains.
  */
-data class QueueStatus(val waiting: Int, val givenUp: Int) {
+data class QueueStatus(
+    val waiting: Int,
+    val givenUp: Int,
+    /**
+     * FR-806a: at least one waiting entry is held because Google wants the user to sign in
+     * again, not because the network is down.
+     *
+     * A separate fact from [waiting] rather than a third count, because it does not partition
+     * the queue — it says why the queue is not moving. And separate from [givenUp] because the
+     * entry has **not** been given up on: a sign-in fixes it, which is the one thing the user
+     * can do about a stuck queue, and telling them "no connection" instead would send them to
+     * check a network that is working.
+     */
+    val needsSignIn: Boolean = false,
+) {
     val total: Int get() = waiting + givenUp
     val isEmpty: Boolean get() = total == 0
 }

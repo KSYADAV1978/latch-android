@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters
 import com.latch.android.LatchApplication
 import com.latch.data.CalendarApi
 import com.latch.data.QueuedWrite
+import com.latch.data.SignInRequiredException
 import com.latch.data.TasksApi
 import com.latch.data.WriteQueue
 import com.latch.data.isWorthRetrying
@@ -80,6 +81,10 @@ class WriteQueueWorker(
                     queueId = entry.id,
                     error = failure.message ?: failure::class.simpleName.orEmpty(),
                     permanent = !worthRetrying,
+                    // FR-806a: a drain runs online by construction, so a resolution required
+                    // here is not the network — it is Google asking for a sign-in, and the
+                    // queue has to be able to say so rather than showing a silent wait.
+                    needsSignIn = failure is SignInRequiredException,
                 )
                 // One entry's permanent failure does not stop the rest: the next capture in
                 // the queue is a different item and may write perfectly well.

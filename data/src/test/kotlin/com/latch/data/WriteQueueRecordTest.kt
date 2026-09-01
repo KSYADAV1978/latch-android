@@ -350,4 +350,35 @@ class WriteQueueRecordTest {
         // Not one of ours: a bug in the mapping. Retrying a bug repeats it.
         assertFalse(isWorthRetrying(IllegalStateException("boom")))
     }
+
+    // ----- FR-806a: the queue has to be able to say why it is not moving -----
+
+    @Test
+    fun `a sign-in requirement is not the same as having been given up on`() {
+        // The distinction the home screen rests on. An entry held for a sign-in is still
+        // waiting and still retried; one given up on is not going to move whatever the user
+        // does. Collapsing them would either nag about a stuck queue that is merely offline,
+        // or hide the one stuck state a user can actually clear.
+        val held = QueueStatus(waiting = 2, givenUp = 0, needsSignIn = true)
+        val offline = QueueStatus(waiting = 2, givenUp = 0)
+        val stuck = QueueStatus(waiting = 0, givenUp = 1)
+
+        assertTrue(held.needsSignIn)
+        assertFalse(offline.needsSignIn)
+        assertFalse(stuck.needsSignIn)
+        // Held entries are still counted as waiting: nothing has been lost, which is the
+        // half of the message that reassures rather than alarms.
+        assertEquals(2, held.waiting)
+    }
+
+    @Test
+    fun `the sign-in reason survives the encrypted round trip`() {
+        // It is persisted rather than held in memory because the process that learned it -
+        // a WorkManager drain - is not the process that has to display it.
+        val held = entry(attempts = 1, lastError = "needs consent").copy(needsSignIn = true)
+        val restored = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(held)))
+
+        assertTrue(restored.needsSignIn)
+        assertFalse(restored.givenUp, "a held entry must not be recorded as given up on")
+    }
 }

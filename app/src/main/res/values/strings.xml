@@ -86,6 +86,14 @@
         <item quantity="one">%1$d capture waiting to be saved to Google</item>
         <item quantity="other">%1$d captures waiting to be saved to Google</item>
     </plurals>
+    <!--
+      FR-806a: the queue is held because Google wants a sign-in, not because the network is
+      down. It is the one stuck-queue state the user can actually clear, so it says what to do
+      rather than what happened, and it sits beside the count rather than replacing it — the
+      captures are still safe and still waiting, which is the reassuring half.
+    -->
+    <string name="home_queue_needs_sign_in">Sign in to Google again to save these. Tap Sign in below; nothing has been lost.</string>
+    <string name="home_sign_in">Sign in</string>
     <!-- NFR-303: an entry that will not come right on its own says so rather than sitting
          in the count looking like it is still on its way. -->
     <plurals name="home_queue_given_up">

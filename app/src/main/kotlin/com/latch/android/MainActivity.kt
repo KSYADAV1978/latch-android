@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -97,7 +98,14 @@ class MainActivity : ComponentActivity() {
                         // The outcome covers the account configured moments ago in this
                         // process; the stored list covers every earlier launch.
                         outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true ->
-                            Home(queue = app.queueStatus.collectAsState().value)
+                            Home(
+                                queue = app.queueStatus.collectAsState().value,
+                                // FR-806a. The consent screen can only go out from here —
+                                // this is the Activity that attaches the resolution bridge —
+                                // which is precisely why a capture cannot ask for one and
+                                // why the queue routes the user to this button instead.
+                                onSignIn = { app.reauthorize() },
+                            )
 
                         else -> {
                             BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
@@ -111,7 +119,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Home(queue: QueueStatus) {
+private fun Home(queue: QueueStatus, onSignIn: () -> Unit = {}) {
     Column(
         modifier = Modifier.padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -129,6 +137,19 @@ private fun Home(queue: QueueStatus) {
                 text = pluralStringResource(R.plurals.home_queue_waiting, queue.waiting, queue.waiting),
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+        // FR-806a. Beside the count, not instead of it: the captures are safe and still
+        // waiting, and only the reason they are not moving has changed. This is the one stuck
+        // state a user can clear, so it says what to do rather than what went wrong.
+        if (queue.needsSignIn) {
+            Text(
+                text = stringResource(R.string.home_queue_needs_sign_in),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Button(onClick = onSignIn) {
+                Text(stringResource(R.string.home_sign_in))
+            }
         }
         if (queue.givenUp > 0) {
             Text(

@@ -65,6 +65,7 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
             operation = operation,
             attempts = 0,
             lastError = null,
+            needsSignIn = false,
             queuedAt = Instant.now(),
         )
         // `commit`, not `apply`: the caller is about to tell the user their capture is safe,
@@ -90,6 +91,9 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
         return QueueStatus(
             waiting = entries.count { !it.givenUp },
             givenUp = entries.count { it.givenUp },
+            // FR-806a. Only a waiting entry can be unblocked by signing in; one already given
+            // up on is not going to move whatever the user does.
+            needsSignIn = entries.any { !it.givenUp && it.needsSignIn },
         )
     }
 
@@ -99,13 +103,19 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
         withContext(Dispatchers.IO) { prefs.edit().remove(keyFor(queueId)).commit() }
     }
 
-    override suspend fun markFailed(queueId: String, error: String, permanent: Boolean) {
+    override suspend fun markFailed(
+        queueId: String,
+        error: String,
+        permanent: Boolean,
+        needsSignIn: Boolean,
+    ) {
         withContext(Dispatchers.IO) {
             val entry = read(keyFor(queueId)) ?: return@withContext
             val updated = entry.copy(
                 attempts = entry.attempts + 1,
                 lastError = error,
                 givenUp = permanent,
+                needsSignIn = needsSignIn,
             )
             prefs.edit()
                 .putString(keyFor(queueId), cipher.encrypt(encodeQueuedWrite(updated)))
@@ -225,6 +235,7 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
         .put("op", entry.operation.name)
         .put("attempts", entry.attempts)
         .put("given_up", entry.givenUp)
+        .put("needs_sign_in", entry.needsSignIn)
         .put("queued_at", entry.queuedAt.toString())
         .put("zone", entry.write.timeZone)
         .put("body", entry.write.body)
@@ -319,6 +330,7 @@ internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
                 attempts = json.optInt("attempts"),
                 lastError = json.optString("last_error").takeIf { it.isNotBlank() },
                 givenUp = json.optBoolean("given_up"),
+                needsSignIn = json.optBoolean("needs_sign_in"),
                 queuedAt = Instant.parse(json.getString("queued_at")),
                 write = PendingWrite(
                     items = items.filterNotNull(),

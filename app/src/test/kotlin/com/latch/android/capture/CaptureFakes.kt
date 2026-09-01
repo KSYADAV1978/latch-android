@@ -56,7 +56,17 @@ internal class RecordingQueue : WriteQueue {
         entries.remove(queueId)
     }
 
-    override suspend fun markFailed(queueId: String, error: String, permanent: Boolean) = Unit
+    /** FR-806a: the reason is recorded, so a test can assert the queue can say "Sign in needed". */
+    val signInNeeded = mutableSetOf<String>()
+
+    override suspend fun markFailed(
+        queueId: String,
+        error: String,
+        permanent: Boolean,
+        needsSignIn: Boolean,
+    ) {
+        if (needsSignIn) signInNeeded += queueId
+    }
 
     override suspend fun drop(queueId: String): Boolean = entries.remove(queueId) != null
 }
