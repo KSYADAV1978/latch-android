@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      DEBUG BUILDS ONLY. This whole file is the `debug` source set's manifest, so nothing
+      below is merged into a release build — the receiver does not exist there rather than
+      existing and being switched off. That distinction is the reason it is here and not
+      behind a BuildConfig.DEBUG branch in the main manifest: a component guarded by a
+      constant is still declared, and an exported receiver that issues a Google query on
+      request is not something a release build should advertise.
+
+      DebugDedugProbeReceiver is the instrument for the open FR-806 defect recorded in
+      CLAUDE.md: a queued event-only capture drained and wrote a duplicate although an event
+      with the same latch.source_hash was already in the calendar. Everything reachable from a
+      JVM test is exonerated, so this runs the same query in the two contexts that differ —
+      the app process and a WorkManager worker — and logs the URL, the status and the item
+      count from each.
+
+      exported=true because adb has to reach it; it takes only a hash, performs a read, and
+      writes nothing.
+    -->
+    <application>
+
+        <receiver
+            android:name="com.latch.android.debug.DebugDedupProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.latch.android.debug.PROBE_DEDUP" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

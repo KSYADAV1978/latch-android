@@ -411,7 +411,13 @@ internal fun taskRequestBody(task: TaskWrite): JSONObject {
     return body
 }
 
-internal fun eventDedupUrl(calendarId: String, sourceHash: String): String =
+/**
+ * Public rather than internal only so the debug-build FR-803 probe can log the exact URL it
+ * is about to issue. It is a pure string builder over two arguments and holds no state; the
+ * query itself stays behind [CalendarApi]. See `DebugDedupProbe` in `:app`'s debug source set,
+ * and the open drain defect it exists to diagnose.
+ */
+fun eventDedupUrl(calendarId: String, sourceHash: String): String =
     "$CALENDAR_V3/calendars/${encodePath(calendarId)}/events" +
         "?privateExtendedProperty=${encodeQuery("$KEY_SOURCE_HASH=$sourceHash")}" +
         "&maxResults=1"
