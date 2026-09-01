@@ -48,7 +48,11 @@ internal class RecordingQueue : WriteQueue {
 
     override suspend fun status() = QueueStatus(waiting = entries.size, givenUp = 0)
 
+    /** Which entries were retired, and against which remote id. */
+    val written = mutableListOf<Pair<String, String>>()
+
     override suspend fun markWritten(queueId: String, remoteId: String) {
+        written += queueId to remoteId
         entries.remove(queueId)
     }
 
@@ -86,15 +90,39 @@ internal class RecordingCalendarApi(
     /** The same, for FR-803 — one message should mean one duplicate check. */
     val sourceHashesQueried = mutableListOf<String>()
 
+    /**
+     * What Google's index does, as far as FR-803 cares: an event is findable by the calendar
+     * it was written to and the `source_hash` **it actually carries**.
+     *
+     * Keyed on the metadata of the write rather than on a value the test hands in, which is
+     * the point. The previous fake ignored `sourceHash` entirely and returned a preset id, so
+     * it answered "duplicate" or "not duplicate" by fixture — it could not have caught a
+     * mismatch between the hash written and the hash queried, and a duplicate that reached a
+     * real calendar on 31 Aug 2026 is what that cost.
+     */
+    val index = mutableMapOf<Pair<String, String>, String>()
+
+    /** Every (calendarId, sourceHash) pair this fake was asked about, in order. */
+    val dedupQueries = mutableListOf<Pair<String, String>>()
+
+    /** Seed the index as though a previous save had written this event. */
+    fun seed(calendarId: String, sourceHash: String, eventId: String) {
+        index[calendarId to sourceHash] = eventId
+    }
+
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
         failInsert?.let { throw it }
         written += event
-        return "event-${written.size}"
+        val id = "event-${written.size}"
+        index[calendarId to event.metadata.sourceHash] = id
+        return id
     }
 
     override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {
         sourceHashesQueried += sourceHash
-        return DuplicateSearch(existingEventId)
+        dedupQueries += calendarId to sourceHash
+        // existingEventId keeps the older tests that set it working; the index answers the rest.
+        return DuplicateSearch(existingEventId ?: index[calendarId to sourceHash])
     }
 
     override suspend fun deleteEvent(calendarId: String, eventId: String) {

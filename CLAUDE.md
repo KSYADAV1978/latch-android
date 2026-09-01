@@ -241,15 +241,35 @@ whatever the worker's own auth context resolves. Code inspection cannot separate
 `calendarId` round-trips through `putOpt`/`optString` correctly, and a null would
 `requireNotNull`-throw into the retry path rather than write.
 
-**Why it survived to a device, which is the part worth fixing first.** The drain's FR-803
-check is **unreachable from a JVM test**: it is a private method of a `CoroutineWorker` and
-needs a `Context`, which is why all five existing drain tests cover `drainable` — the pure
-scheduling function — and none covers the check the SRS calls "the last line for FR-803". And
-the fake could not have caught it anyway: `CaptureFakes.findEventBySourceHash` **ignores its
-`sourceHash` argument** and returns a preset id, so it answers "found" or "not found" by
-fixture rather than by matching. **The next step is to make that decision testable and give the
-fake a real index**; naming which of the three candidates it is needs either that or a debug
-log of the id and hash the drain actually queries with.
+**Why it survived to a device.** The drain's FR-803 check was **unreachable from a JVM test**:
+a private method of a `CoroutineWorker`, needing a `Context`, which is why all five drain tests
+covered `drainable` — the pure scheduling function beside it — and none covered the check
+FR-806's note calls "the last line for FR-803". The fake could not have caught it either:
+`findEventBySourceHash` there ignored its `sourceHash` argument and returned a preset id,
+answering by fixture rather than by matching. **Both are fixed** — `drainEntry` and
+`duplicateProbeFor` are out of the worker in `QueueDrain.kt`, the fake indexes on the hash the
+write actually carries, and the check has four tests. **The refactor did not find the bug**:
+all four pass, including the one written to be red, so the probe's construction, the decision
+flow and the written-hash-equals-queried-hash round trip are all exonerated.
+
+**The expired-token path is EXCLUDED — do not re-run that hypothesis.** It is the obvious
+suspect, the entry having been queued at 18:10 and drained after 19:35 against tokens that last
+about an hour, and it is wrong twice over. **In code**: `findEventBySourceHash` calls
+`http.get`, which goes through the same `authorised` wrapper as `post` and refreshes on 401
+identically; a non-200 **throws** before any parsing, so no error body can reach `firstEventId`
+and become an empty list; and a twice-401 is `GoogleRejected(401)`, which `isWorthRetrying`
+classifies false, so the entry is marked permanently failed rather than written. **In
+evidence**: the AC-05 chain retired correctly *in the same drain*, so its task scan reached
+Google and matched — auth was working that session.
+
+**What that leaves is the difference between the two transports' matching.** The task scan
+compares hashes **in the client** (`matchingTaskId`); the event query delegates to Google's
+`privateExtendedProperty` **index**. The entry that retired used the first, the entry that
+duplicated used the second. So the question is whether the URL as issued for that `calendarId`
+is wrong, or the index did not answer — both wire facts, neither reachable from the JVM, which
+is precisely why the four new tests are green. **The instrument is the debug probe hook**,
+which runs the same query in the app process and in a worker and logs the URL, status and item
+count from each.
 
 **The AC-05 items are separately unaccounted for.** No event titled `Sharma…` exists on the
 device, deleted or otherwise, and the Latch calendar contains nothing but the two Kickoffs —
