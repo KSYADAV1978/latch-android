@@ -202,8 +202,17 @@ The spans exist for §7.2's derivation, not for display. §7.2 specifies the der
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-**FR-803's re-check at drain FAILED on a device, 1 Sep 2026. This is an open defect and the
-first one this project has found in the write queue.**
+**FR-803's re-check at drain: FAILED 31 Aug 2026, FIXED and re-verified 1 Sep 2026.** The
+cause was paging, not the drain — see SRS 1.37 and 1.38. Confirmed by a controlled run: a
+capture queued in aeroplane mode, aeroplane mode off, the drain ran (`Worker result SUCCESS`)
+and **retired the entry without writing** — the count through the app's own client stayed at
+`items=2`, and the device mirror agrees. The account still holds exactly the two Kickoff events
+the original defect produced.
+
+What follows is kept because it is the diagnosis, and the method in it is worth more than the
+bug.
+
+**The original failure, 31 Aug 2026.**
 
 The queue emptied, which is what an empty queue always looks like — and it was read at first as
 both entries having retired without writing. **The item count says otherwise.** The Latch
