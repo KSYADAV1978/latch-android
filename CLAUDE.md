@@ -202,17 +202,35 @@ The spans exist for §7.2's derivation, not for display. §7.2 specifies the der
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-**FR-803's re-check at drain is PENDING OBSERVATION**, and for once there is a live experiment
-rather than a gap. A Wi-Fi outage during the 31 Aug pass — PCAPdroid, still running with a
-filter on this package — left **two queue entries** behind: the AC-05 chain of two items, and a
-single "Kickoff 8 September 2027 at 9am" capture made as a read-only diagnostic. Both were
-subsequently written to Google by other means, so **both should retire at drain without writing
-anything**, which is exactly what FR-803-at-drain exists to do and has never been watched
-doing. Exponential backoff put the next attempt around **19:35 IST on 31 Aug 2026**;
-`ExistingWorkPolicy.KEEP` correctly refuses to reset it and WorkManager refuses
-`cmd jobscheduler run -f` before the scheduled time, so it cannot be hurried. **If either entry
-writes a duplicate instead, that is an FR-806 defect and the queue is the fixture.** Nothing in
-the account is to be deleted until this has been observed. Append the result here.
+**FR-803's re-check at drain: the queue drained clean, 31 Aug 2026 — with one half of the
+evidence still open.** Both entries left the queue and the developer reports that neither wrote
+anything. Recorded as the developer's observation rather than as a measurement: this session
+could not verify it, the device having disconnected before the drain completed.
+
+**The distinction matters, because an empty queue is consistent with both outcomes.** An entry
+that drains correctly — FR-803 finds the item already in the account and retires the entry —
+and an entry that drains wrongly, writing a duplicate and then retiring, both leave the queue
+empty. What separates them is an **item count**: exactly one `Kickoff 8 September 2027` event,
+one all-day 1–5 Oct 2027 event and one 14 Sept 2026 task. Until those counts are taken, what is
+established is that the queue drains and does not stick, which is FR-806, not that FR-803 ran
+at the head of it, which is what this line is about. **Take the counts at the next device
+session and close this properly.**
+
+The experiment that produced it is worth keeping, because it was not arranged and would be
+awkward to arrange again. A Wi-Fi outage during the 31 Aug pass — PCAPdroid, still running with
+a filter on this package — left **two queue entries** behind: the AC-05 chain of two items, and
+a single "Kickoff 8 September 2027 at 9am" capture made as a read-only diagnostic. Both had
+since been written to Google by other means, so both were entries whose message was already
+saved, which is precisely the condition FR-803-at-drain exists to detect.
+
+Two things about the drain were measured and are not in doubt. **Backoff cannot be hurried**:
+`ExistingWorkPolicy.KEEP` correctly refuses to reset the timer — you do not want every launch
+hammering the API — and WorkManager refuses `cmd jobscheduler run -f` before the scheduled
+time, so a failed drain during an outage pushes the next attempt out exponentially, here to
+about seventy minutes. And **a save does not wait for the queue**: `CaptureSaver` writes
+directly first and enqueues only on a failure that waiting can fix, so the AC-05 capture was
+completed by re-running it rather than by waiting for the drain. That is FR-806's "fallback,
+not the path" seen from the far side.
 
 Not yet run on a device:
 **NFR-302's other two limbs** — app termination and device restart while queued — none of which
