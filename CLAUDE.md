@@ -202,19 +202,40 @@ The spans exist for §7.2's derivation, not for display. §7.2 specifies the der
 of v1.11; the clause is the only part of that schema resting on parser behaviour, so it is
 where a second client is most likely to drift.
 
-**FR-803's re-check at drain: the queue drained clean, 31 Aug 2026 — with one half of the
-evidence still open.** Both entries left the queue and the developer reports that neither wrote
-anything. Recorded as the developer's observation rather than as a measurement: this session
-could not verify it, the device having disconnected before the drain completed.
+**FR-803's re-check at drain FAILED on a device, 1 Sep 2026. This is an open defect and the
+first one this project has found in the write queue.**
 
-**The distinction matters, because an empty queue is consistent with both outcomes.** An entry
-that drains correctly — FR-803 finds the item already in the account and retires the entry —
-and an entry that drains wrongly, writing a duplicate and then retiring, both leave the queue
-empty. What separates them is an **item count**: exactly one `Kickoff 8 September 2027` event,
-one all-day 1–5 Oct 2027 event and one 14 Sept 2026 task. Until those counts are taken, what is
-established is that the queue drains and does not stick, which is FR-806, not that FR-803 ran
-at the head of it, which is what this line is about. **Take the counts at the next device
-session and close this properly.**
+The queue emptied, which is what an empty queue always looks like — and it was read at first as
+both entries having retired without writing. **The item count says otherwise.** The Latch
+calendar holds **two** `Kickoff 8 September 2027 at 9am` events, distinct `_sync_id`s, identical
+`dtstart`, and — decisively — the **identical `latch.source_hash`**
+`b3375f4a20bb6c1d5cea22c95c59d1f7feb896d40c836671910d9b972543db6a`, under different
+`latch.chain_id`s. Their `latch.captured_at` values identify them exactly: `2026-08-31T05:19:24Z`
+is the save that wrote directly, `2026-08-31T12:40:33Z` is the capture the UI **queued** rather
+than wrote, having reported "No connection". So the second was written by the drain, with a
+matching hash already in the same calendar for over seven hours.
+
+**This is the failure FR-806's note says the re-check exists to prevent**, and it is worse than
+the case that note describes: there the two captures race each other offline, whereas here the
+item was in the account, indexed and long settled, before the entry was even queued. `AC-07
+failing inside AC-10` is how the SRS puts it.
+
+**What is ruled out.** The drain does call `findEventBySourceHash` before inserting, and a
+throwing query cannot cause this — `WriteQueueWorker` catches it, marks the entry failed and
+retries rather than writing. So the query ran and returned "not found" against a hash that was
+present. The candidates are therefore the query itself (its calendar scoping, or the
+`privateExtendedProperty` filter), the `calendarId` carried on the queued entry, or Google's
+index; and the first two are testable on the JVM against the same fixtures. **Diagnose before
+building anything on top of the queue.**
+
+**The AC-05 items are separately unaccounted for.** No event titled `Sharma…` exists on the
+device, deleted or otherwise, and the Latch calendar contains nothing but the two Kickoffs —
+yet the AC-05 save reported "Saved to Latch" and a re-capture answered "Already saved. Nothing
+was written again." Two readings fit: the developer deleted them as cleanup after observing the
+drain, or the chain's event was never written and FR-803's "Already saved" matched on the
+chain's **task** instead, both items sharing one `source_hash`. **The second would be a second
+defect — a partially written chain reporting success — and the two readings are told apart by
+whether the 14 Sept 2026 task still exists.** Ask before assuming; do not delete it.
 
 The experiment that produced it is worth keeping, because it was not arranged and would be
 awkward to arrange again. A Wi-Fi outage during the 31 Aug pass — PCAPdroid, still running with
