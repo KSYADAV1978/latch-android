@@ -695,6 +695,9 @@ internal fun alreadyGone(rejected: GoogleRejected): Boolean =
 fun isWorthRetrying(failure: Throwable): Boolean = when (failure) {
     is GoogleUnreachable -> true
     is GoogleUnreadable -> true
+    // FR-806a: a sign-in fixes this, so the entry waits rather than being given up on. It is
+    // the one case where an entry waits on the user rather than on the network.
+    is SignInRequiredException -> true
     is GoogleRejected -> failure.status == 429 || failure.status in 500..599
     // Not one of ours — a bug in the mapping rather than an answer from Google. Retrying a
     // bug just repeats it.

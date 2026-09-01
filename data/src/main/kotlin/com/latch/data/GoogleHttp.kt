@@ -48,6 +48,19 @@ class GoogleRejected(
 class GoogleUnreadable(message: String, cause: Throwable? = null) : GoogleFailure(message, cause)
 
 /**
+ * FR-806a. A token could not be obtained without asking the user to sign in again, and the
+ * caller had no Activity to ask on.
+ *
+ * A [GoogleFailure] rather than a plain exception so that it travels the same path as a
+ * network error, and **retryable**, because it is not a failure waiting cannot fix — it is one
+ * a *sign-in* fixes, and a capture given up on for want of a tap is a capture lost. It is a
+ * distinct type rather than a [GoogleUnreachable] because the queue has to be able to say
+ * "Sign in needed" instead of "no connection": those ask different things of the user, and one
+ * of them is actionable.
+ */
+class SignInRequiredException(message: String) : GoogleFailure(message)
+
+/**
  * The hosts this application is permitted to contact. **This set is the AC-17 mechanism.**
  *
  * AC-17 is a sign-off test — a network monitor watching a full capture cycle, expecting no

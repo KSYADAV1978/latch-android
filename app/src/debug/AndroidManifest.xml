@@ -29,6 +29,20 @@
             </intent-filter>
         </receiver>
 
+        <!--
+          FR-806a's device confirmation. Drops the cached access token so the next capture
+          must re-authorize, which is the condition AC-10 has never been run under: its 28 Aug
+          pass was inside a session whose token was still warm. Reproducing it honestly would
+          mean waiting an hour for expiry.
+        -->
+        <receiver
+            android:name="com.latch.android.debug.DebugInvalidateTokenReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.latch.android.debug.INVALIDATE_TOKEN" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

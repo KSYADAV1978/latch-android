@@ -66,6 +66,36 @@ Do not violate these without asking first:
   which requirement forces a shape. They do not restate the code.
 - Parser rules take `ParseContext.now` and never read the clock, so every case is reproducible.
 
+### Two conventions about testing, learned the expensive way
+
+Both come from the same week, in which **three load-bearing paths turned out never to have
+run** while every test was green and every acceptance check had passed honestly: AC-07 passed
+against a calendar holding one event, the drain's duplicate check had no reachable test, and
+`authorize()` was never called because the token was always warm. They are here rather than in
+anyone's memory because each cost a day to re-diagnose.
+
+**Name the condition that would make a check fail, and confirm the fixture creates it.** A
+criterion verified against a fixture too easy to fail it has not been verified. AC-07's whole
+point is finding an existing item among others, and it was run on a calendar with one thing in
+it, so a query that could only ever match the first event passed for five days while writing
+duplicates. Before recording a device pass, write down what the failure would look like and
+check the fixture can produce it. This is cheaper than any of the diagnoses it replaces.
+
+**Reachability decides coverage, so put decisions where a test can reach them.** Twice the
+untested thing was the load-bearing thing, and both times not because anyone declined to test
+it: the drain's FR-803 check was private to a `CoroutineWorker` needing a `Context`, and the
+paging loop was inside a REST client owning its own HTTP. What surrounded them — `drainable`,
+the URL builders — was pure, and so that is what had tests. When a decision matters, extract it
+until a JVM test can call it: `duplicateProbeFor` takes a `PendingWrite`, `findEventPaged`
+takes its `get`. And a fake that answers by fixture rather than by matching cannot catch a
+matching bug — `findEventBySourceHash` in the fakes ignored its argument for as long as the
+real one was broken.
+
+A corollary worth stating on its own: **a test can pin behaviour exactly and pin the wrong
+behaviour.** `assertTrue(url.contains("maxResults=1"))` passed throughout the period that query
+was writing duplicates into a real calendar. It described the code faithfully. Asserting what
+the code does is not the same as asserting what the requirement needs.
+
 ## Commits
 Commit directly to `main`. This is a single-developer repository with no CI and no review
 step, so a feature branch adds ceremony without adding safety — there is nothing for it to

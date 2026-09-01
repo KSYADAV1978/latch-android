@@ -105,3 +105,42 @@ class DebugDedupProbeReceiver : BroadcastReceiver() {
         const val TAG = "LatchDedupProbe"
     }
 }
+
+/**
+ * FR-806a's device confirmation, in about a minute of phone time.
+ *
+ * AC-10 verified on 28 Aug that an offline capture is queued rather than lost, but it ran
+ * inside a session whose token was still cached — so `authorize()` was never called and the
+ * expired-token half of that criterion has never been checked. Reproducing it honestly meant
+ * waiting an hour for a token to lapse, which is not a thing anyone does on a work phone.
+ *
+ * This drops the cached token so the next capture must re-authorize:
+ *
+ * ```
+ * adb shell am broadcast -a com.latch.android.debug.INVALIDATE_TOKEN  *   -n com.latch.android/com.latch.android.debug.DebugInvalidateTokenReceiver
+ * ```
+ *
+ * Then: aeroplane mode on, capture the Kickoff text, and the save should report **queued
+ * within a second** with the home screen counting it — where before FR-806a it suspended
+ * silently and indefinitely. Aeroplane mode off, and the entry should retire without writing.
+ */
+class DebugInvalidateTokenReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val app = context.applicationContext as LatchApplication
+        CoroutineScope(Dispatchers.IO).launch {
+            val token = runCatching { app.authClient.accessToken() }.getOrNull()
+            if (token == null) {
+                Log.w(TAG, "no token to invalidate (already cold, or no grant)")
+                return@launch
+            }
+            runCatching { app.authClient.invalidate(token) }
+                .onSuccess { Log.i(TAG, "cached token invalidated; the next capture must re-authorize") }
+                .onFailure { Log.w(TAG, "invalidate failed: ${it::class.simpleName}: ${it.message}") }
+        }
+    }
+
+    companion object {
+        const val TAG = "LatchTokenHook"
+    }
+}

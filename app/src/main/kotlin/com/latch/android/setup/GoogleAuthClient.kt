@@ -13,6 +13,7 @@ import com.latch.data.AuthClient
 import com.latch.data.GoogleAccount
 import com.latch.data.GoogleUnreachable
 import com.latch.data.SignInCancelledException
+import com.latch.data.SignInRequiredException
 import com.latch.data.TokenProvider
 import com.latch.data.fetchPrimaryAccount
 import kotlin.coroutines.resume
@@ -37,6 +38,38 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * takes a *Web* client and which this app must never call — there is no backend to exchange
  * the resulting code at (design principle 3).
  */
+/**
+ * What to do with an authorization result — FR-806a's decision, extracted so it can be tested.
+ *
+ * The rest of this file is Play services and therefore unreachable from a JVM test, which is
+ * exactly how the defect this exists to prevent survived: `authorize()` always resolved, and
+ * nothing could call it to find out. See the testing conventions in CLAUDE.md.
+ */
+internal sealed interface AuthNextStep {
+    /** The grant is good and carried a token. */
+    data object UseToken : AuthNextStep
+
+    /** Consent is needed and this caller may ask for it — setup, with an Activity attached. */
+    data object AskForConsent : AuthNextStep
+
+    /**
+     * Consent is needed and this caller may **not** ask. FR-806a: fail retryably so the
+     * capture is queued, rather than suspending on a screen nothing can present.
+     */
+    data object FailNeedsSignIn : AuthNextStep
+}
+
+/**
+ * FR-806a. [interactive] is true only for the setup flow, which runs behind an Activity that
+ * has attached the resolution bridge. A capture is never interactive: it may have no Activity
+ * at all by the time the token is wanted, and the sheet it started from may be long gone.
+ */
+internal fun authNextStep(hasResolution: Boolean, interactive: Boolean): AuthNextStep = when {
+    !hasResolution -> AuthNextStep.UseToken
+    interactive -> AuthNextStep.AskForConsent
+    else -> AuthNextStep.FailNeedsSignIn
+}
+
 class GoogleAuthClient(
     context: Context,
     private val bridge: AuthResolutionBridge,
@@ -51,7 +84,7 @@ class GoogleAuthClient(
     private var cachedToken: String? = null
 
     override suspend fun signIn(): GoogleAccount {
-        val token = authorize()
+        val token = authorize(interactive = true)
         // AuthorizationClient grants authorization, not identity. The primary calendar's id
         // is the account's email address, which is the identity this app can read without a
         // second sign-in library and within the FR-002 scopes it already holds.
@@ -61,7 +94,8 @@ class GoogleAuthClient(
     /** NFR-205. Revocation is not built; the requirement owns a Settings action that does not exist yet. */
     override suspend fun signOut(accountId: String) = Unit
 
-    override suspend fun accessToken(): String = cachedToken ?: authorize()
+    // FR-806a: the write path never shows UI. A capture that needs consent is queued.
+    override suspend fun accessToken(): String = cachedToken ?: authorize(interactive = false)
 
     override suspend fun invalidate(token: String) {
         if (cachedToken == token) cachedToken = null
@@ -72,7 +106,7 @@ class GoogleAuthClient(
         }
     }
 
-    private suspend fun authorize(): String {
+    private suspend fun authorize(interactive: Boolean): String {
         val request = AuthorizationRequest.builder().setRequestedScopes(SCOPES).build()
 
         var result = try {
@@ -81,15 +115,25 @@ class GoogleAuthClient(
             throw failure.asReadableFailure()
         }
 
-        if (result.hasResolution()) {
-            val consent = result.pendingIntent
-                ?: throw GoogleUnreachable("Authorization needs consent but supplied no intent")
-            // Null means the user dismissed the consent screen.
-            val answer = bridge.resolve(consent) ?: throw SignInCancelledException()
-            result = try {
-                client.getAuthorizationResultFromIntent(answer)
-            } catch (failure: ApiException) {
-                throw failure.asReadableFailure()
+        when (authNextStep(result.hasResolution(), interactive)) {
+            AuthNextStep.UseToken -> Unit
+
+            // FR-806a. Nothing here waits: only the main screen attaches the bridge, so a
+            // capture asking for consent would suspend until the user happened to open the
+            // app — which is what it did, for thirteen minutes, on 1 Sep 2026.
+            AuthNextStep.FailNeedsSignIn ->
+                throw SignInRequiredException("Authorization needs consent and nothing can present it")
+
+            AuthNextStep.AskForConsent -> {
+                val consent = result.pendingIntent
+                    ?: throw GoogleUnreachable("Authorization needs consent but supplied no intent")
+                // Null means the user dismissed the consent screen.
+                val answer = bridge.resolve(consent) ?: throw SignInCancelledException()
+                result = try {
+                    client.getAuthorizationResultFromIntent(answer)
+                } catch (failure: ApiException) {
+                    throw failure.asReadableFailure()
+                }
             }
         }
 

@@ -14,6 +14,8 @@ import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueueStatus
 import com.latch.data.QueuedWrite
+import com.latch.data.SignInRequiredException
+import com.latch.data.isWorthRetrying
 import com.latch.data.RescheduleSearch
 import com.latch.data.TaskList
 import com.latch.data.TaskWrite
@@ -246,6 +248,32 @@ class CaptureSaverTest {
         assertIs<SaveState.Queued>(saver.state.value)
         assertEquals(1, queue.entries.size)
         assertEquals(1, queue.drainsRequested, "a queued write must ask for a drain")
+    }
+
+    @Test
+    fun `a capture needing a sign-in is queued, never left waiting`() = runTest {
+        // FR-806a. The device case, 1 Sep 2026: the cached token had expired, Play services
+        // could not refresh it without a network, and the authorization came back requiring a
+        // consent screen. Only the main screen can present one, and a capture is not the main
+        // screen — so the save suspended for thirteen minutes with nothing on screen and
+        // nothing in the queue. A capture must never wait on an interactive authorization.
+        val queue = RecordingQueue()
+        val needsSignIn = SignInRequiredException("Authorization needs consent, no Activity attached")
+        val saver = saver(calendar = RecordingCalendarApi(failInsert = needsSignIn), queue = queue)
+
+        saver.save(captured(eventText), parse(eventText), context)
+        runCurrent()
+
+        assertIs<SaveState.Queued>(saver.state.value, "the capture was not queued")
+        assertEquals(1, queue.entries.size, "nothing reached the queue")
+        assertEquals(1, queue.drainsRequested, "a queued write must ask for a drain")
+    }
+
+    @Test
+    fun `a sign-in requirement is retryable, so the entry is held and not given up on`() {
+        // The drain side of FR-806a. This is not a failure waiting cannot fix; it is one a
+        // sign-in fixes, and giving up would lose a capture the user could recover in a tap.
+        assertTrue(isWorthRetrying(SignInRequiredException("needs consent")))
     }
 
     @Test
