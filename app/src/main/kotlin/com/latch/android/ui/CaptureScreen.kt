@@ -36,6 +36,7 @@ import com.latch.android.capture.SaveFailure
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.candidateBlocker
+import com.latch.android.capture.titleFor
 import com.latch.android.capture.saveIsOffered
 import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
@@ -253,10 +254,17 @@ private fun CaptureBody(
         ItemTypeBadge(candidate)
     }
 
-    Text(
-        text = captured.preferredTitle ?: result.title.value,
-        style = MaterialTheme.typography.titleMedium,
-    )
+    // FR-509a moved the title of an OCR capture onto the row carrying each date, so the
+    // header can no longer speak for the whole capture: showing one title here while writing
+    // a different one per item would be a confirmation screen that does not confirm what is
+    // saved. The same function decides both, so the screen and the write cannot disagree.
+    val perRowTitles = captured.ocrUsed && captured.preferredTitle.isNullOrBlank()
+    if (!perRowTitles || single) {
+        Text(
+            text = titleFor(captured, result, candidate),
+            style = MaterialTheme.typography.titleMedium,
+        )
+    }
 
     if (single) {
         Text(
@@ -292,6 +300,7 @@ private fun CaptureBody(
         result.candidates.forEachIndexed { index, each ->
             CandidateRow(
                 candidate = each,
+                title = if (perRowTitles) titleFor(captured, result, each) else null,
                 checked = index in selected,
                 onToggle = { onToggleCandidate(index) },
             )
@@ -313,7 +322,13 @@ private fun CaptureBody(
  * its neighbours.
  */
 @Composable
-private fun CandidateRow(candidate: DatedCandidate, checked: Boolean, onToggle: () -> Unit) {
+private fun CandidateRow(
+    candidate: DatedCandidate,
+    /** FR-509a: this row's own title, where an OCR capture gives each date its own. */
+    title: String?,
+    checked: Boolean,
+    onToggle: () -> Unit,
+) {
     val blocker = candidateBlocker(candidate)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -327,6 +342,16 @@ private fun CandidateRow(candidate: DatedCandidate, checked: Boolean, onToggle: 
                 ItemTypeBadge(candidate)
                 Spacer(Modifier.width(8.dp))
                 Text(text = whenLine(candidate), style = MaterialTheme.typography.bodyMedium)
+            }
+            // FR-509a. Shown here rather than above the list because for an OCR capture the
+            // title belongs to the date's own row, and this is what will be written.
+            title?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             if (blocker == DraftBlocker.NEEDS_A_DATE) {
                 Note(stringResource(R.string.capture_row_needs_date))

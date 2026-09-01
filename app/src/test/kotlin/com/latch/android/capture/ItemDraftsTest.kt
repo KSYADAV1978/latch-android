@@ -28,6 +28,9 @@ import kotlin.test.assertTrue
  * FR-506's rows turned into items. Pure Kotlin and clock-free — the ids and the capture time
  * are the caller's to mint — so this runs on the JVM beside the setup reducer.
  */
+/** One image row per line, which is what §7.2's reading-order rule guarantees. */
+private const val NEWLINE = "\n"
+
 class ItemDraftsTest {
 
     private val defaults = AccountDefaults(
@@ -55,6 +58,110 @@ class ItemDraftsTest {
         candidates = listOf(candidate),
         location = location?.let { Field(it, Confidence.MEDIUM) },
     )
+
+    // ----- FR-509a: an OCR capture titles from the row carrying its own date -----
+
+    /** A recognised screenshot as assembled: one image row per line, chrome first. */
+    private val screenshot = listOf(
+        "Sharma Ji",
+        "online",
+        "Paid the uniform bill, Rs 12,500 in total.",
+        "Yes. PTM on Monday 14 September 2026.",
+        "Fees due 20/09/2027.",
+    ).joinToString(NEWLINE)
+
+    private fun ocrCapture(text: String = screenshot, subject: String? = null) = CapturedText(
+        text = text,
+        layer = CaptureLayer.SHARE_SHEET,
+        preferredTitle = subject,
+        ocrUsed = true,
+    )
+
+    private fun titlesFrom(captured: CapturedText, text: String = screenshot): List<String> {
+        val parsed = DateParser.parse(text, context)
+        val drafted = draftItems(captured, parsed, context, defaults, "cap", "chain")
+        return (drafted as DraftResult.Ready).items.map { it.title }
+    }
+
+    @Test
+    fun `an ocr title comes from its own date's row, not the top of the screen`() {
+        // The observed defect: the title was "Sharma Ji online Paid the uniform bill, Rs
+        // 12,500 in total." - the chat header and the first message, neither of which the
+        // user captured, and both of which FR-805b had just excluded from the description.
+        val titles = titlesFrom(ocrCapture())
+
+        assertTrue(titles.isNotEmpty(), "nothing was drafted")
+        titles.forEach { title ->
+            assertFalse(title.contains("Sharma Ji"), "the chat header reached the title: <$title>")
+            assertFalse(title.contains("12,500"), "the amount paid reached the title: <$title>")
+        }
+        assertTrue(titles.any { it.contains("PTM") }, "no title came from a date's own row: $titles")
+    }
+
+    @Test
+    fun `blanking a date does not leave its punctuation stranded`() {
+        // Observed on a device: "Yes. PTM on Monday 14 September 2026." blanked of its span
+        // became "Yes. PTM on ." and that stray full stop reached a real title.
+        val titles = titlesFrom(ocrCapture())
+
+        titles.forEach { title ->
+            assertFalse(title.contains(" ."), "orphaned punctuation in <$title>")
+            assertFalse(title.endsWith("."), "a title should not end on the date's full stop: <$title>")
+            assertFalse(title.contains("  "), "the date left a gap in <$title>")
+        }
+    }
+
+    @Test
+    fun `a row that is only a date falls back to the row above it`() {
+        // "Fees due 20/09/2027" blanked of its span still says "Fees due"; a bare
+        // "20/09/2027" says nothing, and a title of punctuation is worse than the fallback.
+        val bare = listOf("School office", "Circular attached", "20/09/2027").joinToString(NEWLINE)
+        val titles = titlesFrom(ocrCapture(bare), bare)
+
+        assertTrue(
+            titles.single().contains("Circular"),
+            "a bare date row should borrow the row above it, got: ${titles.single()}",
+        )
+    }
+
+    @Test
+    fun `a typed capture keeps FR-509's title exactly`() {
+        // FR-509a narrows nothing for text. This is the regression guard: the overwhelming
+        // majority of captures are typed, and their titles must not move.
+        val typed = CapturedText(text = screenshot, layer = CaptureLayer.SHARE_SHEET)
+        val parsed = DateParser.parse(screenshot, context)
+
+        val drafted = draftItems(typed, parsed, context, defaults, "cap", "chain")
+
+        (drafted as DraftResult.Ready).items.forEach {
+            assertEquals(parsed.title.value, it.title, "a typed capture's title changed")
+        }
+    }
+
+    @Test
+    fun `a subject line still wins over the date's row`() {
+        // FR-206: a mail client's subject names the thing better than any row of a page, and
+        // a shared PDF carries one. FR-509a must not take that away.
+        val titles = titlesFrom(ocrCapture(subject = "Term dates 2026-27"))
+
+        titles.forEach { assertEquals("Term dates 2026-27", it) }
+    }
+
+    @Test
+    fun `the item key is unchanged by the per-item titles`() {
+        // SRS 1.41's decision, asserted rather than assumed: one capture still yields one
+        // key, so a chain shares it and FR-804 still identifies what the message is about
+        // rather than which occurrence of it.
+        val captured = ocrCapture()
+        val parsed = DateParser.parse(screenshot, context)
+
+        val key = itemKeyOf(itemKeyTitle(captured, parsed))
+        val titles = titlesFrom(captured)
+
+        assertTrue(titles.size > 1, "this test needs a chain to be meaningful")
+        assertTrue(titles.toSet().size > 1, "the titles should differ per row")
+        assertEquals(key, itemKeyOf(itemKeyTitle(captured, parsed)), "item_key must not move")
+    }
 
     private fun draft(candidate: DatedCandidate, title: String = "Team sync", location: String? = null) =
         draftItems(

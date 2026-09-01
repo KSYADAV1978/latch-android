@@ -60,9 +60,6 @@ fun draftItems(
     chainId: String,
     selected: Set<Int> = result.candidates.indices.toSet(),
 ): DraftResult {
-    // FR-206: a mail client's subject line beats the first line of the body.
-    val title = captured.preferredTitle?.takeIf { it.isNotBlank() } ?: result.title.value
-
     val drafted = result.candidates
         .withIndex()
         .filter { (index, _) -> index in selected }
@@ -81,6 +78,7 @@ fun draftItems(
     }
 
     val items = drafted.mapIndexed { index, candidate ->
+        val title = titleFor(captured, result, candidate)
         when (candidate.classification.itemType) {
             ItemType.EVENT -> eventItem(
                 candidate = candidate,
@@ -264,4 +262,118 @@ fun draftBlocker(result: ParseResult): DraftBlocker? =
 fun candidateBlocker(candidate: DatedCandidate): DraftBlocker? {
     val needsDate = candidate.classification.itemType == ItemType.EVENT && candidate.date == null
     return if (needsDate) DraftBlocker.NEEDS_A_DATE else null
+}
+
+/**
+ * FR-509a: an OCR-derived item's title, taken from **the row carrying its own date**.
+ *
+ * FR-509 reaches for the writer's first words, and on typed text the opening of the capture is
+ * exactly that. On a screenshot the opening is whatever sat at the top of the image — the app's
+ * header, the contact's name, the first message in view — so the observed title was
+ * `Sharma Ji online Paid the uniform bill, Rs 12,500 in total.`
+ *
+ * That is not merely ugly. FR-805b had already excluded the sender's name and the amount paid
+ * from the **description** on the same capture, and this put both back into the **title**,
+ * which is the field a list shows, a notification quotes and every device on the account syncs.
+ * A rule that removes material from one field while another copies it into a more visible one
+ * has protected nothing.
+ *
+ * The row is available because §7.2 requires OCR text to be assembled in geometric reading
+ * order, one image row per line — the same property FR-805b's window rests on.
+ *
+ * **The fallback chain is part of the rule, because the interesting cases are all fallbacks.**
+ * A date row is often only a date: `Fees due 20/09/2027` blanked of its span still says
+ * `Fees due`, but `20/09/2027` alone says nothing. The row above is then the better answer —
+ * in a chat it is who was speaking and about what. Both failing, FR-509's own derivation
+ * stands, which is worse than either but never empty.
+ *
+ * **This does not touch `latch.item_key`.** §7.2's derivation still blanks every span in the
+ * whole capture, so one capture yields one key and a chain shares it (v1.23). Only what the
+ * user sees is per-item. Deriving a key per row was considered and rejected in SRS 1.41: it
+ * would turn FR-804's tie-break from what a message is about into which occurrence of it, for
+ * a gain that is entirely cosmetic.
+ */
+fun ocrTitleFor(
+    text: String,
+    candidate: DatedCandidate,
+    allSpans: List<IntRange>,
+    fallback: String,
+): String {
+    val anchor = candidate.date?.span ?: candidate.time?.span ?: return fallback
+    val lines = lineRanges(text)
+    val index = lines.indexOfFirst { anchor.first <= it.last && anchor.last >= it.first }
+    if (index < 0) return fallback
+
+    // The date's own row, with every span the parser matched inside it blanked out.
+    titleFromLine(text, lines[index], allSpans)?.let { return it }
+    // Then the row above: in a chat, who was speaking and what about.
+    if (index > 0) titleFromLine(text, lines[index - 1], allSpans)?.let { return it }
+    return fallback
+}
+
+/** A line's title, or null where blanking its dates leaves nothing a person could read. */
+private fun titleFromLine(text: String, line: IntRange, allSpans: List<IntRange>): String? {
+    val within = allSpans.filter { it.first <= line.last && it.last >= line.first }
+    // A line's range runs to the newline that ends it, which for the final line is one past
+    // the text. Kept that way so a span landing on the separator still matches its own row.
+    val end = line.last.coerceAtMost(text.lastIndex)
+    if (end < line.first) return null
+    val blanked = text.substring(line.first, end + 1).let { row ->
+        row.blankOut(within.map { (it.first - line.first)..(it.last - line.first) })
+    }
+    val title = tidyBlanked(TitleExtractor.extract(blanked).value)
+    // A row that was only a date leaves punctuation and spaces. Requiring a letter is what
+    // separates "Fees due" from "." — and a title of punctuation is worse than the fallback.
+    return title.takeIf { it.any(Char::isLetter) }
+}
+
+/**
+ * Repairs what blanking a date span leaves behind.
+ *
+ * `Yes. PTM on Monday 14 September 2026.` becomes `Yes. PTM on  .` once its span is blanked,
+ * and that stray full stop reached a real title on a device. This closes the gap the date left
+ * and drops the punctuation it was holding up.
+ *
+ * It is deliberately about repairing the blank and nothing more. A **dangling connective** —
+ * `Trip from`, `Yes. PTM on` — is left standing, because removing one means a list of English
+ * words, and NFR-404 has this app reading Hinglish while NFR-403 has the UI translated. That
+ * residue is the same cosmetic limit `CLAUDE.md` already records for FR-509's truncation, and
+ * it reads as an abbreviation rather than as a defect.
+ */
+private fun tidyBlanked(text: String): String = text
+    // Punctuation the date was standing in front of, now orphaned by a run of spaces.
+    .replace(Regex("""\s+([.,;:!?)\]])"""), "$1")
+    .replace(Regex("""([(\[])\s+"""), "$1")
+    .replace(Regex("""\s+"""), " ")
+    .trim()
+    .trim('.', ',', ';', ':', '-', '–', '—')
+    .trim()
+
+/** Where each line of [text] begins and ends, so a span can be mapped to its row. */
+private fun lineRanges(text: String): List<IntRange> {
+    val ranges = mutableListOf<IntRange>()
+    var start = 0
+    text.lines().forEach { line ->
+        ranges += start..(start + line.length)
+        start += line.length + 1
+    }
+    return ranges
+}
+
+/**
+ * The title one candidate will be written under — **the single place that decides it**, so the
+ * confirmation screen and the write cannot disagree.
+ *
+ * That is the whole reason this exists rather than the logic sitting inside `draftItems`.
+ * FR-509a gives an OCR capture a title per row, and the screen was still drawing FR-509's
+ * one-title-for-the-capture above the list: a user would have confirmed one thing and Google
+ * would have received another, which is the kind of divergence a confirmation screen exists to
+ * make impossible.
+ */
+fun titleFor(captured: CapturedText, result: ParseResult, candidate: DatedCandidate): String {
+    // FR-206: a mail client's subject names the thing better than any row of a page, and a
+    // shared PDF carries one. It wins over both FR-509 and FR-509a.
+    val fallback = captured.preferredTitle?.takeIf { it.isNotBlank() } ?: result.title.value
+    if (!captured.ocrUsed || !captured.preferredTitle.isNullOrBlank()) return fallback
+    return ocrTitleFor(captured.text, candidate, dateSpans(result), fallback)
 }
