@@ -181,6 +181,60 @@ class OcrDecisionsTest {
         assertEquals(listOf(hallucinated), merged)
     }
 
+    // FR-215: a screenshot's furniture is not its content.
+
+    @Test
+    fun `a status bar clock is dropped from a full-height screenshot`() {
+        // The observed defect: 10:42 is a status-bar clock, it satisfies FR-503's time
+        // formats exactly as a written time does, and the parser paired it with the nearest
+        // date - turning a Task into an Event at an hour nobody wrote.
+        val clock = TextBlock("10:42", left = 40, top = 20, right = 200, bottom = 70)
+        val message = block("Yes. PTM on Monday 14 September 2026.", top = 600)
+
+        val kept = withoutTopChrome(listOf(clock, message), imageHeight = 3120)
+
+        assertEquals(listOf(message), kept)
+    }
+
+    @Test
+    fun `a block that begins in the band but continues below it survives`() {
+        // The risk this rule carries, and the reason it is wholly-within rather than
+        // overlapping: discarding a real first line would be worse than keeping a clock.
+        val straddling = TextBlock("Fees due 20/09/2027", left = 40, top = 100, right = 900, bottom = 200)
+
+        val kept = withoutTopChrome(listOf(straddling), imageHeight = 3120)
+
+        assertEquals(listOf(straddling), kept, "a block reaching past the band is content")
+    }
+
+    @Test
+    fun `the rule is inert on a short image, so a cropped screenshot is untouched`() {
+        // The guarantee stated in SRS 1.41 and held here. At 900px the band is 36px, thinner
+        // than a line of text, so nothing can sit wholly inside it. testdata/fr215/
+        // three-dates-cropped.png is the device-side fixture for the same property.
+        val firstLine = TextBlock("Thanks. Did the school send", left = 60, top = 0, right = 800, bottom = 50)
+
+        val kept = withoutTopChrome(listOf(firstLine), imageHeight = 900)
+
+        assertEquals(listOf(firstLine), kept, "a cropped screenshot lost its first line")
+    }
+
+    @Test
+    fun `the band is a fraction, so it scales with the screen`() {
+        val clock = TextBlock("09:41", left = 40, top = 10, right = 200, bottom = 60)
+
+        // Tall screen: 4% is 125px, the clock is inside it.
+        assertTrue(withoutTopChrome(listOf(clock), imageHeight = 3120).isEmpty())
+        // Short screen: 4% is 40px, and the same block is no longer wholly inside.
+        assertEquals(listOf(clock), withoutTopChrome(listOf(clock), imageHeight = 1000))
+    }
+
+    @Test
+    fun `a degenerate height changes nothing`() {
+        val any = block("something", top = 0)
+        assertEquals(listOf(any), withoutTopChrome(listOf(any), imageHeight = 0))
+    }
+
     // §7.2: the order blocks are assembled in, which item_key depends on.
 
     @Test

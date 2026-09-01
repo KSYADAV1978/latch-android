@@ -244,6 +244,51 @@ private fun TextBlock.substantiallyOverlaps(other: TextBlock, minFraction: Doubl
 }
 
 /**
+ * FR-215: drops a screenshot's own furniture before its text is assembled.
+ *
+ * A recogniser returns everything on the screen, and the top of a screenshot is a status bar.
+ * Its clock satisfies FR-503's time formats exactly as a written time does — at the level of
+ * text there is no difference — so it is paired with the nearest date and the capture acquires
+ * a time nobody wrote. Under FR-506 that turns a Task into an Event and puts it on the
+ * calendar at an hour taken from the phone's status bar. It reaches the title too, which is
+ * what FR-509a exists to stop.
+ *
+ * **A fraction of the image, not a pixel count.** A status bar is three to five per cent of any
+ * screen this app will meet, and a constant chosen against one screen is wrong on the next. On
+ * a 1440×3120 screenshot [TOP_BAND_FRACTION] is 125 pixels: taller than a status bar, shorter
+ * than a message row, which is the gap this rule lives in.
+ *
+ * **Wholly within the band, never merely overlapping it.** Discarding a real first line is the
+ * risk that kept this deferred through the FR-215 slice, so a block that begins in the band and
+ * continues below it is content and survives.
+ *
+ * **It follows that the rule is inert on a short image**, and that is a guarantee rather than an
+ * accident: a block cannot sit wholly inside 4% until 4% exceeds a line of text, which for a
+ * ~40-pixel line means around a thousand pixels of height. A cropped screenshot whose first
+ * real line begins at the very top therefore passes through untouched.
+ *
+ * **Bottom chrome — the composer placeholder, the navigation bar — is deliberately not
+ * handled.** It is the same class of furniture, but the arithmetic does not transfer: the
+ * bottom of a screenshot is where the most recent message sits, which is where a commitment
+ * most often is, so a symmetric rule would risk dropping exactly what the user captured.
+ *
+ * @param imageHeight the height of the image **as the recogniser saw it**, upright. For a
+ *   rotated capture that is not the bitmap's own height — see the caller.
+ */
+fun withoutTopChrome(
+    blocks: List<TextBlock>,
+    imageHeight: Int,
+    fraction: Double = TOP_BAND_FRACTION,
+): List<TextBlock> {
+    if (imageHeight <= 0) return blocks
+    val band = imageHeight * fraction
+    return blocks.filterNot { it.bottom <= band }
+}
+
+/** How much of an image's height counts as chrome. See [withoutTopChrome]. */
+const val TOP_BAND_FRACTION: Double = 0.04
+
+/**
  * Blocks in the order a person reads them, from their positions on the image.
  *
  * **Recorded as a reading against §7.2, because it is one.** `latch.item_key` is derived from

@@ -163,7 +163,13 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
         val image = InputImage.fromBitmap(bitmap, rotationDegrees)
         val latinPass = async { blocksOf(latin(), image) }
         val devanagariPass = async { blocksOf(devanagari(), image) }
-        assemble(inReadingOrder(mergeByScript(latinPass.await(), devanagariPass.await())))
+        val merged = mergeByScript(latinPass.await(), devanagariPass.await())
+        // ML Kit reports boxes in the **upright** frame, so a quarter-turn swaps which of the
+        // bitmap's dimensions is "height". Passing the bitmap's own height for a rotated
+        // capture would measure the band against the wrong edge — on a landscape photo of a
+        // document that is the difference between trimming a status bar and trimming a margin.
+        val uprightHeight = if (rotationDegrees % 180 == 0) bitmap.height else bitmap.width
+        assemble(inReadingOrder(withoutTopChrome(merged, uprightHeight)))
     }
 
     /**
