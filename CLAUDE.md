@@ -166,6 +166,7 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-803 over an OCR capture** | 31 Aug 2026 | **Pass.** Re-sharing an identical image answered "Already saved. Nothing was written again." — Google's own index, through the app's client. Also the measurement behind SRS 1.30: the same file recognised twice gave an identical character count and an identical hash, so the §7.2 wobble lives in re-renderings and across §4.1's clients, not in re-sharing one file. |
 | **FR-805b — the row window** | 31 Aug 2026 | **Pass, at the second attempt, and the first attempt is why the rule changed.** The character-radius version wrote the **entire** recognised screen into a task note. Rebuilt as a row window, the note carries the dated rows and one neighbour each: no sender name, no amount, no chrome. The failing note is committed as the conformance fixture at `data/src/test/resources/fr805b/device-note.txt`. |
 | **AC-17 — network monitor over an image capture** | 31 Aug 2026 | **Pass.** A per-app capture across a full cycle including image captures recorded exactly two destinations, both Google: `tasks.googleapis.com`, this app's own writes through the `ALLOWED_HOSTS` guard, and **`firebaselogging.googleapis.com`**, which is ML Kit's, firing three times a few seconds after each image capture. **No non-Google endpoint.** The second host is not in `ALLOWED_HOSTS` and must not be added: that list governs requests this app composes. SRS 1.27's structural restatement, observed rather than reasoned about. |
+| **AC-10 with an expired token — FR-806a, re-run on the sign-in surface build** | 1 Sep 2026 | **Pass.** Repeated against `215656e`, which changed `markFailed`, `QueueStatus` and the drain's failure handling, so the drain path needed re-checking rather than assuming. Token invalidated, aeroplane mode on, capture: queued immediately and **no "Sign in needed"** shown — correct, because a capture-path failure enqueues directly rather than through `markFailed`. Aeroplane off: the drain ran, FR-803 found the existing event through the paging query and **retired without writing**, the count staying at exactly one. |
 | **AC-10 with an expired token — FR-806a** | 1 Sep 2026 | **Pass, and it is the half of AC-10 that had never been run.** AC-10's 28 Aug pass was inside a session whose token was still cached, so `authorize()` was never reached; on 1 Sep an offline save with an expired token suspended for **thirteen minutes** with no error, no queue entry and nothing on screen. Re-run against FR-806a with the debug token hook — invalidate, aeroplane mode, capture — the sheet reported **queued immediately**, no consent Activity was attempted at all, and on reconnecting the drain ran (`Worker result SUCCESS`) and wrote **exactly one** event. The fixtures having been cleaned up first, writing one was the correct outcome rather than retiring. |
 | **AC-05 — a screenshot with three dates** | 31 Aug 2026 | **Pass**, on `three-dates-v4.png`. Exactly three dates — `TASK 14 Sept 2026`, `TASK 20 Sept 2027`, `EVENT 1 Oct 2027`, the range correctly one candidate and an Event. Three checkboxes all `checked=true` at open, read from the view hierarchy rather than eyeballed; unticking the middle gave `true,false,true`; the save wrote **two** items, not three; nothing on the unticked date; and a re-capture answered "Already saved", which is Google confirming both landed. **Provenance:** v4 is a *rendered* chat image, not a device screenshot, so the criterion is met by a proxy and is to be re-run if a real screenshot is supplied. **The undo half was not re-run here** and is not silently omitted: it is covered by AC-11's four-item chain undo of 28 Aug. |
 
@@ -367,7 +368,21 @@ not the path" seen from the far side.
 Not yet run on a device:
 **NFR-302's other two limbs** — app termination and device restart while queued — none of which
 AC-10's run exercised; **AC-15**, **AC-09** (hidden calendar offered and actually ticked),
-and the consent-bridge cases: rotation and
+**FR-806a's "Sign in needed" surface is built and unit-tested but has NO device verification.**
+It was set up for one on 1 Sep 2026 and the run was abandoned before the grant was revoked, so
+what was observed — a clean drain and no sign-in prompt — says nothing about it either way. The
+condition was never created. Recorded rather than left as a half-memory, because an
+inconclusive run looks exactly like a pass in a log and the surface is the part of FR-806a that
+a user actually sees.
+
+The run does need the grant genuinely revoked, and that needs checking **before** the drain is
+watched rather than after: Play services answers `authorize()` from its own cached grant
+record, so an app can keep calling Google for some time after a revocation at
+`myaccount.google.com/connections`. Probe first — `PROBE_DEDUP` returning `found=true` means
+the grant is still live and the fixture is not ready. That check is the standing convention in
+this file applied to itself; the first attempt read the result without it.
+
+Still open, then: FR-806a's surface, and the consent-bridge cases: rotation and
 process death with the consent screen up, which are the only part of this app with no
 automated cover at all. FR-804's own gaps join that list: **a queued `UPDATE` has never
 drained** — the 28 Aug pass was online throughout, so the worker's update path and the
