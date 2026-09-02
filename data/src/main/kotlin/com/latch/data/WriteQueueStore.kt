@@ -224,6 +224,9 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  *  - **v5** adds FR-510's per-item note, which carries the past date a follow-up was created
  *    for. Absent on every earlier record, and correctly so: no earlier record could have held a
  *    follow-up, because the requirement was not built.
+ *  - **v6** adds FR-601's reminder minutes, for the same reason and with the same defence: no
+ *    earlier record could have held a recipe expansion, and an absent list means Google's own
+ *    calendar defaults, which is what every earlier item got.
  *
  * **The queue deliberately did not move into FR-701's SQLite database.** SRS 1.24 named the
  * marker as needing that storage, and it does not: this record can carry it. What the move
@@ -232,7 +235,7 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  * went into the database instead, because that is a new index and loses nothing if it starts
  * empty.
  */
-internal const val QUEUE_RECORD_VERSION = 5
+internal const val QUEUE_RECORD_VERSION = 6
 
 /** The oldest record layout still readable. See [QUEUE_RECORD_VERSION]. */
 internal const val QUEUE_RECORD_MIN_VERSION = 1
@@ -249,6 +252,7 @@ internal fun encodeItem(item: Item): JSONObject = JSONObject()
     .putOpt("due_date", item.dueDate?.toString())
     .putOpt("location", item.location)
     .putOpt("notes", item.notes)
+    .put("reminders", JSONArray(item.reminderMinutes))
     .putOpt("calendar_id", item.calendarId)
     .putOpt("task_list_id", item.taskListId)
 
@@ -270,6 +274,11 @@ internal fun decodeItem(itemJson: JSONObject): Item? {
         // FR-510's past-date note, added at record version 5. Absent on every earlier record,
         // which is correct: no earlier record could have carried a follow-up.
         notes = itemJson.optString("notes").takeIf { it.isNotBlank() },
+        // FR-601's reminders, added at record version 6. Absent on every earlier record, which
+        // is right: no earlier record could have carried a recipe expansion.
+        reminderMinutes = itemJson.optJSONArray("reminders")
+            ?.let { array -> (0 until array.length()).map(array::getInt) }
+            .orEmpty(),
         calendarId = itemJson.optString("calendar_id").takeIf { it.isNotBlank() },
         taskListId = itemJson.optString("task_list_id").takeIf { it.isNotBlank() },
         // Read back as queued, not as the draft it was: this record exists because the

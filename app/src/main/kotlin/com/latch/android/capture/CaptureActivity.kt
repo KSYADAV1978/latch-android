@@ -26,6 +26,7 @@ import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -144,6 +145,38 @@ class CaptureActivity : ComponentActivity() {
                     mutableStateOf(result?.candidates?.indices?.toSet() ?: emptySet())
                 }
 
+                // FR-601: the recipe the user picked, and the chain it produces. Held here
+                // beside the other sheet edits, and keyed on the parse so a capture arriving
+                // over this one does not inherit the previous one's chain.
+                val recipes by app.recipes.collectAsState()
+                val settings by app.settings.collectAsState()
+                var appliedRecipeId by remember(parsed) { mutableStateOf<String?>(null) }
+
+                // One chain id for the life of this expansion, so the ids the screen shows and
+                // the ids a save writes are the same ones. The saver mints its own for the
+                // metadata; this one only groups the display.
+                val expansionChainId = remember(parsed) { UUID.randomUUID().toString() }
+
+                val recipeSteps = remember(result, appliedRecipeId, settings) {
+                    val recipe = recipes.firstOrNull { it.id == appliedRecipeId }
+                    if (recipe == null || result == null) {
+                        emptyList()
+                    } else {
+                        expandRecipe(
+                            recipe = recipe,
+                            result = result,
+                            settings = settings,
+                            bundledHolidays = app.bundledHolidays(today),
+                            chainId = expansionChainId,
+                        ).orEmpty()
+                    }
+                }
+
+                // FR-608: every step ticked to begin with, the same as FR-511's dates.
+                var recipeSelection by remember(recipeSteps) {
+                    mutableStateOf(recipeSteps.indices.toSet())
+                }
+
                 // FR-512: where this capture is going, decided once and read by the button,
                 // the destination chip and the saver alike. A screen that worked it out its own
                 // way would eventually offer Save and perform something else.
@@ -194,9 +227,27 @@ class CaptureActivity : ComponentActivity() {
                         edits = edits.copy(typeOverrides = edits.typeOverrides + (index to type))
                     },
                     today = today,
+                    recipes = recipes,
+                    appliedRecipeId = appliedRecipeId,
+                    onApplyRecipe = { appliedRecipeId = it },
+                    recipeSteps = recipeSteps,
+                    recipeSelection = recipeSelection,
+                    onToggleRecipeStep = { index ->
+                        recipeSelection =
+                            if (index in recipeSelection) recipeSelection - index
+                            else recipeSelection + index
+                    },
                     onSave = {
                         if (captured != null && result != null) {
-                            app.captureSaver.save(captured, result, parseContext, selected)
+                            app.captureSaver.save(
+                                captured = captured,
+                                result = result,
+                                context = parseContext,
+                                selected = selected,
+                                recipe = appliedRecipeId?.let { id ->
+                                    RecipeApplication(id, recipeSteps, recipeSelection)
+                                },
+                            )
                         }
                     },
                     onUndo = { app.captureSaver.undo() },

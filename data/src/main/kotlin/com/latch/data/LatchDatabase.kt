@@ -86,6 +86,16 @@ internal class LatchDatabase(context: Context) :
             )
             """.trimIndent()
         )
+
+        db.execSQL(
+            """
+            CREATE TABLE $TABLE_RECIPES (
+                id TEXT PRIMARY KEY NOT NULL,
+                created_at INTEGER NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
     }
 
     /**
@@ -102,8 +112,8 @@ internal class LatchDatabase(context: Context) :
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         error(
             "No migration from schema $oldVersion to $newVersion. " +
-                "$TABLE_INBOX holds captures that exist nowhere else and must be carried " +
-                "forward, not dropped."
+                "$TABLE_INBOX holds captures that exist nowhere else and $TABLE_RECIPES holds " +
+                "recipes the user wrote; both must be carried forward, not dropped."
         )
     }
 
@@ -153,6 +163,7 @@ internal class LatchDatabase(context: Context) :
             delete(TABLE_INBOX, null, null)
             delete(TABLE_WRITTEN, null, null)
             delete(TABLE_UNDO, null, null)
+            delete(TABLE_RECIPES, null, null)
         }
     }
 
@@ -165,6 +176,7 @@ internal class LatchDatabase(context: Context) :
         const val TABLE_INBOX = "inbox"
         const val TABLE_WRITTEN = "written_items"
         const val TABLE_UNDO = "undo_offers"
+        const val TABLE_RECIPES = "recipes"
     }
 }
 

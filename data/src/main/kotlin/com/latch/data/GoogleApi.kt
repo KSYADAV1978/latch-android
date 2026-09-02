@@ -81,6 +81,15 @@ data class EventWrite(
     val allDay: Boolean = false,
     /** An IANA zone id. `Item.start` is a `LocalDateTime` and needs one to resolve. */
     val timeZone: String,
+    /**
+     * FR-601: minutes before the start, from the recipe step that produced this item.
+     *
+     * Empty means **Google's own defaults apply**, and that is why it is a list rather than a
+     * nullable one: an empty override list sent to the API would mean "no reminders at all",
+     * which is a decision this app has never taken on the user's behalf. The two are different
+     * requests and the difference is invisible in the field alone.
+     */
+    val reminderMinutes: List<Int> = emptyList(),
     val metadata: RemoteMetadata,
 )
 

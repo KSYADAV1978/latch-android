@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val CALENDAR_V3 = "https://www.googleapis.com/calendar/v3"
@@ -422,6 +423,21 @@ internal fun eventRequestBody(event: EventWrite): JSONObject {
 
     body.put("start", eventTimePoint(event.start, event.allDay, event.timeZone))
     body.put("end", eventTimePoint(event.end, event.allDay, event.timeZone))
+
+    // FR-601: a recipe step's reminders. Omitted entirely where there are none, which leaves
+    // `useDefault` true and the calendar's own reminders in force — the behaviour of every item
+    // written before recipes existed. Sending an empty override list instead would mean "no
+    // reminders at all", which is a decision this app has never taken for the user.
+    if (event.reminderMinutes.isNotEmpty()) {
+        val overrides = JSONArray()
+        event.reminderMinutes.forEach {
+            overrides.put(JSONObject().put("method", "popup").put("minutes", it))
+        }
+        body.put(
+            "reminders",
+            JSONObject().put("useDefault", false).put("overrides", overrides),
+        )
+    }
 
     // §7.2. Private, never shared: shared properties are visible to every attendee of the
     // event, and this is the user's own provenance data.

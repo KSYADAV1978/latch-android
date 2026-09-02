@@ -9,12 +9,19 @@ import com.latch.android.capture.WriteQueueWorker
 import com.latch.android.capture.removeCreated
 import com.latch.android.capture.shouldDrainNow
 import com.latch.android.inbox.InboxCoordinator
+import com.latch.android.recipes.RecipeCoordinator
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
 import com.latch.data.AccountDefaults
 import com.latch.data.CaptureInbox
 import com.latch.data.EncryptedAccountDefaultsStore
+import com.latch.data.EncryptedSettingsStore
+import com.latch.data.LatchSettings
+import com.latch.data.RecipeStore
+import com.latch.data.SettingsStore
+import com.latch.data.SqliteRecipeStore
+import com.latch.data.recipesFor
 import com.latch.data.EncryptedWriteQueueStore
 import com.latch.data.LocalItemIndex
 import com.latch.data.QueueStatus
@@ -26,8 +33,12 @@ import com.latch.data.UndoOfferStore
 import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
 import com.latch.data.googleTasksApi
+import com.latch.core.model.Holiday
+import com.latch.core.model.Recipe
 import com.latch.ocr.MlKitOcrReader
 import com.latch.ocr.OcrReader
+import com.latch.recipes.BuiltInRecipes
+import com.latch.recipes.IndianHolidays
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -93,6 +104,8 @@ class LatchApplication : Application() {
         refreshQueueStatus()
         refreshInboxCount()
         refreshUndoOffer()
+        refreshSettings()
+        refreshRecipes()
         // Every save moves this, wherever it was started from — the capture sheet, or the
         // Inbox's own Save button — and every save can change all three counts: a row leaves
         // the Inbox, an entry joins the queue, an FR-807 offer opens. Subscribing once here is
@@ -149,6 +162,65 @@ class LatchApplication : Application() {
 
     /** FR-807's offer, written down so it outlives the process that made it. */
     val undoOffers: UndoOfferStore by lazy { SqliteUndoOfferStore(this) }
+
+    /** FR-1001. The UI over it is FR-1000's; what is here is the record and its defaults. */
+    val settingsStore: SettingsStore by lazy { EncryptedSettingsStore(this) }
+
+    /** FR-603: the user's own recipes. FR-602's eight built-ins are code, in `:recipes`. */
+    val recipeStore: RecipeStore by lazy { SqliteRecipeStore(this) }
+
+    private val _settings = MutableStateFlow(LatchSettings())
+
+    /**
+     * FR-1001, read once at start and again whenever Settings changes it.
+     *
+     * A value rather than a nullable one, unlike [configuredAccounts]: an unread record and a
+     * default record produce the same behaviour, because the defaults *are* the behaviour the
+     * app had before the record existed. There is nothing a screen would do differently while
+     * it waited.
+     */
+    val settings: StateFlow<LatchSettings> = _settings.asStateFlow()
+
+    fun refreshSettings() {
+        appScope.launch { _settings.value = runCatching { settingsStore.read() }.getOrDefault(LatchSettings()) }
+    }
+
+    fun updateSettings(change: (LatchSettings) -> LatchSettings) {
+        appScope.launch {
+            val updated = change(_settings.value)
+            _settings.value = updated
+            runCatching { settingsStore.write(updated) }
+        }
+    }
+
+    private val _recipes = MutableStateFlow(BuiltInRecipes.all)
+
+    /**
+     * FR-602's eight, with any the user has edited shadowing them, and the user's own appended.
+     *
+     * `recipesFor` is what decides that, and it is pure — a built-in is never mutated, so
+     * "edit a built-in" is expressed as a stored recipe carrying its id. That keeps the shipped
+     * set stable across upgrades without inventing a second concept for a customised one.
+     */
+    val recipes: StateFlow<List<Recipe>> = _recipes.asStateFlow()
+
+    fun refreshRecipes() {
+        appScope.launch {
+            val stored = runCatching { recipeStore.all() }.getOrDefault(emptyList())
+            _recipes.value = recipesFor(BuiltInRecipes.all, stored)
+        }
+    }
+
+    /**
+     * FR-605's bundled list, over the years a capture could plausibly reach.
+     *
+     * A window rather than every year, because the calculator asks about specific dates and a
+     * list is cheap only while it is bounded. Three years back and five forward covers a
+     * follow-up on an old capture and a renewal several years out, which are the two ends this
+     * app actually sees.
+     */
+    fun bundledHolidays(today: java.time.LocalDate = java.time.LocalDate.now()): List<Holiday> =
+        ((today.year - 3)..(today.year + 5)).flatMap(IndianHolidays::fixedDateHolidays)
 
     /**
      * FR-215, FR-207. Held here rather than by `CaptureActivity` because loading ML Kit's
@@ -308,6 +380,9 @@ class LatchApplication : Application() {
             scope = appScope,
             sourceLinkTemplate = getString(R.string.capture_source_link),
             pastDateNoteTemplate = getString(R.string.capture_past_date_note),
+            // FR-1001's default lead time, read at write time rather than captured at launch —
+            // Settings can change it while this process lives.
+            defaultReminders = { _settings.value.defaultReminderMinutes },
         )
     }
 
@@ -326,6 +401,11 @@ class LatchApplication : Application() {
                 refreshQueueStatus()
             },
         )
+    }
+
+    /** FR-603, held here for the reason every coordinator is: it outlives the screen. */
+    val recipeCoordinator: RecipeCoordinator by lazy {
+        RecipeCoordinator(store = recipeStore, scope = appScope, onChanged = ::refreshRecipes)
     }
 
     /**

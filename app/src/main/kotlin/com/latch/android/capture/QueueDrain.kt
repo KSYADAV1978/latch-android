@@ -152,6 +152,7 @@ suspend fun drainEntry(
                     end = requireNotNull(item.end),
                     allDay = item.allDay,
                     timeZone = write.timeZone,
+                    reminderMinutes = item.reminderMinutes,
                     metadata = write.metadata,
                 ),
             )

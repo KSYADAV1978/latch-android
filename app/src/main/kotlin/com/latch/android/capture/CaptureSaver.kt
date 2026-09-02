@@ -319,7 +319,14 @@ class CaptureSaver(
      * `strings.xml` rather than in a module that has no access to resources.
      */
     private val pastDateNoteTemplate: String = "",
+    /**
+     * FR-1001's default reminder lead time, applied to a recipe step that names none of its
+     * own. A function rather than a value because Settings can change it while the process
+     * lives, and a saver holding a snapshot from launch would keep writing the old one.
+     */
+    private val defaultReminders: () -> List<Int> = { emptyList() },
 ) {
+    private val defaultReminderMinutes: List<Int> get() = defaultReminders()
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
 
@@ -350,10 +357,18 @@ class CaptureSaver(
         context: ParseContext,
         selected: Set<Int> = result.candidates.indices.toSet(),
         fromInboxId: String? = null,
+        /**
+         * FR-601: the recipe the user applied, and the steps they left ticked (FR-608).
+         *
+         * Where one is present the chain **replaces** the FR-511 candidate list rather than
+         * adding to it — a recipe expands one captured date (`recipeBlocker` refuses the rest),
+         * so there is one date and its expansion is what gets written.
+         */
+        recipe: RecipeApplication? = null,
     ) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
-        scope.launch { perform(captured, result, context, selected, fromInboxId) }
+        scope.launch { perform(captured, result, context, selected, fromInboxId, recipe) }
     }
 
     /**
@@ -444,6 +459,7 @@ class CaptureSaver(
         context: ParseContext,
         selected: Set<Int>,
         fromInboxId: String? = null,
+        recipe: RecipeApplication? = null,
     ) {
         val source = CaptureSource(
             layer = captured.layer,
@@ -453,9 +469,14 @@ class CaptureSaver(
 
         // FR-512, and the end of its interim reading. A capture already confirmed out of the
         // Inbox is not routed back into it.
-        val route =
-            if (fromInboxId != null) SaveRoute.Google
-            else saveRoute(result, selected, context.confidenceThreshold, source)
+        val route = when {
+            fromInboxId != null -> SaveRoute.Google
+            // FR-601: applying a recipe is a stronger confirmation than the FR-512 threshold is
+            // testing for — the user picked a template against a date they can see on screen —
+            // and routing it to the Inbox would discard the chain they chose along the way.
+            recipe != null -> SaveRoute.Google
+            else -> saveRoute(result, selected, context.confidenceThreshold, source)
+        }
 
         if (route is SaveRoute.Inbox) {
             sendToInbox(captured, result, context, route.reason)
@@ -479,21 +500,40 @@ class CaptureSaver(
         val chainId = UUID.randomUUID().toString()
         val capturedAt = Instant.now()
 
-        val draft = draftItems(
-            captured = captured,
-            result = result,
-            context = context,
-            defaults = defaults,
-            captureId = captureId,
-            chainId = chainId,
-            selected = selected,
-            pastDateNoteTemplate = pastDateNoteTemplate,
-        )
-        if (draft is DraftResult.Blocked) {
-            _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)
-            return
+        val items = if (recipe != null) {
+            // FR-601/FR-607/FR-608. The chain replaces the candidate list; `recipeItems` is the
+            // one place a chain's destination is chosen, which is what makes FR-607 structural.
+            recipeItems(
+                planned = recipe.planned,
+                selected = recipe.selected,
+                captureId = captureId,
+                chainId = chainId,
+                defaults = defaults,
+                context = context,
+                defaultReminderMinutes = defaultReminderMinutes,
+            ).ifEmpty {
+                // FR-608 with everything unticked. Nothing to write, and reporting it is better
+                // than a save that appears to succeed and creates nothing.
+                _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)
+                return
+            }
+        } else {
+            val draft = draftItems(
+                captured = captured,
+                result = result,
+                context = context,
+                defaults = defaults,
+                captureId = captureId,
+                chainId = chainId,
+                selected = selected,
+                pastDateNoteTemplate = pastDateNoteTemplate,
+            )
+            if (draft is DraftResult.Blocked) {
+                _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)
+                return
+            }
+            (draft as DraftResult.Ready).items
         }
-        val items = (draft as DraftResult.Ready).items
 
         // ocrUsed reaches FR-805b through sourceBlock below: an OCR capture's description
         // carries an extract around the dates, not everything the recogniser saw.
@@ -508,8 +548,9 @@ class CaptureSaver(
             chainId = chainId,
             capturedAt = capturedAt,
             sourceApp = captured.appId?.let { "android:$it" },
-            // FR-600 recipes are not applied on this path yet.
-            recipeId = null,
+            // §7.2's `latch.recipe`, at last written by something. Absent where no recipe was
+            // applied, never empty — the rule §7.2 applies to every optional key.
+            recipeId = recipe?.recipeId,
         )
         // FR-805, FR-805a for the notification layer and FR-805b for an OCR capture —
         // composed once, here, so no call site can compose it differently.
@@ -865,6 +906,10 @@ class CaptureSaver(
         // the others, turning four items in front of the user into one moved event and three
         // discarded silently. The query is skipped rather than its answer ignored: there is
         // nothing to ask when no answer could be acted on.
+        // SRS 1.25, and a recipe chain is covered by it for the same reason a multi-date
+        // capture is: accepting a reschedule offer would patch one item and write none of the
+        // others. A chain of one — a recipe with a single step — is still offerable, which is
+        // correct: there is nothing else to discard.
         val offerable = items.size == 1
         val reschedule = if (duplicate.found || !offerable) {
             null
@@ -1023,6 +1068,7 @@ class CaptureSaver(
                         end = requireNotNull(item.end),
                         allDay = item.allDay,
                         timeZone = context.zone.id,
+                        reminderMinutes = item.reminderMinutes,
                         metadata = metadata,
                     ),
                 ),

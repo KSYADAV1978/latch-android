@@ -30,6 +30,18 @@ data class Item(
     val calendarId: String? = null,
     val taskListId: String? = null,
     val remoteId: String? = null,
+    /**
+     * FR-601/FR-602: minutes before the start, from the recipe step that produced this item.
+     *
+     * On the item rather than only on [RecipeStep] because the step is gone by the time the
+     * write happens — an item is what a save writes, and a queued one has to survive the
+     * process that drafted it. Empty means Google's own calendar defaults apply, which is what
+     * every item written before recipes existed had.
+     *
+     * Ignored for a task: Google Tasks has no reminder of its own (§8.1 is the same limitation
+     * one field over), so a recipe step that asks for one on a task gets none.
+     */
+    val reminderMinutes: List<Int> = emptyList(),
     val syncState: SyncState = SyncState.DRAFT,
 ) {
     init {

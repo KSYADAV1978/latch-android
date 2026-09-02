@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,11 +44,14 @@ import com.latch.android.capture.DraftBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
 import com.latch.android.capture.DateSuggestion
+import com.latch.android.capture.RecipeBlocker
 import com.latch.android.capture.SaveRoute
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.TypeChangeCost
 import com.latch.android.capture.canOverrideTo
 import com.latch.android.capture.dateFrom
+import com.latch.android.capture.recipeBlocker
+import com.latch.android.capture.skippedDaysOf
 import com.latch.android.capture.typeChangeCost
 import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.candidateBlocker
@@ -60,8 +64,10 @@ import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.PageProgress
+import com.latch.core.model.Recipe
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
+import com.latch.recipes.PlannedItem
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -129,6 +135,16 @@ fun CaptureScreen(
      * `ParseContext` takes `now` rather than reading a clock (FR-515).
      */
     today: LocalDate = LocalDate.now(),
+    /** FR-602/FR-603: the recipes on offer — the built-ins, with the user's shadowing them. */
+    recipes: List<Recipe> = emptyList(),
+    /** FR-601: the recipe applied, by id. Null is "no recipe", which is the default. */
+    appliedRecipeId: String? = null,
+    onApplyRecipe: (String?) -> Unit = {},
+    /** FR-601: the chain the applied recipe produced, in step order. */
+    recipeSteps: List<PlannedItem> = emptyList(),
+    /** FR-608: the steps still ticked, by index. */
+    recipeSelection: Set<Int> = emptySet(),
+    onToggleRecipeStep: (Int) -> Unit = {},
     /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
     extracting: Boolean = false,
     /**
@@ -205,6 +221,18 @@ fun CaptureScreen(
                 )
             } else {
                 CaptureBody(captured, result, selected, onToggleCandidate, onAssignDate, onOverrideType, today)
+
+                // FR-601 to FR-608. Below the dates, because a recipe is applied *to* a date
+                // and the user has to see which one first.
+                RecipeSection(
+                    result = result,
+                    recipes = recipes,
+                    appliedRecipeId = appliedRecipeId,
+                    onApplyRecipe = onApplyRecipe,
+                    steps = recipeSteps,
+                    selection = recipeSelection,
+                    onToggleStep = onToggleRecipeStep,
+                )
 
                 // FR-207: the cap is reported, never applied silently. Only where it bit —
                 // "first 10 of 10 pages read" is a message about nothing, and a user who
@@ -382,6 +410,126 @@ private fun CaptureBody(
         }
     }
 
+}
+
+/**
+ * FR-601 to FR-608: the recipe chooser, and the chain it produces.
+ *
+ * **Not offered where FR-601 cannot be honoured**, and the reason is on screen rather than
+ * expressed as a missing control: a recipe expands *one* captured date, and a capture holding
+ * several raises a question this specification has not answered — which date anchors the chain,
+ * or whether four chains are produced, and what FR-807's undo then groups. Offering the chooser
+ * and silently anchoring on the primary would be the multi-image share failure again: accept
+ * the gesture, act on one of the things, say nothing about the rest.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RecipeSection(
+    result: ParseResult,
+    recipes: List<Recipe>,
+    appliedRecipeId: String?,
+    onApplyRecipe: (String?) -> Unit,
+    steps: List<PlannedItem>,
+    selection: Set<Int>,
+    onToggleStep: (Int) -> Unit,
+) {
+    if (recipes.isEmpty()) return
+    when (recipeBlocker(result)) {
+        RecipeBlocker.SEVERAL_DATES -> {
+            Note(stringResource(R.string.capture_recipe_one_date_only))
+            return
+        }
+        // Nothing to expand and nothing to explain: a capture with no date has an Inbox route
+        // and a picker already, and a recipe chooser beside them would be a fourth thing to
+        // read on a screen that is already asking for a decision.
+        RecipeBlocker.NO_DATE -> return
+        null -> Unit
+    }
+
+    Note(stringResource(R.string.capture_recipe_prompt))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            selected = appliedRecipeId == null,
+            onClick = { onApplyRecipe(null) },
+            label = { Text(stringResource(R.string.capture_recipe_none)) },
+        )
+        recipes.forEach { recipe ->
+            FilterChip(
+                selected = appliedRecipeId == recipe.id,
+                onClick = { onApplyRecipe(recipe.id) },
+                label = { Text(recipe.name) },
+            )
+        }
+    }
+
+    // FR-608: every step is tickable, all ticked to begin with — the same shape FR-511's date
+    // list has, and for the same reason.
+    steps.forEachIndexed { index, step ->
+        RecipeStepRow(
+            step = step,
+            checked = index in selection,
+            onToggle = { onToggleStep(index) },
+        )
+    }
+}
+
+@Composable
+private fun RecipeStepRow(step: PlannedItem, checked: Boolean, onToggle: () -> Unit) {
+    val skipped = skippedDaysOf(step)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StepTypeBadge(step)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = (step.start?.toLocalDate() ?: step.dueDate)?.format(DATE_FORMAT).orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Text(
+                text = step.title,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            // FR-606: "the UI shall say so explicitly". Shown only where the calculation
+            // actually stepped over something — a note about nothing is worse than none, and
+            // AC-06 asks for the statement on the case where it did.
+            if (skipped.nonWorkingDays > 0) {
+                Note(
+                    pluralStringResource(
+                        R.plurals.capture_recipe_skipped_days,
+                        skipped.nonWorkingDays,
+                        skipped.nonWorkingDays,
+                    )
+                )
+            }
+            if (skipped.holidays.isNotEmpty()) {
+                Note(stringResource(R.string.capture_recipe_skipped_holidays, skipped.holidays.joinToString(", ")))
+            }
+        }
+    }
+}
+
+/** FR-508 again: a chain's items carry badges too, and a recipe chain is a chain. */
+@Composable
+private fun StepTypeBadge(step: PlannedItem) {
+    val label = when (step.type) {
+        ItemType.EVENT -> R.string.badge_event
+        ItemType.TASK -> R.string.badge_task
+    }
+    Text(
+        text = stringResource(label),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier
+            .background(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small,
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 /**

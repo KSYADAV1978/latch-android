@@ -28,7 +28,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
+import com.latch.android.recipes.newRecipe
 import com.latch.android.ui.InboxScreen
+import com.latch.android.ui.RecipesScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
 import com.latch.data.QueueStatus
@@ -107,7 +109,10 @@ class MainActivity : ComponentActivity() {
                     // The one piece of navigation this app has. A `when` over a screen value
                     // rather than a navigation library: two destinations do not justify a
                     // dependency (NFR-501), and the Inbox is reached from exactly one place.
-                    var showingInbox by remember { mutableStateOf(false) }
+                    // Three destinations now, and still a `when` rather than a navigation
+                    // library: each is reached from exactly one place and none takes arguments,
+                    // which is a long way short of what a dependency would buy (NFR-501).
+                    var screen by remember { mutableStateOf(HomeScreen.HOME) }
 
                     when {
                         // Stored defaults have not been read yet. This lasts a frame or
@@ -118,10 +123,10 @@ class MainActivity : ComponentActivity() {
                         // The outcome covers the account configured moments ago in this
                         // process; the stored list covers every earlier launch.
                         outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true ->
-                            if (showingInbox) {
-                                InboxScreen(
+                            when (screen) {
+                                HomeScreen.INBOX -> InboxScreen(
                                     rows = app.inboxCoordinator.rows.collectAsState().value,
-                                    onBack = { showingInbox = false },
+                                    onBack = { screen = HomeScreen.HOME },
                                     onAssignDate = app.inboxCoordinator::assignDate,
                                     onEditTitle = app.inboxCoordinator::editTitle,
                                     onOverrideType = app.inboxCoordinator::overrideType,
@@ -130,8 +135,26 @@ class MainActivity : ComponentActivity() {
                                     onDiscard = app.inboxCoordinator::discard,
                                     saveState = app.captureSaver.state.collectAsState().value,
                                 )
-                            } else {
-                                Home(
+
+                                HomeScreen.RECIPES -> RecipesScreen(
+                                    recipes = app.recipes.collectAsState().value,
+                                    onBack = { screen = HomeScreen.HOME },
+                                    onSave = app.recipeCoordinator::save,
+                                    onDuplicate = {
+                                        app.recipeCoordinator.duplicate(it, getString(R.string.recipes_copy_suffix))
+                                    },
+                                    onDelete = app.recipeCoordinator::delete,
+                                    onCreate = {
+                                        app.recipeCoordinator.save(
+                                            newRecipe(
+                                                name = getString(R.string.recipes_new_name),
+                                                stepTitle = getString(R.string.recipes_new_step_title),
+                                            )
+                                        )
+                                    },
+                                )
+
+                                HomeScreen.HOME -> Home(
                                     queue = app.queueStatus.collectAsState().value,
                                     inboxCount = app.inboxCount.collectAsState().value,
                                     undoOffer = app.pendingUndo.collectAsState().value,
@@ -143,7 +166,11 @@ class MainActivity : ComponentActivity() {
                                     onRetryQueue = { app.retryQueueNow() },
                                     onOpenInbox = {
                                         app.inboxCoordinator.refresh()
-                                        showingInbox = true
+                                        screen = HomeScreen.INBOX
+                                    },
+                                    onOpenRecipes = {
+                                        app.refreshRecipes()
+                                        screen = HomeScreen.RECIPES
                                     },
                                     onUndo = { app.undoPendingOffer() },
                                 )
@@ -170,6 +197,8 @@ private fun Home(
     onSignIn: () -> Unit = {},
     onRetryQueue: () -> Unit = {},
     onOpenInbox: () -> Unit = {},
+    /** FR-602/FR-603: the recipe list, which is also where a user's own are made. */
+    onOpenRecipes: () -> Unit = {},
     onUndo: () -> Unit = {},
 ) {
     Column(
@@ -244,6 +273,12 @@ private fun Home(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        // FR-602/FR-603. Always available, unlike the counts above: a recipe list with
+        // nothing in it is impossible — eight ship — so there is no empty state to hide.
+        TextButton(onClick = onOpenRecipes) {
+            Text(stringResource(R.string.recipes_open))
+        }
+
         // FR-806's manual retry, which its own note recorded as absent until Settings existed.
         // Offered whenever anything is in the queue at all, given-up entries included: those
         // are revived by the tap, because the user has usually done something between the
@@ -264,3 +299,6 @@ private fun StoredUndoOffer.secondsLeft(now: Instant): Int {
     val millis = Duration.between(now, expiresAt).toMillis()
     return if (millis <= 0) 0 else ((millis + 999) / 1000).toInt()
 }
+
+/** The three places this app can be. See the note at the `when` that switches between them. */
+private enum class HomeScreen { HOME, INBOX, RECIPES }

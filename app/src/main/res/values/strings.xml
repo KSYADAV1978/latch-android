@@ -197,6 +197,51 @@
     <string name="inbox_saving">Saving…</string>
     <string name="inbox_save_failed">Could not save that to Google. It is still here — try again.</string>
 
+    <!-- ===== Recipes, FR-601 to FR-608 ===== -->
+
+    <!--
+      FR-601: a recipe expands one captured date into a chain. The chooser is on the
+      confirmation sheet because that is where the date is, and the chain replaces the list of
+      dates rather than adding to it.
+    -->
+    <string name="capture_recipe_none">No recipe</string>
+    <string name="capture_recipe_prompt">Expand with a recipe:</string>
+    <!-- FR-601's own narrowing, said on screen rather than left as a missing control. -->
+    <string name="capture_recipe_one_date_only">A recipe expands one date, and this capture has several.</string>
+    <!-- FR-606: "weekend skipped — 3 working days", in the requirement's own shape. -->
+    <plurals name="capture_recipe_skipped_days">
+        <item quantity="one">weekend or rest day skipped (%1$d day)</item>
+        <item quantity="other">weekend or rest days skipped (%1$d days)</item>
+    </plurals>
+    <string name="capture_recipe_skipped_holidays">Skipped: %1$s</string>
+
+    <string name="recipes_title">Recipes</string>
+    <string name="recipes_open">Recipes</string>
+    <string name="recipes_back">Back</string>
+    <string name="recipes_blurb">A recipe turns one date into a set of related items — the meeting, the prep, the follow-up.</string>
+    <!-- FR-603: create, edit, duplicate, delete. -->
+    <string name="recipes_new">New recipe</string>
+    <string name="recipes_duplicate">Duplicate</string>
+    <string name="recipes_delete">Delete</string>
+    <string name="recipes_edit">Edit</string>
+    <string name="recipes_done">Done</string>
+    <string name="recipes_name">Name</string>
+    <string name="recipes_add_step">Add a step</string>
+    <string name="recipes_remove_step">Remove</string>
+    <string name="recipes_step_title">Title template</string>
+    <string name="recipes_step_offset">Days</string>
+    <string name="recipes_unit_calendar">calendar days</string>
+    <string name="recipes_unit_working">working days</string>
+    <string name="recipes_direction_before">before</string>
+    <string name="recipes_direction_after">after</string>
+    <string name="recipes_built_in">Built in</string>
+    <!-- FR-603: a built-in is never mutated; editing one keeps a copy that shadows it. -->
+    <string name="recipes_edited_built_in">Edited copy of a built-in recipe.</string>
+    <string name="recipes_template_hint">Use {title} where the captured title should go.</string>
+    <string name="recipes_new_name">My recipe</string>
+    <string name="recipes_new_step_title">{title}</string>
+    <string name="recipes_copy_suffix"> (copy)</string>
+
     <!-- ===== First-run setup, FR-101 to FR-110 ===== -->
 
     <string name="setup_step_counter">Step %1$d of %2$d</string>

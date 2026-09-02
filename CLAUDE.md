@@ -658,7 +658,49 @@ pure and applied in exactly one place, so the badge, the checkbox, the blocker a
 read the same rows — a screen that applied them itself would eventually show one thing and save
 another.
 
-Still not built: Settings (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
+**Recipes reach a screen (FR-601 to FR-608).** A chooser on the confirmation sheet expands one
+captured date into a chain, each step tickable (FR-608) and each saying which non-working days
+it stepped over (FR-606). `RecipesScreen` is FR-603's editor. Five things there are readings.
+
+**A recipe is offered only for a capture holding exactly one date** — the same narrowing SRS
+1.25 took for FR-804, for the same reason: FR-601 expands *one* date, and four raises a question
+the SRS has never asked. The reason is on screen rather than expressed as a missing control.
+
+**Applying a recipe routes to Google whatever FR-512's threshold says.** Picking a template
+against a date the user can see is a stronger confirmation than the threshold tests for.
+
+**FR-607 holds structurally**: `recipeItems` is the single place a chain's destination is
+chosen. `Recipe.targetCalendarId` is deliberately unused — routing to a calendar the user has
+not seen is what FR-906 forbids, and the picker that fixes it arrives with FR-905 in Settings.
+
+**FR-603 never mutates a built-in.** FR-602's eight ship as code; editing one stores a copy
+carrying its id, which shadows it. Deleting that copy restores the shipped one; deleting one of
+the user's own removes it. A duplicate always mints a new id.
+
+**Reminders finally reach Google.** `RecipeStep.reminderOffsets` existed and nothing read it, so
+FR-602's "meeting with preparation" shipped a thirty-minute reminder that never left the device.
+They are written as explicit overrides and **omitted entirely where there are none**, which
+leaves Google's own calendar defaults in force — an empty override list would mean "no reminders
+at all", which is a different request and a decision this app has never taken. Tasks get none:
+Google Tasks has no reminder, which is §8.1 one field over. `Item` carries them and the queue
+record goes to version 6.
+
+**An SRS contradiction is resolved rather than worked around.** §5.8 said a recipe's steps carry
+different `item_key`s; §7.2 at v1.23 says every item of one capture shares one and records that
+the per-item alternative was rejected. v1.23 governs, §5.8's sentence is corrected in place, and
+SRS 1.45 says why — a second client that implemented the withdrawn sentence would derive keys no
+other client reproduces.
+
+**FR-1001's settings record is built ahead of its UI** (`LatchSettings`, `EncryptedSettingsStore`),
+holding the working week, FR-605's holiday additions and removals, the date order, the default
+duration and reminder lead times, the FR-512 threshold, the time zone, FR-1003's per-layer
+toggles and FR-905's routing rules. Its defaults are field for field the behaviour the app
+already had, so an unreadable record is a working app with some preferences forgotten. Slice 5's
+Settings screen is UI over it; FR-905's rules are stored and **not yet applied**.
+
+AC-06 is reachable for the first time.
+
+Still not built: Settings' UI (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
 the calendar list is not refreshed on launch and a stored destination that has been deleted or
 has lost write access is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where
 it goes. NFR-205's revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op —
@@ -750,3 +792,25 @@ a narrow floating dialog — which is exactly the class of defect the FR-804 off
 | FR-510 per candidate | "Invoice dated 12 March, payment due 20 September 2027" → **two** items: an undated follow-up and a task due 20 Sep | as quoted |
 | A queued follow-up keeps its note | Aeroplane mode, capture a past date, reconnect: the note survives the queue (record v5) and is in the item Google receives | as above, offline |
 | **The action row still fits** | With chips, a badge, a cost note and Save on one sheet, nothing clips and nothing wraps mid-word. This is the defect class the FR-804 offer already produced once | a past-dated multi-row capture |
+
+### Slice 4 — recipes, FR-601 to FR-608
+
+The arithmetic AC-06 pins down is tested; what is not is that a chain of three reaches Google
+intact, that a reminder actually fires, and that the editor is usable on a phone.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **AC-06** | "Project sync on 8 September 2026 at 11:00" + *Meeting + prep* → the prep task lands on **Thu 3 Sep**, and the row says the weekend was skipped. 8 Sep 2026 is a Tuesday, which is what makes the weekend get crossed | as quoted |
+| The chain reaches Google intact | Three items — one event, two tasks — all in the Latch calendar and the chosen list, sharing one `latch.chain_id`, and `latch.recipe` reading `builtin.meeting_prep`. **Inspect the written items**, not the screen | as above |
+| **A reminder actually fires** | The event in Google Calendar carries a 30-minute popup reminder rather than the calendar's default. This has never run: `reminderOffsets` reached nothing until this slice | as above |
+| Reminders are omitted where there are none | An ordinary capture with no recipe still uses the calendar's own defaults — not "no reminders", which is what an empty override list would have meant | "Kickoff 8 September 2027 at 9am" |
+| **FR-608** | Untick the prep step: **two** items are written, and nothing lands on 3 Sep | as above |
+| FR-607 | Every item of the chain is in the same calendar. Under Option A with a non-default destination too | as above |
+| The chooser is absent for a multi-date capture | A four-date capture shows the reason, not a chooser | any multi-date capture |
+| A recipe on an all-day capture | "Project sync on 8 September 2026" expands to an **all-day** event, not a meeting at 00:00 | as quoted |
+| FR-605's working week | Set a six-day week; the same AC-06 capture puts prep on **Fri 4 Sep** instead of Thursday. Needs the Settings screen (slice 5) or a seeded record | as AC-06 |
+| FR-605's holidays | Add a holiday on the prep day; the shift steps over it and the row names it | any working-day step |
+| **FR-603, all four verbs** | Create, edit, duplicate, delete — each surviving a return to Home and a cold start. **Editing a built-in must not change the others**, and deleting the edited copy must restore the shipped one | the Recipes screen |
+| The editor is usable on a phone | Six filter chips, a number field and a template field per step. This is the same narrow-dialog class as the FR-804 offer's clipped label, one screen over | a recipe with three steps |
+| **A queued chain keeps its reminders** | Aeroplane mode, apply a recipe, save, reconnect: the drained event still carries the reminder (queue record v6) | AC-06's capture, offline |
+| FR-803 over a chain | Re-capturing the same text with the same recipe answers "Already saved" — the chain shares one `source_hash`, so one check covers it | AC-06's capture, twice |
