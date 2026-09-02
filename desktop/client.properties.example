@@ -1,0 +1,15 @@
+# FR-001's third OAuth client: a **Desktop app** client in the same Google Cloud project as
+# the Android one. Copy this file to %LOCALAPPDATA%\Latch\client.properties and fill it in, or
+# set LATCH_GOOGLE_CLIENT_ID in the environment instead.
+#
+# Nothing in this repository can create it: it is made in the Cloud Console, against the same
+# project, and the consent screen's test-user list governs who may sign in until the FR-002
+# scopes clear the review SRS section 8.6 describes.
+#
+# The secret is not a secret in any meaningful sense — Google issues one for a Desktop client
+# and it ships inside every copy of the application. That is exactly why RFC 8252 requires
+# PKCE for this client type, and PKCE rather than this value is what protects the exchange.
+# It is still kept out of the repository, because a credential in a history cannot be removed
+# from it.
+client.id=
+client.secret=

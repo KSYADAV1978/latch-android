@@ -26,6 +26,11 @@ dependencies {
     implementation(project(":recipes"))
     implementation(project(":wire"))
 
+    // FR-800's write path and AC-17's endpoint guard, shared with the Android client so the
+    // two compose identical requests. See google/build.gradle.kts.
+    implementation(project(":google"))
+    implementation(libs.kotlinx.coroutines.core)
+
     // junit5 rather than the plain artifact: an environment-dependent test must report as
     // SKIPPED and not as passed. `CLAUDE.md` records why — an inconclusive run looks exactly
     // like a pass in a log — and `Assumptions` is what makes the distinction visible.
