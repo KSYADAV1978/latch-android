@@ -16,7 +16,9 @@ import com.latch.android.capture.ruleFromOverride
 import com.latch.android.capture.shouldDrainNow
 import com.latch.android.inbox.InboxCoordinator
 import com.latch.android.recipes.RecipeCoordinator
+import com.latch.android.settings.DestinationCheck
 import com.latch.android.settings.SettingsCoordinator
+import com.latch.android.settings.checkStoredDestination
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
@@ -34,6 +36,7 @@ import com.latch.data.recipesFor
 import com.latch.data.EncryptedWriteQueueStore
 import com.latch.data.LocalItemIndex
 import com.latch.data.QueueStatus
+import com.latch.data.RevokeOutcome
 import com.latch.data.SqliteCaptureInbox
 import com.latch.data.SqliteItemIndex
 import com.latch.data.SqliteUndoOfferStore
@@ -41,7 +44,9 @@ import com.latch.data.StoredUndoOffer
 import com.latch.data.UndoOfferStore
 import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
+import com.latch.data.deleteAllLocalData
 import com.latch.data.googleTasksApi
+import com.latch.data.revokeGrant
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.Holiday
 import com.latch.core.model.Recipe
@@ -103,14 +108,8 @@ class LatchApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // TODO(FR-908): this is where the stored destination first comes back into the app,
-        //  and so where re-validation belongs once CalendarApi is real. FR-908 requires the
-        //  calendar list to be refreshed on launch, and a `destinationCalendarId` that has
-        //  gone missing or lost write access to fall back to the primary calendar with the
-        //  user told. Nothing reads the id yet, which is the only reason this is a comment
-        //  rather than a defect: StubCalendarApi mints a fresh latch-N id every process, so
-        //  a stored id already fails to name anything the next launch can see.
         refreshAccounts()
+        refreshDestinationOnLaunch()
         refreshQueueStatus()
         refreshInboxCount()
         refreshUndoOffer()
@@ -476,6 +475,107 @@ class LatchApplication : Application() {
                 refreshAccounts()
             },
         )
+    }
+
+    private val _destinationFellBack = MutableStateFlow<String?>(null)
+
+    /**
+     * FR-908: the destination the app fell back **from**, where it had to, so the home screen
+     * can say so. Null is the ordinary case and draws nothing.
+     */
+    val destinationFellBack: StateFlow<String?> = _destinationFellBack.asStateFlow()
+
+    fun acknowledgeFallback() {
+        _destinationFellBack.value = null
+    }
+
+    /**
+     * FR-908: "The calendar list shall be refreshed on launch. If a stored destination is
+     * missing or has lost write access, the app shall fall back to the primary calendar and
+     * inform the user."
+     *
+     * **Off the launch path entirely.** It runs in the application scope and blocks nothing;
+     * a capture that arrives while it is in flight uses the stored destination, which is the
+     * right answer either way — the check exists to correct a destination, not to gate one.
+     *
+     * **A failure changes nothing**, and that is the load-bearing half. `listWritableCalendars`
+     * fails for want of a network far more often than because a calendar was deleted, and
+     * falling back to primary because the phone was on a train would move a user's captures for
+     * a reason that has nothing to do with their calendars. `checkStoredDestination` holds that
+     * rule and is pure; this is the part that needs a network.
+     */
+    fun refreshDestinationOnLaunch() {
+        appScope.launch {
+            val stored = runCatching { accountDefaults.allAccounts().firstOrNull() }.getOrNull()
+                ?: return@launch
+            val calendars = runCatching { calendarApi.listWritableCalendars() }.getOrNull().orEmpty()
+            when (val check = checkStoredDestination(stored, calendars)) {
+                DestinationCheck.Unchanged, DestinationCheck.Indeterminate -> Unit
+
+                // Silent: the destination has not moved, and telling someone their own rename
+                // went through is noise. FR-904's chip is meant to look like Google.
+                is DestinationCheck.Refreshed -> {
+                    runCatching { accountDefaults.save(check.defaults) }
+                    refreshAccounts()
+                }
+
+                // FR-908's "and inform the user". Their captures are about to start landing
+                // somewhere they did not choose, which is the one case worth interrupting for.
+                is DestinationCheck.FellBack -> {
+                    runCatching { accountDefaults.save(check.defaults) }
+                    _destinationFellBack.value = check.previousName
+                    refreshAccounts()
+                }
+            }
+        }
+    }
+
+    private val _revokeOutcome = MutableStateFlow<RevokeOutcome?>(null)
+
+    /** NFR-205: what the last revoke actually managed. Null until one is asked for. */
+    val revokeOutcome: StateFlow<RevokeOutcome?> = _revokeOutcome.asStateFlow()
+
+    /**
+     * NFR-205: "a single action to revoke access and delete all local data."
+     *
+     * The revoke goes **first**, because it needs a token — deleting local data first would
+     * leave nothing to authenticate with and the grant standing in the user's Google account
+     * for ever, which is the half they cannot fix afterwards without knowing to go to
+     * `myaccount.google.com`.
+     *
+     * The local deletion happens **whether or not** the revoke succeeded. The user asked for
+     * their data gone and a network failure must not leave it. The outcome says which half
+     * worked, so a failed revoke is reported rather than swallowed and the user can be told to
+     * remove the grant by hand.
+     */
+    fun revokeAndDeleteEverything() {
+        appScope.launch {
+            val revoked = runCatching {
+                revokeGrant(authClient.accessToken())
+            }.getOrDefault(false)
+
+            val deleted = deleteAllLocalData(
+                context = this@LatchApplication,
+                defaultsStore = accountDefaults,
+                inbox = inbox,
+                index = itemIndex,
+                undoOffers = undoOffers,
+                recipes = recipeStore,
+                settings = settingsStore,
+                secrets = secrets,
+                queue = writeQueue,
+            )
+
+            _revokeOutcome.value = RevokeOutcome(revoked, deleted)
+            // Everything on screen is now describing data that is gone. FR-101 takes over from
+            // here: with no configured account, the next launch runs setup.
+            refreshAccounts()
+            refreshQueueStatus()
+            refreshInboxCount()
+            refreshUndoOffer()
+            refreshSettings()
+            refreshRecipes()
+        }
     }
 
     /**

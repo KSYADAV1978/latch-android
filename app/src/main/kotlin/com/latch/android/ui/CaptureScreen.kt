@@ -160,6 +160,14 @@ fun CaptureScreen(
     onDeclineRule: () -> Unit = {},
     /** FR-1003: this capture arrived through a layer the user has switched off. */
     layerDisabled: Boolean = false,
+    /**
+     * FR-1005: export what is on this sheet as an `.ics` file.
+     *
+     * Available beside Save rather than instead of it, and **before** the save as well as
+     * after: FR-1005 says "any item or chain", and a chain the user exports without writing to
+     * Google is a perfectly ordinary thing to want. Nothing about exporting writes anything.
+     */
+    onExportIcs: (() -> Unit)? = null,
     /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
     extracting: Boolean = false,
     /**
@@ -331,6 +339,14 @@ fun CaptureScreen(
             ) {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
+                }
+                // FR-1005. Shown only where there is something to export, which is anything
+                // the sheet could draft.
+                if (onExportIcs != null && result != null && captured != null) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onExportIcs) {
+                        ActionLabel(stringResource(R.string.capture_export_ics))
+                    }
                 }
                 if (saveIsOffered(saveState)) {
                     Spacer(Modifier.width(8.dp))

@@ -175,10 +175,14 @@ class MainActivity : ComponentActivity() {
                                     onSetEndpoint = app.settingsCoordinator::setEndpoint,
                                     onClearEndpoint = app.settingsCoordinator::clearEndpoint,
                                     onSetWebhookEnabled = app.settingsCoordinator::setWebhookEnabled,
+                                    onRevokeAndDelete = { app.revokeAndDeleteEverything() },
+                                    revokeOutcome = app.revokeOutcome.collectAsState().value,
                                 )
 
                                 HomeScreen.HOME -> Home(
                                     queue = app.queueStatus.collectAsState().value,
+                                    fellBackFrom = app.destinationFellBack.collectAsState().value,
+                                    onAcknowledgeFallback = { app.acknowledgeFallback() },
                                     inboxCount = app.inboxCount.collectAsState().value,
                                     undoOffer = app.pendingUndo.collectAsState().value,
                                     // FR-806a. The consent screen can only go out from here —
@@ -221,6 +225,9 @@ private fun Home(
     inboxCount: Int = 0,
     /** FR-807: an offer that outlived the window that made it. */
     undoOffer: StoredUndoOffer? = null,
+    /** FR-908: the destination that has gone, so this says where captures go now. */
+    fellBackFrom: String? = null,
+    onAcknowledgeFallback: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onRetryQueue: () -> Unit = {},
     onOpenInbox: () -> Unit = {},
@@ -237,6 +244,20 @@ private fun Home(
         Text(stringResource(R.string.home_headline), style = MaterialTheme.typography.headlineMedium)
         Text(stringResource(R.string.home_setup_pending), style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(R.string.home_try_it), style = MaterialTheme.typography.bodyMedium)
+
+        // FR-908: "shall fall back to the primary calendar and **inform the user**". Their
+        // captures are about to start landing somewhere they did not choose, which is the one
+        // thing on this screen worth an acknowledgement rather than a passive line.
+        if (fellBackFrom != null) {
+            Text(
+                text = stringResource(R.string.home_destination_fell_back, fellBackFrom),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TextButton(onClick = onAcknowledgeFallback) {
+                Text(stringResource(R.string.home_destination_fell_back_ok))
+            }
+        }
 
         // FR-807, where the capture window has gone. The countdown is read here rather than
         // trusted to a timer, and the offer disappears of its own accord when it lapses —

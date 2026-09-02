@@ -91,8 +91,27 @@ class GoogleAuthClient(
         return fetchPrimaryAccount(token)
     }
 
-    /** NFR-205. Revocation is not built; the requirement owns a Settings action that does not exist yet. */
-    override suspend fun signOut(accountId: String) = Unit
+    /**
+     * NFR-205, the half this class owns.
+     *
+     * **Play services has no revoke to call.** `AuthorizationClient` grants authorization and
+     * offers nothing to take it back; `GoogleSignIn.revokeAccess` belonged to the sign-in API
+     * this app deliberately does not use. So the revoke is the OAuth2 endpoint, which
+     * `revokeGrant` in `:data` issues through the same `ALLOWED_HOSTS` guard as every other
+     * request — `oauth2.googleapis.com` has been on that list since the guard was written,
+     * against this call.
+     *
+     * What happens here is the local half of it: the cached token is dropped and Play services
+     * is told to forget its own. Without that a token revoked at Google would still be handed
+     * back from a cache for as long as it had left to live, and the next request would fail in
+     * a way that looks like a network fault rather than like a revoked grant.
+     *
+     * The account-wide deletion is `LatchApplication.revokeAndDeleteEverything`, because it
+     * reaches every store in the app and this class knows about none of them.
+     */
+    override suspend fun signOut(accountId: String) {
+        cachedToken?.let { invalidate(it) }
+    }
 
     // FR-806a: the write path never shows UI. A capture that needs consent is queued.
     override suspend fun accessToken(): String = cachedToken ?: authorize(interactive = false)

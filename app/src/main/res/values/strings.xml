@@ -197,6 +197,25 @@
     <string name="inbox_saving">Saving…</string>
     <string name="inbox_save_failed">Could not save that to Google. It is still here — try again.</string>
 
+    <!-- FR-1005: .ics export for any item or chain. -->
+    <string name="capture_export_ics">Export .ics</string>
+    <string name="ics_share_title">Share this calendar file</string>
+
+    <!-- FR-908: the stored destination has gone, or lost write access. -->
+    <string name="home_destination_fell_back">"%1$s" is no longer available, so captures now go to your main calendar. Change it in Settings.</string>
+    <string name="home_destination_fell_back_ok">Got it</string>
+
+    <!-- NFR-205: one action to revoke access and delete all local data. -->
+    <string name="settings_danger">Disconnect and delete</string>
+    <string name="settings_revoke">Disconnect Google and delete everything on this phone</string>
+    <string name="settings_revoke_warning">This removes Latch\'s access to your Google account and deletes everything Latch keeps on this phone — your Inbox, anything waiting to be saved, your recipes and your settings. Items already in Google Calendar and Google Tasks are left exactly as they are.</string>
+    <string name="settings_revoke_confirm">Yes, disconnect and delete</string>
+    <string name="settings_revoke_cancel">Cancel</string>
+    <string name="settings_revoke_done">Disconnected. Everything Latch kept on this phone is gone.</string>
+    <!-- NFR-303's instinct applied to something that is not a write: say which half failed. -->
+    <string name="settings_revoke_partial">Everything on this phone is gone, but Latch could not tell Google to remove its access. Remove it at myaccount.google.com under "Your connections to third-party apps".</string>
+    <string name="settings_revoke_failed">Could not delete everything on this phone. Try again.</string>
+
     <!-- ===== Settings, FR-1000 series ===== -->
 
     <string name="settings_title">Settings</string>

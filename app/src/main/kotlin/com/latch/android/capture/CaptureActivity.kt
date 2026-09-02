@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
 import com.latch.android.LatchApplication
+import com.latch.android.R
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.ocr.OcrFailure
@@ -293,6 +294,39 @@ class CaptureActivity : ComponentActivity() {
                     },
                     today = today,
                     layerDisabled = layerDisabled,
+                    // FR-1005. Drafted through exactly the same path a save uses, so an
+                    // exported file and a written item cannot describe different things.
+                    onExportIcs = onExport@{
+                        val text = captured ?: return@onExport
+                        val parsedResult = result ?: return@onExport
+                        val account = destinations?.firstOrNull() ?: return@onExport
+                        val items = if (appliedRecipeId != null) {
+                            recipeItems(
+                                planned = recipeSteps,
+                                selected = recipeSelection,
+                                captureId = "export",
+                                chainId = "export",
+                                defaults = account,
+                                context = parseContext,
+                            )
+                        } else {
+                            (draftItems(
+                                captured = text,
+                                result = parsedResult,
+                                context = parseContext,
+                                defaults = account,
+                                captureId = "export",
+                                chainId = "export",
+                                selected = selected,
+                                pastDateNoteTemplate = getString(R.string.capture_past_date_note),
+                            ) as? DraftResult.Ready)?.items.orEmpty()
+                        }
+                        shareAsIcs(this@CaptureActivity, items, parseContext.zone.id)?.let {
+                            startActivity(
+                                Intent.createChooser(it, getString(R.string.ics_share_title))
+                            )
+                        }
+                    },
                     destinationChoices = if (showingDestinations) {
                         app.settingsCoordinator.destinations.collectAsState().value.calendars
                     } else {

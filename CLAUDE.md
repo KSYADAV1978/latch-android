@@ -744,11 +744,39 @@ NFR-102's note is explicit about the second.
 AC-12 is met by what Settings does *not* do: switching mode writes one field and touches nothing
 else.
 
-Still not built: FR-1005's `.ics` export and the notification listener (FR-208). FR-908 is not built either —
-the calendar list is not refreshed on launch and a stored destination that has been deleted or
-has lost write access is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where
-it goes. NFR-205's revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op —
-`LatchDatabase.deleteEverything` and the stores' `clear` are in place for it.
+**FR-908, NFR-205 and FR-1005 are built.** Four things there are decisions.
+
+**FR-908's failure case is a failure to *read the list*, not a missing calendar.**
+`calendarList.list` fails for want of a network far more often than because a calendar was
+deleted, so an unreadable list changes nothing — falling back to primary because the phone was
+on a train would move a user's captures for a reason unrelated to their calendars. "Missing" and
+"lost write access" are one test, because FR-901 already filters to owner and writer. A rename is
+corrected silently; only a fallback informs the user, which is the one case where their captures
+start landing somewhere they did not choose.
+
+**NFR-205's order matters.** The revoke goes first because it needs a token; the local deletion
+happens whether or not it succeeded, because the user asked for their data gone. The outcome
+says which half worked. Play services has no revoke to call — `AuthorizationClient` offers none
+and `GoogleSignIn.revokeAccess` belongs to the API this app does not use — so it is the OAuth2
+endpoint through the same guard as everything else. `oauth2.googleapis.com` was listed in
+`ALLOWED_HOSTS` against exactly this call, so the allowlist does not move. A 400 counts as
+success, on `alreadyGone`'s reasoning. The deletion is **enumerated, not swept**: adding a store
+is a change to `deleteAllLocalData`, visible in a diff, rather than something a directory wipe
+would silently start missing.
+
+**FR-1005 is treated as a wire format**, because the reader is somebody else's calendar program.
+CRLF, folding at 75 **octets** (a Devanagari title folded by characters would be cut through a
+UTF-8 sequence), backslash escaped first. A task is a `VTODO`, an undated one carries no `DUE`,
+and **no §7.2 metadata is exported** — those keys mean nothing elsewhere and a `source_hash` in
+a file the user emails is a digest of their own message. An export mints fresh item ids: a UID
+is how a reader tells a new item from a replacement, and the save path's ids are stable by
+design.
+
+**The export leaves through a `FileProvider` rooted at one cache subdirectory**, cleared on
+every export. It is deliberately not enumerated by NFR-205's deletion — it is a copy made to
+hand to another app, in the directory the system clears anyway.
+
+Still not built: the notification listener (FR-208).
 
 Sign-in works only on builds whose signing certificate is registered against the Android
 OAuth client. There is no release signing config, so that means debug builds from a machine
@@ -886,3 +914,22 @@ deliberately contacts something that is not Google.
 | NFR-203's masking | Once saved, the endpoint shows as `https://host/••••••••` and the real path is nowhere on screen | a URL with a token in the path |
 | The endpoint survives a cold start | It is still configured after a force-stop, and still masked | as above |
 | **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms with settings loaded. The settings read is new on this path | "Kickoff 8 September 2027 at 9am" |
+
+### Slice 6 — FR-908, NFR-205, FR-1005
+
+**NFR-205 is destructive and irreversible, and its device check needs a throwaway account or a
+willingness to set Latch up again.** That is why it sits at the end of this list.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **FR-908, the ordinary case** | Launch with everything intact: nothing is said, and the destination chip is unchanged | any configured account |
+| FR-908's rename | Rename the Latch calendar in Google, relaunch: the chip shows the new name **silently** | Google Calendar |
+| **FR-908's own case** | Delete the destination calendar in Google, relaunch: the home screen says captures now go to your main calendar and names the one that went. The next capture lands in the primary calendar | delete the Latch calendar |
+| FR-908 offline | Aeroplane mode, relaunch: **nothing changes and nothing is said**. This is the case the rule exists for and the easiest to get wrong | aeroplane mode |
+| **FR-1005** | Export .ics from the sheet and share it to Google Calendar or a mail client: the file **opens as a calendar file** and imports the right dates. A file nothing will open is the failure | "Kickoff 8 September 2027 at 9am" |
+| An exported chain | Apply a recipe, export: three components in one file, the event with its reminder and the tasks as VTODOs | AC-06's capture |
+| Two exports do not collide | Export the same capture twice and import both: **two** items, not one overwriting the other | as above |
+| A Devanagari title exports readably | Export a Hindi capture and open the file: the title is intact, not mojibake. This is the folding case no JVM test can fully close | a Devanagari capture |
+| An export before saving | Export without pressing Save: **nothing** is written to Google | any capture |
+| **NFR-205** | Settings → disconnect: everything local is gone (Inbox empty, queue empty, recipes back to the shipped eight, settings back to defaults), the next launch runs setup, and **Latch no longer appears** under `myaccount.google.com` → third-party connections. Items already in Google Calendar and Tasks are **untouched** | a throwaway account, or be ready to set up again |
+| NFR-205 offline | The same action with no network: local data still goes, and the screen says the grant could not be removed and where to remove it by hand | aeroplane mode |

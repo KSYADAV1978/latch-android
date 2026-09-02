@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FR-1005: the one directory this app ever shares out of.
+
+  A `cache-path` and not a `files-path`, and only the `exports` subdirectory of it: an exported
+  `.ics` is a copy made to hand to another app, and nothing else the app keeps — not the
+  database, not the encrypted preferences — is inside the scope this provider grants. A
+  provider rooted at the whole of internal storage would grant a read of whatever happened to
+  be there, which is the mistake this file exists to not make.
+-->
+<paths>
+    <cache-path name="exports" path="exports/" />
+</paths>

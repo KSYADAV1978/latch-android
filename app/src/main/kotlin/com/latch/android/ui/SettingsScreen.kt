@@ -39,6 +39,7 @@ import com.latch.core.model.RoutingRule
 import com.latch.data.AccountDefaults
 import com.latch.data.EndpointRefusal
 import com.latch.data.LatchSettings
+import com.latch.data.RevokeOutcome
 import com.latch.data.TaskList
 import com.latch.data.WritableCalendar
 import java.time.DayOfWeek
@@ -82,6 +83,10 @@ fun SettingsScreen(
     onSetEndpoint: (String) -> Unit,
     onClearEndpoint: () -> Unit,
     onSetWebhookEnabled: (Boolean) -> Unit,
+    /** NFR-205: the single action. */
+    onRevokeAndDelete: () -> Unit,
+    /** NFR-205: what the last one managed, or null where none has been asked for. */
+    revokeOutcome: RevokeOutcome? = null,
 ) {
     Column(
         modifier = Modifier
@@ -241,6 +246,60 @@ fun SettingsScreen(
             onClear = onClearEndpoint,
             onSetEnabled = onSetWebhookEnabled,
         )
+
+        // ----- NFR-205: revoke access and delete all local data -----
+
+        HorizontalDivider()
+        Section(R.string.settings_danger)
+        DangerZone(onRevokeAndDelete, revokeOutcome)
+    }
+}
+
+/**
+ * NFR-205: "a single action to revoke access and delete all local data."
+ *
+ * **One action, behind one confirmation.** The requirement asks for a single action and gets
+ * one; the confirmation is not a second action but a chance to read what it does, which for
+ * something irreversible is the least a screen can offer. The warning says what is deleted
+ * *and* what is not — items already in Google Calendar and Tasks are left exactly as they are,
+ * which is the thing a user is most likely to be afraid of and the thing this does not do.
+ */
+@Composable
+private fun DangerZone(onRevokeAndDelete: () -> Unit, outcome: RevokeOutcome?) {
+    var confirming by remember { mutableStateOf(false) }
+
+    outcome?.let {
+        Note(
+            stringResource(
+                when {
+                    // NFR-303's instinct applied to something that is not a write: say which
+                    // half failed, and what the user can do about it.
+                    !it.localDataDeleted -> R.string.settings_revoke_failed
+                    !it.accessRevoked -> R.string.settings_revoke_partial
+                    else -> R.string.settings_revoke_done
+                }
+            )
+        )
+    }
+
+    if (!confirming) {
+        TextButton(onClick = { confirming = true }) {
+            Text(stringResource(R.string.settings_revoke))
+        }
+        return
+    }
+
+    Note(stringResource(R.string.settings_revoke_warning))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { confirming = false }) {
+            Text(stringResource(R.string.settings_revoke_cancel))
+        }
+        Button(onClick = {
+            confirming = false
+            onRevokeAndDelete()
+        }) {
+            Text(stringResource(R.string.settings_revoke_confirm))
+        }
     }
 }
 

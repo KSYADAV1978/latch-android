@@ -182,6 +182,25 @@
             </intent-filter>
         </service>
 
+        <!--
+          FR-1005's `.ics` export, and the only thing this app ever shares out.
+
+          `exported="false"` with `grantUriPermissions`: nothing can read through this provider
+          except an app the user has just picked from a share sheet, for one launch, for one
+          file. The paths it covers are in res/xml/file_paths.xml and are deliberately one
+          subdirectory of the cache — not the database, not the encrypted preferences, not the
+          whole of internal storage.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.exports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>
