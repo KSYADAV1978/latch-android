@@ -26,6 +26,12 @@ local.properties
 .env.local
 secrets.json
 
+# FR-1108's release signing. `keystore.properties` names the keystore's path and holds its
+# passwords; `keystore.properties.example` beside it is committed and shows the four keys with
+# no values. A signing config that read from a committed file would put the passwords for the
+# upload key in the repository, which is the whole of what this line prevents.
+keystore.properties
+
 # OS
 Thumbs.db
 .DS_Store

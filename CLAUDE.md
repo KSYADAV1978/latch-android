@@ -96,6 +96,20 @@ behaviour.** `assertTrue(url.contains("maxResults=1"))` passed throughout the pe
 was writing duplicates into a real calendar. It described the code faithfully. Asserting what
 the code does is not the same as asserting what the requirement needs.
 
+## Releasing
+`docs/RELEASE.md` is FR-1108's gate in operational form: six items, two done in the repository
+and four only the publisher can do. Read it before any Play submission.
+
+Two things about the build are worth knowing before touching `app/build.gradle.kts`. The release
+**signing config exists only where `keystore.properties` does** — that file is git-ignored, a
+committed `.example` shows its four keys, and a release build without it is *unsigned rather than
+failed*, because NFR-503 requires a clean checkout to build and the launch canary has to work on
+a machine that has never seen a keystore. And the **`bundle` block is not optional**: ABI splits
+are the condition NFR-103's per-device reading rests on, and without them the same tree is 42.58
+MB against a 40 MB budget.
+
+Nothing here generates a keystore, deliberately.
+
 ## Commits
 Commit directly to `main`. This is a single-developer repository with no CI and no review
 step, so a feature branch adds ceremony without adding safety — there is nothing for it to
