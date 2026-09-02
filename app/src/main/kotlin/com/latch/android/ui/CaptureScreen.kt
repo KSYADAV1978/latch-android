@@ -60,6 +60,7 @@ import com.latch.android.capture.saveIsOffered
 import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
 import com.latch.data.InboxReason
+import com.latch.data.WritableCalendar
 import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
 import com.latch.ocr.OcrFailure
@@ -145,6 +146,20 @@ fun CaptureScreen(
     /** FR-608: the steps still ticked, by index. */
     recipeSelection: Set<Int> = emptySet(),
     onToggleRecipeStep: (Int) -> Unit = {},
+    /**
+     * FR-904: "changeable in one action". Null until the user asks, because loading the
+     * calendar list is a network call and NFR-101 budgets the whole capture path 800 ms — so it
+     * happens on demand and not on open.
+     */
+    destinationChoices: List<WritableCalendar>? = null,
+    onChangeDestination: () -> Unit = {},
+    onChooseDestination: (WritableCalendar) -> Unit = {},
+    /** FR-907: offered after three overrides from the same source. Never taken automatically. */
+    ruleOffer: RuleOffer? = null,
+    onAcceptRule: () -> Unit = {},
+    onDeclineRule: () -> Unit = {},
+    /** FR-1003: this capture arrived through a layer the user has switched off. */
+    layerDisabled: Boolean = false,
     /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
     extracting: Boolean = false,
     /**
@@ -202,6 +217,14 @@ fun CaptureScreen(
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
+            } else if (layerDisabled) {
+                // FR-1003. Refused with a reason rather than captured silently — the user
+                // turned this off, and an app that captured anyway would be worse than one
+                // whose setting did nothing.
+                Text(
+                    text = stringResource(R.string.capture_layer_off),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
             } else if (captured == null || result == null) {
                 Text(
                     text = when {
@@ -246,7 +269,31 @@ fun CaptureScreen(
                 // shown for an Inbox route: nothing is going to a calendar, and naming one
                 // would say the opposite of what is about to happen.
                 if (destination is DestinationState.Ready && route is SaveRoute.Google) {
-                    DestinationChip(destination.defaults)
+                    // FR-904: the destination is on screen before the user confirms — which is
+                    // also what FR-906 means by never routing somewhere they have not seen —
+                    // and changeable in one action.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DestinationChip(destination.defaults)
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = onChangeDestination) {
+                            Text(stringResource(R.string.capture_change_destination))
+                        }
+                    }
+                    DestinationPicker(destinationChoices, onChooseDestination)
+                    // FR-907: "shall offer to make that a rule. It shall not create the rule
+                    // automatically." Two answers, no default, nothing written by counting.
+                    ruleOffer?.let { offer ->
+                        Note(stringResource(R.string.capture_offer_rule, offer.sourceApp, offer.calendarName))
+                        Row {
+                            TextButton(onClick = onDeclineRule) {
+                                Text(stringResource(R.string.capture_offer_rule_no))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = onAcceptRule) {
+                                Text(stringResource(R.string.capture_offer_rule_yes))
+                            }
+                        }
+                    }
                 }
 
                 if (lowConfidence && route is SaveRoute.Google) {
@@ -604,6 +651,44 @@ private fun CandidateRow(
             if (candidate.ambiguousRelative) {
                 Note(stringResource(R.string.capture_ambiguous_relative))
             }
+        }
+    }
+}
+
+/**
+ * FR-907's offer, as a value the screen renders rather than a sentence it assembles.
+ *
+ * NFR-402 keeps the phrasing in `strings.xml`; what the screen needs is the two names the
+ * sentence puts together.
+ */
+data class RuleOffer(val sourceApp: String, val calendarName: String)
+
+/**
+ * FR-904's second half: the destination, changeable in one action.
+ *
+ * Null means the user has not asked, which is every capture they did not touch — and is why
+ * the calendar list is not fetched on open. NFR-101 gives the whole path from gesture to
+ * confirmation 800 ms, and a `calendarList.list` round trip would spend most of it on a control
+ * almost nobody uses on any given capture.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DestinationPicker(
+    choices: List<WritableCalendar>?,
+    onChoose: (WritableCalendar) -> Unit,
+) {
+    if (choices == null) return
+    if (choices.isEmpty()) {
+        Note(stringResource(R.string.capture_destination_loading))
+        return
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { calendar ->
+            AssistChip(
+                onClick = { onChoose(calendar) },
+                leadingIcon = { CalendarSwatch(calendar.backgroundColor) },
+                label = { Text(calendar.summary) },
+            )
         }
     }
 }

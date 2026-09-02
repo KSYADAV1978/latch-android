@@ -55,6 +55,25 @@ data class LatchSettings(
     val enabledLayers: Set<CaptureLayer> = DEFAULT_LAYERS,
     /** FR-905: routing rules, under Option A. */
     val routingRules: List<com.latch.core.model.RoutingRule> = emptyList(),
+    /**
+     * FR-1004: whether the outbound webhook is on. **Off by default**, which the requirement
+     * states twice and AC-17 tests.
+     *
+     * The endpoint itself is **not here**. NFR-203 treats it as a secret — such URLs commonly
+     * embed a bearer token in the path — so it lives in the secret store and this record holds
+     * only the fact that one is configured. That also means a settings record read by anything
+     * without the Keystore key discloses nothing about where a user's captures go.
+     */
+    val webhookEnabled: Boolean = false,
+    /**
+     * FR-907: how many times the user has overridden the destination for each source app.
+     *
+     * Kept per source *application*, because that is what FR-905's rule would match on — a
+     * count kept per destination instead would offer a rule that could not be expressed. The
+     * requirement's other half is that the app "shall not create the rule automatically", so
+     * this is only ever an input to an offer.
+     */
+    val destinationOverrideCounts: Map<String, Int> = emptyMap(),
 ) {
     /** FR-605's list as the calculator wants it: bundled, plus additions, minus removals. */
     fun holidays(bundled: List<Holiday>): List<Holiday> =
@@ -141,6 +160,8 @@ internal fun encodeSettings(settings: LatchSettings): String {
         .put("confidence_threshold", settings.confidenceThreshold)
         .putOpt("time_zone", settings.timeZone)
         .put("layers", JSONArray(settings.enabledLayers.map { it.name }))
+        .put("webhook_enabled", settings.webhookEnabled)
+        .put("override_counts", JSONObject(settings.destinationOverrideCounts as Map<*, *>))
 
     val additions = JSONArray()
     settings.holidayAdditions.forEach {
@@ -157,6 +178,8 @@ internal fun encodeSettings(settings: LatchSettings): String {
                 .put("match_value", it.matchValue)
                 .put("calendar_id", it.calendarId)
                 .put("priority", it.priority)
+                .put("calendar_name", it.calendarName)
+                .put("calendar_colour", it.calendarColour)
         )
     }
     json.put("routing_rules", rules)
@@ -222,8 +245,17 @@ internal fun decodeSettings(record: String): LatchSettings? = try {
                         matchValue = entry.optString("match_value"),
                         calendarId = entry.optString("calendar_id"),
                         priority = entry.optInt("priority"),
+                        calendarName = entry.optString("calendar_name"),
+                        calendarColour = entry.optString("calendar_colour"),
                     )
                 }
+            }.orEmpty(),
+            // Defaults to false where a record predates the field, which is FR-1004's own
+            // default and the safe direction: a webhook that turned itself on would be the
+            // one failure this requirement's whole shape is built to prevent.
+            webhookEnabled = json.optBoolean("webhook_enabled", false),
+            destinationOverrideCounts = json.optJSONObject("override_counts")?.let { counts ->
+                counts.keys().asSequence().associateWith { counts.optInt(it) }
             }.orEmpty(),
         )
     }

@@ -700,7 +700,51 @@ Settings screen is UI over it; FR-905's rules are stored and **not yet applied**
 
 AC-06 is reachable for the first time.
 
-Still not built: Settings' UI (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
+**Settings is built, FR-1004 included.** The screen follows FR-1001's list in the requirement's
+own order, so reading one against the other is a matter of going down both together. Six things
+are decisions.
+
+**Shipping FR-1004 makes two documentation obligations live.** FR-1102's privacy-policy clause
+and FR-1103's Data Safety declaration were conditional on the webhook shipping; it has. Both are
+now items on FR-1108's release gate, because they are things only the publisher can do and
+nothing in the code will remind whoever does.
+
+**The webhook does not go through `ALLOWED_HOSTS` and must not.** That guard holds AC-17 for
+every request this app composes, and widening it to carry a user endpoint would destroy the
+property it exists to hold. A webhook is sent by a separate client with its own narrower rules —
+HTTPS only, no credentials in the authority, no redirects, one attempt, five-second timeouts.
+That separation is also what makes FR-1004b's "not in the write queue" **structural**: every
+entry there drains through the guard and would be refused.
+
+**FR-1004a's list is enumerated in code, not serialised from a type.** A payload built by
+serialising `Item` would grow silently the next time `Item` did, and what would leak is whatever
+was added. A test asserts the exact key set.
+
+**Entering an endpoint and enabling delivery stay two acts**, which is FR-1004 asking for both,
+and plaintext endpoints are refused outright rather than warned about.
+
+**FR-1003's toggles are honoured differently by layer, and the screen says so.** The Quick
+Settings tile is its own component and is genuinely disabled. Text selection and the share sheet
+are three intent filters on **one** activity, so those toggles are enforced when the capture
+arrives — Latch still appears in the share sheet and declines with a reason. Splitting the
+activity per layer is the cure and is **owed**, not pretended away.
+
+**FR-905/FR-906/FR-904/FR-907 hang together on one pure function.** `destinationFor` is called
+by the sheet and by the saver, so the calendar shown is the calendar written to. The list is
+fetched on demand, not on open, because NFR-101 budgets the capture path 800 ms. FR-907 counts
+overrides per source and *offers*; nothing is written by counting.
+
+**One consequence is recorded rather than left to be found**: on a cold start the first frames of
+a capture use the shipped default settings, because the record is read asynchronously and a
+capture may be the first thing in the process. The sheet re-parses when it arrives — NFR-102's
+own pattern — and Save is blocked meanwhile by the destination read, which is a round trip to the
+same store. The alternatives were a blocking main-thread read or an asynchronous text path, and
+NFR-102's note is explicit about the second.
+
+AC-12 is met by what Settings does *not* do: switching mode writes one field and touches nothing
+else.
+
+Still not built: FR-1005's `.ics` export and the notification listener (FR-208). FR-908 is not built either —
 the calendar list is not refreshed on launch and a stored destination that has been deleted or
 has lost write access is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where
 it goes. NFR-205's revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op —
@@ -814,3 +858,31 @@ intact, that a reminder actually fires, and that the editor is usable on a phone
 | The editor is usable on a phone | Six filter chips, a number field and a template field per step. This is the same narrow-dialog class as the FR-804 offer's clipped label, one screen over | a recipe with three steps |
 | **A queued chain keeps its reminders** | Aeroplane mode, apply a recipe, save, reconnect: the drained event still carries the reminder (queue record v6) | AC-06's capture, offline |
 | FR-803 over a chain | Re-capturing the same text with the same recipe answers "Already saved" — the chain shares one `source_hash`, so one check covers it | AC-06's capture, twice |
+
+### Slice 5 — Settings, the FR-1000 series
+
+Two things here have never touched a network: the destination picker's calendar list, and the
+FR-1004 webhook. The second is the one to watch, because it is the only code in this app that
+deliberately contacts something that is not Google.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| Settings opens and lists real calendars and task lists | Both lists populate; the current destination is selected; a hidden calendar shows its badge (FR-903) | a real account |
+| Changing the destination takes effect on the next capture | The chip on the sheet shows the new calendar and the write lands there | any capture after the change |
+| **AC-12** | Switch Option B → A → B. **Nothing in Google moves, changes or disappears**, and the other mode's calendar choice is still selected when you switch back. Verified in the account, not on screen | an account with items already saved |
+| FR-1003's tile toggle | Turning the tile off **removes it from Quick Settings**. Turning it on puts it back | the QS shade |
+| FR-1003's other two | Turning the share sheet off: Latch still appears in the resolver and the sheet says it is switched off. That is the documented limit, not a defect | share any text |
+| FR-504 through settings | Set month-first, capture "05/09": it must read **9 May**. Then cold-start the app and repeat — this is the case where the first frames use defaults | "Invoice 05/09" |
+| FR-512's threshold | Raise it to 99%: an ordinary capture starts routing to the Inbox. Lower it to 0: nothing does | "Kickoff 8 September 2027 at 9am" |
+| Default duration and reminder | Set 45 minutes and a 10-minute reminder; an ordinary timed capture creates a 45-minute event with a 10-minute popup | as above |
+| FR-605 from Settings | Change the working week to six days; AC-06's prep step moves from Thu 3 Sep to Fri 4 Sep | AC-06's capture |
+| **FR-904's picker** | Tap Change on the sheet: the calendar list loads **and the sheet does not block while it does**. Choosing one changes the chip, and the write goes there | any capture |
+| **FR-907** | Override the destination three times from the same app; on the third the offer appears. Answering yes creates a rule; the fourth capture from that app routes without asking | three captures shared from one app |
+| FR-905 | A source-app rule, a recipe rule and a keyword rule each route as written, under Option A only | Settings, then a capture from each |
+| **FR-1004, with a monitor running** | Configure `https://…`, enable it, save a capture: **exactly one** request to that endpoint and no other non-Google traffic. That is AC-18 | a request-bin style endpoint |
+| **AC-19** | Configure a webhook, then confirm a notification capture: **no** request to the endpoint. Needs FR-208, so it is owed until slice 7 | notification listener |
+| **AC-20** | Point the webhook at an unreachable host and save: the item still reaches Google, no blocking error appears, and undo still works | `https://127.0.0.1:9/hook` |
+| **AC-21** | Reachable webhook, save offline, reconnect: Google gets the item from the queue and **no** webhook request is sent for it. Documented behaviour, not a defect | aeroplane mode |
+| NFR-203's masking | Once saved, the endpoint shows as `https://host/••••••••` and the real path is nowhere on screen | a URL with a token in the path |
+| The endpoint survives a cold start | It is still configured after a force-stop, and still masked | as above |
+| **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms with settings loaded. The settings read is new on this path | "Kickoff 8 September 2027 at 9am" |

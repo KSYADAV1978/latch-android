@@ -13,6 +13,7 @@ import com.latch.data.EventWrite
 import com.latch.data.InboxCapture
 import com.latch.data.InboxReason
 import com.latch.data.ItemDates
+import com.latch.data.LatchSettings
 import com.latch.data.LocalItemIndex
 import com.latch.data.RemoteMetadata
 import com.latch.data.RescheduleMatch
@@ -23,8 +24,11 @@ import com.latch.data.TasksApi
 import com.latch.data.UndoOfferStore
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
+import com.latch.data.WebhookSender
 import com.latch.data.WrittenItem
 import com.latch.data.bodyWithNote
+import com.latch.data.webhookEligible
+import com.latch.data.webhookPayloadForChain
 import com.latch.data.isWorthRetrying
 import com.latch.data.itemKeyOf
 import com.latch.data.sourceBlock
@@ -320,13 +324,19 @@ class CaptureSaver(
      */
     private val pastDateNoteTemplate: String = "",
     /**
-     * FR-1001's default reminder lead time, applied to a recipe step that names none of its
-     * own. A function rather than a value because Settings can change it while the process
-     * lives, and a saver holding a snapshot from launch would keep writing the old one.
+     * FR-1001. A function rather than a value because Settings can change while the process
+     * lives, and a saver holding a snapshot from launch would keep writing the old settings.
      */
-    private val defaultReminders: () -> List<Int> = { emptyList() },
+    private val settings: () -> LatchSettings = { LatchSettings() },
+    /**
+     * FR-1004, and it is a function for a stronger reason than the settings are: the endpoint is
+     * a secret read from the Keystore, and holding it in a field would keep it in memory for
+     * the life of the process whether or not a webhook was ever sent.
+     */
+    private val webhookEndpoint: suspend () -> String? = { null },
+    /** FR-1004b: one attempt, best-effort, never blocking the Google write. */
+    private val webhooks: WebhookSender = WebhookSender(),
 ) {
-    private val defaultReminderMinutes: List<Int> get() = defaultReminders()
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
 
@@ -365,10 +375,16 @@ class CaptureSaver(
          * so there is one date and its expansion is what gets written.
          */
         recipe: RecipeApplication? = null,
+        /**
+         * FR-904: the destination the user chose on the sheet, where they changed it. Null is
+         * "whatever FR-905's rules and the account defaults resolve to", which is every capture
+         * they did not touch.
+         */
+        destination: Destination? = null,
     ) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
-        scope.launch { perform(captured, result, context, selected, fromInboxId, recipe) }
+        scope.launch { perform(captured, result, context, selected, fromInboxId, recipe, destination) }
     }
 
     /**
@@ -460,6 +476,7 @@ class CaptureSaver(
         selected: Set<Int>,
         fromInboxId: String? = null,
         recipe: RecipeApplication? = null,
+        destination: Destination? = null,
     ) {
         val source = CaptureSource(
             layer = captured.layer,
@@ -483,17 +500,35 @@ class CaptureSaver(
             return
         }
 
-        val defaults = try {
+        val configured = try {
             defaultsStore.allAccounts().firstOrNull()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (unreadable: Exception) {
             null
         }
-        if (defaults == null) {
+        if (configured == null) {
             _state.value = SaveState.Failed(SaveFailure.NO_DESTINATION)
             return
         }
+
+        // FR-905, FR-906: the destination this capture actually goes to, decided the same way
+        // the confirmation screen decided it — one pure function, so the chip the user saw and
+        // the calendar the write reaches cannot differ. An override the user made on the sheet
+        // wins over any rule, which is what "changeable in one action" means.
+        val routed = destination ?: destinationFor(
+            defaults = configured,
+            settings = settings(),
+            sourceApp = captured.appId,
+            recipeId = recipe?.recipeId,
+            captureText = captured.text,
+        )
+        val defaults = configured.copy(
+            destinationCalendarId = routed.calendarId,
+            destinationCalendarName = routed.calendarName,
+            destinationCalendarColour = routed.calendarColour,
+            taskListId = routed.taskListId,
+        )
 
         // Minted here rather than inside the mapping, so that stays deterministic under test.
         val captureId = UUID.randomUUID().toString()
@@ -510,7 +545,7 @@ class CaptureSaver(
                 chainId = chainId,
                 defaults = defaults,
                 context = context,
-                defaultReminderMinutes = defaultReminderMinutes,
+                defaultReminderMinutes = settings().defaultReminderMinutes,
             ).ifEmpty {
                 // FR-608 with everything unticked. Nothing to write, and reporting it is better
                 // than a save that appears to succeed and creates nothing.
@@ -584,7 +619,46 @@ class CaptureSaver(
             inbox.discard(fromInboxId)
         }
 
+        // FR-1004b, every clause of it. **After** the write and never awaited, so it cannot
+        // block or delay the Google write; a single attempt with no retry; not in FR-806's
+        // queue, which it structurally could not enter — everything there drains through the
+        // `ALLOWED_HOSTS` guard and would be refused for a non-Google host. A failure is not a
+        // failed API write under NFR-303 and is not reported as one.
+        //
+        // AC-21's consequence follows from where this sits: a capture saved offline is queued
+        // and reaches Google later, and **no webhook is ever sent for it**, because the one
+        // attempt happened here and failed.
+        if (outcome is SaveState.Saved) {
+            deliverWebhook(items, metadata, body, source)
+        }
+
         settle(outcome)
+    }
+
+    /**
+     * FR-1004, FR-1004a, FR-1004b and FR-210a.
+     *
+     * Launched rather than awaited, in the application scope the saver already runs in, so the
+     * capture's outcome is published without waiting on someone else's server. FR-210a's
+     * suppression is inside [webhookEligible] rather than here, so a second call site could not
+     * forget it — the same reason `sourceBlock` composes every description.
+     */
+    private fun deliverWebhook(
+        items: List<Item>,
+        metadata: RemoteMetadata,
+        body: String,
+        source: CaptureSource,
+    ) {
+        scope.launch {
+            val endpoint = runCatching { webhookEndpoint() }.getOrNull()
+            if (!webhookEligible(source, settings().webhookEnabled, endpoint)) return@launch
+            runCatching {
+                webhooks.deliver(
+                    endpoint = requireNotNull(endpoint),
+                    payload = webhookPayloadForChain(items, metadata, body),
+                )
+            }
+        }
     }
 
     /**

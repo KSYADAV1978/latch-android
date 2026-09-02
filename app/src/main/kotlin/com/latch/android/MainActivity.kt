@@ -31,6 +31,7 @@ import com.latch.android.setup.SetupOutcome
 import com.latch.android.recipes.newRecipe
 import com.latch.android.ui.InboxScreen
 import com.latch.android.ui.RecipesScreen
+import com.latch.android.ui.SettingsScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
 import com.latch.data.QueueStatus
@@ -154,6 +155,28 @@ class MainActivity : ComponentActivity() {
                                     },
                                 )
 
+                                HomeScreen.SETTINGS -> SettingsScreen(
+                                    settings = app.settings.collectAsState().value,
+                                    account = configured?.firstOrNull(),
+                                    destinations = app.settingsCoordinator.destinations.collectAsState().value,
+                                    bundledHolidays = app.bundledHolidays(),
+                                    endpointMask = app.settingsCoordinator.endpointMask.collectAsState().value,
+                                    endpointRefusal = app.settingsCoordinator.endpointRefusal.collectAsState().value,
+                                    onBack = { screen = HomeScreen.HOME },
+                                    onReloadDestinations = app.settingsCoordinator::loadDestinations,
+                                    onChooseCalendar = app.settingsCoordinator::chooseCalendar,
+                                    onChooseTaskList = app.settingsCoordinator::chooseTaskList,
+                                    onChooseMode = app.settingsCoordinator::chooseMode,
+                                    onAddRule = app.settingsCoordinator::addRule,
+                                    onRemoveRule = app.settingsCoordinator::removeRule,
+                                    onUpdate = app.settingsCoordinator::update,
+                                    onAddHoliday = app.settingsCoordinator::addHoliday,
+                                    onRemoveHoliday = app.settingsCoordinator::removeHoliday,
+                                    onSetEndpoint = app.settingsCoordinator::setEndpoint,
+                                    onClearEndpoint = app.settingsCoordinator::clearEndpoint,
+                                    onSetWebhookEnabled = app.settingsCoordinator::setWebhookEnabled,
+                                )
+
                                 HomeScreen.HOME -> Home(
                                     queue = app.queueStatus.collectAsState().value,
                                     inboxCount = app.inboxCount.collectAsState().value,
@@ -171,6 +194,10 @@ class MainActivity : ComponentActivity() {
                                     onOpenRecipes = {
                                         app.refreshRecipes()
                                         screen = HomeScreen.RECIPES
+                                    },
+                                    onOpenSettings = {
+                                        app.settingsCoordinator.open()
+                                        screen = HomeScreen.SETTINGS
                                     },
                                     onUndo = { app.undoPendingOffer() },
                                 )
@@ -199,6 +226,8 @@ private fun Home(
     onOpenInbox: () -> Unit = {},
     /** FR-602/FR-603: the recipe list, which is also where a user's own are made. */
     onOpenRecipes: () -> Unit = {},
+    /** FR-1000. FR-109 promised at setup that every choice would be changeable here. */
+    onOpenSettings: () -> Unit = {},
     onUndo: () -> Unit = {},
 ) {
     Column(
@@ -279,6 +308,12 @@ private fun Home(
             Text(stringResource(R.string.recipes_open))
         }
 
+        // FR-1000, and FR-109's promise kept: "Every choice made during setup shall be
+        // changeable afterwards in Settings, and the setup screens shall say so."
+        TextButton(onClick = onOpenSettings) {
+            Text(stringResource(R.string.settings_open))
+        }
+
         // FR-806's manual retry, which its own note recorded as absent until Settings existed.
         // Offered whenever anything is in the queue at all, given-up entries included: those
         // are revived by the tap, because the user has usually done something between the
@@ -301,4 +336,4 @@ private fun StoredUndoOffer.secondsLeft(now: Instant): Int {
 }
 
 /** The three places this app can be. See the note at the `when` that switches between them. */
-private enum class HomeScreen { HOME, INBOX, RECIPES }
+private enum class HomeScreen { HOME, INBOX, RECIPES, SETTINGS }

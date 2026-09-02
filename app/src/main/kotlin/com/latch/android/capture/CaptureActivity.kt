@@ -21,10 +21,14 @@ import com.latch.android.ui.LatchTheme
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
 import com.latch.ocr.PageProgress
+import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
+import com.latch.android.ui.RuleOffer
+import com.latch.parser.Confidence
+import com.latch.parser.DateOrder
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
-import java.time.LocalDateTime
+import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,11 +89,17 @@ class CaptureActivity : ComponentActivity() {
         app.refreshAccounts()
 
         val openedAt = SystemClock.elapsedRealtime()
-        val parseContext = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
-        // FR-506 row 3's chips and FR-510's past test both need today. Read once, here, so the
-        // sheet does not disagree with itself across a recomposition at midnight.
-        val today = parseContext.now.toLocalDate()
+        // Read once, here. Everything below derives from it, so a settings change arriving
+        // mid-composition cannot move the capture's own `now` — FR-515 makes a parse a pure
+        // function of its text and its context, and a context that moved under it would make
+        // the same capture read differently on successive frames.
+        val capturedAt = Instant.now()
         val referrer = referrerPackage()
+
+        // FR-1003: a capture arriving through a layer the user has switched off. Evaluated
+        // against whatever settings are loaded, which on a cold start is briefly the defaults —
+        // see the note on `parseContext` below.
+        val layer = request.layerOf()
 
         // Text is resolved before the first frame, as it always was. Only an OCR capture
         // starts as Extracting and arrives later.
@@ -111,6 +121,35 @@ class CaptureActivity : ComponentActivity() {
                 val destinations by app.configuredAccounts.collectAsState()
                 val saveState by app.captureSaver.state.collectAsState()
                 val captureContent by content.collectAsState()
+                val settings by app.settings.collectAsState()
+
+                /*
+                 * FR-1001 reaches the parser here: the date order (FR-504), the default event
+                 * duration, the FR-512 threshold and the time zone.
+                 *
+                 * **On a cold start the first frames use the shipped defaults**, because the
+                 * settings record is read asynchronously and a capture may be the first thing
+                 * in the process. The sheet re-parses when it arrives, which is NFR-102's own
+                 * pattern; Save is blocked meanwhile by the destination read, which is a round
+                 * trip to the same encrypted store and lands at the same time. Recorded rather
+                 * than left to be found: the alternative is a blocking read on the main thread
+                 * or an asynchronous text path, and NFR-102's note is explicit that the risk of
+                 * adding one is that it quietly captures the synchronous one.
+                 */
+                val parseContext = remember(settings) {
+                    val zone = settings.timeZone
+                        ?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+                        ?: ZoneId.systemDefault()
+                    ParseContext(
+                        now = capturedAt.atZone(zone).toLocalDateTime(),
+                        zone = zone,
+                        dateOrder = if (settings.dayFirstDates) DateOrder.DAY_FIRST else DateOrder.MONTH_FIRST,
+                        defaultEventDuration = settings.defaultEventDuration,
+                        confidenceThreshold = Confidence(settings.confidenceThreshold),
+                    )
+                }
+                val today = parseContext.now.toLocalDate()
+                val layerDisabled = layer != null && layer !in settings.enabledLayers
 
                 HoldWindowOpenForUndo(saveState)
 
@@ -133,8 +172,28 @@ class CaptureActivity : ComponentActivity() {
                 // all see the same rows. A screen that applied them itself would eventually
                 // show one thing and save another — the divergence a confirmation screen
                 // exists to make impossible.
-                val result = remember(parsed, edits) {
+                val result = remember(parsed, edits, today) {
                     parsed?.withEdits(edits, today)
+                }
+
+                // FR-904, FR-905, FR-906: where this capture goes, decided the same way the
+                // saver decides it — one pure function over the same inputs, so the chip the
+                // user reads and the calendar the write reaches cannot differ.
+                var chosenDestination by remember(parsed) { mutableStateOf<Destination?>(null) }
+                var showingDestinations by remember(parsed) { mutableStateOf(false) }
+                var ruleOffer by remember(parsed) { mutableStateOf<RuleOffer?>(null) }
+
+                val account = destinations?.firstOrNull()
+                val routed = remember(account, settings, captured, chosenDestination) {
+                    chosenDestination ?: account?.let {
+                        destinationFor(
+                            defaults = it,
+                            settings = settings,
+                            sourceApp = captured?.appId,
+                            recipeId = null,
+                            captureText = captured?.text.orEmpty(),
+                        )
+                    }
                 }
 
                 // FR-511: every date starts ticked, and the choice belongs to this screen
@@ -149,7 +208,6 @@ class CaptureActivity : ComponentActivity() {
                 // beside the other sheet edits, and keyed on the parse so a capture arriving
                 // over this one does not inherit the previous one's chain.
                 val recipes by app.recipes.collectAsState()
-                val settings by app.settings.collectAsState()
                 var appliedRecipeId by remember(parsed) { mutableStateOf<String?>(null) }
 
                 // One chain id for the life of this expansion, so the ids the screen shows and
@@ -200,11 +258,18 @@ class CaptureActivity : ComponentActivity() {
                     onDismiss = { finish() },
                     // Three states, not a nullable value: not-yet-read and none-configured
                     // are opposite facts, and only the second is worth telling the user.
-                    destination = when (val accounts = destinations) {
-                        null -> DestinationState.Loading
-                        else -> accounts.firstOrNull()
-                            ?.let(DestinationState::Ready)
-                            ?: DestinationState.None
+                    destination = when {
+                        destinations == null -> DestinationState.Loading
+                        account == null -> DestinationState.None
+                        // The routed destination, not the raw account default: FR-906 requires
+                        // the calendar shown to be the calendar written to.
+                        else -> DestinationState.Ready(
+                            account.copy(
+                                destinationCalendarId = routed?.calendarId ?: account.destinationCalendarId,
+                                destinationCalendarName = routed?.calendarName ?: account.destinationCalendarName,
+                                destinationCalendarColour = routed?.calendarColour ?: account.destinationCalendarColour,
+                            )
+                        )
                     },
                     saveState = saveState,
                     // FR-512, interim: shown rather than blocking the save, until the
@@ -227,6 +292,39 @@ class CaptureActivity : ComponentActivity() {
                         edits = edits.copy(typeOverrides = edits.typeOverrides + (index to type))
                     },
                     today = today,
+                    layerDisabled = layerDisabled,
+                    destinationChoices = if (showingDestinations) {
+                        app.settingsCoordinator.destinations.collectAsState().value.calendars
+                    } else {
+                        null
+                    },
+                    onChangeDestination = {
+                        app.settingsCoordinator.loadDestinations()
+                        showingDestinations = true
+                    },
+                    onChooseDestination = { calendar ->
+                        showingDestinations = false
+                        chosenDestination = Destination(
+                            calendarId = calendar.id,
+                            calendarName = calendar.summary,
+                            calendarColour = calendar.backgroundColor,
+                            taskListId = account?.taskListId.orEmpty(),
+                        )
+                        // FR-907: counted, and only offered — nothing is written by counting.
+                        val app_id = captured?.appId
+                        app.countDestinationOverride(app_id)
+                        if (account != null &&
+                            shouldOfferRule(settings.destinationOverrideCounts, app_id, settings, account)
+                        ) {
+                            ruleOffer = RuleOffer(app_id.orEmpty(), calendar.summary)
+                        }
+                    },
+                    ruleOffer = ruleOffer,
+                    onAcceptRule = {
+                        chosenDestination?.let { app.makeRoutingRule(captured?.appId, it) }
+                        ruleOffer = null
+                    },
+                    onDeclineRule = { ruleOffer = null },
                     recipes = recipes,
                     appliedRecipeId = appliedRecipeId,
                     onApplyRecipe = { appliedRecipeId = it },
@@ -247,6 +345,7 @@ class CaptureActivity : ComponentActivity() {
                                 recipe = appliedRecipeId?.let { id ->
                                     RecipeApplication(id, recipeSteps, recipeSelection)
                                 },
+                                destination = routed,
                             )
                         }
                     },
@@ -416,6 +515,19 @@ class CaptureActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recreate()
+    }
+
+    /**
+     * FR-1003: which capture layer delivered this, where the request names one.
+     *
+     * Null for a request that carries nothing usable — there is no layer to switch off, and
+     * "nothing was shared" is a better thing to say than "that way of capturing is off".
+     */
+    private fun CaptureRequest.layerOf(): CaptureLayer? = when (this) {
+        is CaptureRequest.Ready -> captured.layer
+        is CaptureRequest.Image -> layer
+        is CaptureRequest.Pdf -> layer
+        is CaptureRequest.Nothing -> null
     }
 
     /**

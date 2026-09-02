@@ -197,6 +197,91 @@
     <string name="inbox_saving">Saving…</string>
     <string name="inbox_save_failed">Could not save that to Google. It is still here — try again.</string>
 
+    <!-- ===== Settings, FR-1000 series ===== -->
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_open">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_loading">Loading your calendars and task lists…</string>
+    <string name="settings_load_failed">Could not load your calendars and task lists.</string>
+
+    <!-- FR-1001, in the requirement's own order. -->
+    <string name="settings_destination">Destination calendar</string>
+    <string name="settings_task_list">Task list</string>
+    <string name="settings_routing_mode">Where captures go</string>
+    <!--
+      FR-1002 asks for this sentence as much as for the behaviour: "Switching between Option A
+      and Option B shall not move, alter or delete anything already saved, and the UI shall
+      state this." AC-12 is the test.
+    -->
+    <string name="settings_mode_safe">Switching this changes where future captures go. Nothing already saved is moved, changed or deleted, and your other choice is remembered.</string>
+    <string name="settings_mode_latch">The Latch calendar</string>
+    <string name="settings_mode_existing">My existing calendars</string>
+
+    <string name="settings_rules">Routing rules</string>
+    <string name="settings_rules_option_a_only">Rules apply when captures go to your existing calendars. With the Latch calendar everything lands in one place.</string>
+    <string name="settings_rule_match">Match (app package, recipe id, or a word)</string>
+    <string name="settings_rule_add">Add rule</string>
+    <string name="settings_rule_remove">Remove</string>
+
+    <string name="settings_reminders">Default reminder</string>
+    <string name="settings_reminder_minutes">Minutes before (blank for your calendar\'s own)</string>
+    <string name="settings_duration">Default event length</string>
+    <string name="settings_duration_minutes">Minutes</string>
+
+    <string name="settings_working_week">Working week</string>
+    <string name="settings_holidays">Holidays</string>
+    <string name="settings_holidays_blurb">Used for "3 working days before" steps in recipes. Latch ships a short list of fixed-date Indian holidays; add your own.</string>
+    <string name="settings_holiday_name">Holiday name</string>
+    <string name="settings_holiday_date">Date (YYYY-MM-DD)</string>
+    <string name="settings_holiday_add">Add holiday</string>
+    <string name="settings_holiday_remove">Remove</string>
+
+    <!-- FR-504: the resolved reading is also shown on every capture before saving. -->
+    <string name="settings_date_order">Reading 05/09</string>
+    <string name="settings_date_order_day_first">5 September</string>
+    <string name="settings_date_order_month_first">9 May</string>
+
+    <string name="settings_time_zone">Time zone</string>
+    <string name="settings_time_zone_hint">Leave blank to follow this phone</string>
+
+    <!-- FR-512: the threshold below which a capture waits in the Inbox instead of being saved. -->
+    <string name="settings_threshold">When Latch is unsure</string>
+    <string name="settings_threshold_blurb">A capture Latch is less confident about than this waits in your Inbox instead of going to Google. Higher means more of them wait.</string>
+    <string name="settings_threshold_percent">Confidence needed (%%)</string>
+
+    <!-- FR-1003. -->
+    <string name="settings_layers">Ways to capture</string>
+    <string name="settings_layer_text_selection">Text selection</string>
+    <string name="settings_layer_share_sheet">Share sheet</string>
+    <string name="settings_layer_tile">Quick Settings tile</string>
+    <string name="settings_layers_note">Turning the tile off removes it from Quick Settings. Text selection and the share sheet share one entry in Android, so Latch still appears there and will say it is switched off.</string>
+    <string name="settings_layer_notification_elsewhere">The notification listener is off and is turned on from its own screen, which explains exactly what it reads.</string>
+    <!-- FR-1003, enforced when a capture from a switched-off layer arrives. -->
+    <string name="capture_layer_off">This way of capturing is switched off in Latch\'s settings.</string>
+
+    <!-- FR-1004: advanced, empty by default, and warned about at the point of configuration. -->
+    <string name="settings_webhook">Send captures to my own endpoint (advanced)</string>
+    <string name="settings_webhook_warning">Anything Latch saves will also be sent to this address, including the text of your captures. Latch does not run this endpoint and cannot see what happens to what it receives.</string>
+    <string name="settings_webhook_offline">A capture saved while offline reaches Google when you reconnect, but no request is sent to your endpoint for it — there is one attempt, at the moment you save.</string>
+    <string name="settings_webhook_notifications">Nothing captured from notifications is ever sent here, whatever this is set to.</string>
+    <string name="settings_webhook_endpoint">Endpoint URL (https)</string>
+    <string name="settings_webhook_save">Save endpoint</string>
+    <string name="settings_webhook_saved">Saved: %1$s</string>
+    <string name="settings_webhook_clear">Remove endpoint</string>
+    <string name="settings_webhook_enabled">Send to my endpoint</string>
+    <string name="settings_webhook_malformed">That is not a URL.</string>
+    <string name="settings_webhook_not_https">Only https addresses are accepted — your captures would otherwise travel in the clear.</string>
+    <string name="settings_webhook_credentials">Remove the username and password from the address.</string>
+
+    <!-- FR-904: the destination is changeable in one action, on the capture sheet itself. -->
+    <string name="capture_change_destination">Change</string>
+    <string name="capture_destination_loading">Loading your calendars…</string>
+    <!-- FR-907: offered after three overrides from the same app; never created automatically. -->
+    <string name="capture_offer_rule">Always send captures from %1$s to %2$s?</string>
+    <string name="capture_offer_rule_yes">Make it a rule</string>
+    <string name="capture_offer_rule_no">Not now</string>
+
     <!-- ===== Recipes, FR-601 to FR-608 ===== -->
 
     <!--

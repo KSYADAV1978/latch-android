@@ -1,24 +1,33 @@
 package com.latch.android
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import com.latch.android.capture.CaptureSaver
+import com.latch.android.capture.Destination
 import com.latch.android.capture.DrainTrigger
+import com.latch.android.capture.CaptureTileService
 import com.latch.android.capture.WriteQueueWorker
+import com.latch.android.capture.countingOverride
 import com.latch.android.capture.removeCreated
+import com.latch.android.capture.ruleFromOverride
 import com.latch.android.capture.shouldDrainNow
 import com.latch.android.inbox.InboxCoordinator
 import com.latch.android.recipes.RecipeCoordinator
+import com.latch.android.settings.SettingsCoordinator
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
 import com.latch.data.AccountDefaults
 import com.latch.data.CaptureInbox
 import com.latch.data.EncryptedAccountDefaultsStore
+import com.latch.data.EncryptedSecretStore
 import com.latch.data.EncryptedSettingsStore
 import com.latch.data.LatchSettings
 import com.latch.data.RecipeStore
+import com.latch.data.SecretStore
 import com.latch.data.SettingsStore
 import com.latch.data.SqliteRecipeStore
 import com.latch.data.recipesFor
@@ -33,6 +42,7 @@ import com.latch.data.UndoOfferStore
 import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
 import com.latch.data.googleTasksApi
+import com.latch.core.model.CaptureLayer
 import com.latch.core.model.Holiday
 import com.latch.core.model.Recipe
 import com.latch.ocr.MlKitOcrReader
@@ -169,6 +179,12 @@ class LatchApplication : Application() {
     /** FR-603: the user's own recipes. FR-602's eight built-ins are code, in `:recipes`. */
     val recipeStore: RecipeStore by lazy { SqliteRecipeStore(this) }
 
+    /**
+     * NFR-203's secret store. Holds the FR-1004 endpoint and, deliberately, no OAuth token —
+     * there is none at rest to protect, which is stronger than protecting one.
+     */
+    val secrets: SecretStore by lazy { EncryptedSecretStore(this) }
+
     private val _settings = MutableStateFlow(LatchSettings())
 
     /**
@@ -182,7 +198,36 @@ class LatchApplication : Application() {
     val settings: StateFlow<LatchSettings> = _settings.asStateFlow()
 
     fun refreshSettings() {
-        appScope.launch { _settings.value = runCatching { settingsStore.read() }.getOrDefault(LatchSettings()) }
+        appScope.launch {
+            _settings.value = runCatching { settingsStore.read() }.getOrDefault(LatchSettings())
+            applyTileSetting(_settings.value)
+        }
+    }
+
+    /**
+     * FR-1003, for the one layer whose toggle can be honoured by the system rather than by this
+     * app declining a capture.
+     *
+     * The Quick Settings tile is its own manifest component, so switching it off disables the
+     * component and the tile disappears from the shade. Text selection and the share sheet are
+     * three intent filters on **one** activity, so disabling it would remove all three at once —
+     * their toggles are enforced when the capture arrives instead, which means Latch still
+     * appears in the share sheet and declines with a reason. Splitting the activity per layer is
+     * the cure and is recorded as owed rather than pretended away.
+     *
+     * `DONT_KILL_APP`, because the alternative is the process being killed out from under a
+     * capture that may be mid-write.
+     */
+    private fun applyTileSetting(settings: LatchSettings) {
+        val enabled = CaptureLayer.QUICK_TILE in settings.enabledLayers
+        runCatching {
+            packageManager.setComponentEnabledSetting(
+                ComponentName(this, CaptureTileService::class.java),
+                if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
     }
 
     fun updateSettings(change: (LatchSettings) -> LatchSettings) {
@@ -190,6 +235,7 @@ class LatchApplication : Application() {
             val updated = change(_settings.value)
             _settings.value = updated
             runCatching { settingsStore.write(updated) }
+            applyTileSetting(updated)
         }
     }
 
@@ -380,9 +426,18 @@ class LatchApplication : Application() {
             scope = appScope,
             sourceLinkTemplate = getString(R.string.capture_source_link),
             pastDateNoteTemplate = getString(R.string.capture_past_date_note),
-            // FR-1001's default lead time, read at write time rather than captured at launch —
-            // Settings can change it while this process lives.
-            defaultReminders = { _settings.value.defaultReminderMinutes },
+            // FR-1001, read at write time rather than captured at launch: Settings can change
+            // while this process lives, and a saver holding a snapshot would keep writing the
+            // settings the app started with.
+            settings = { _settings.value },
+            // FR-1004. A suspending read rather than a field, so the endpoint — which NFR-203
+            // treats as a secret — is not held in memory for the life of the process whether or
+            // not a webhook is ever sent.
+            webhookEndpoint = {
+                runCatching { secrets.get(EncryptedSecretStore.KEY_WEBHOOK_ENDPOINT) }
+                    .getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+            },
         )
     }
 
@@ -401,6 +456,51 @@ class LatchApplication : Application() {
                 refreshQueueStatus()
             },
         )
+    }
+
+    /**
+     * FR-1000, held here for the reason every coordinator is — and for one more: the settings
+     * it edits are read by the capture path, which is a different process entry point
+     * altogether. A change made here has to reach a screen that may not exist yet.
+     */
+    val settingsCoordinator: SettingsCoordinator by lazy {
+        SettingsCoordinator(
+            settingsStore = settingsStore,
+            defaultsStore = accountDefaults,
+            secrets = secrets,
+            calendarApi = calendarApi,
+            tasksApi = tasksApi,
+            scope = appScope,
+            onChanged = {
+                refreshSettings()
+                refreshAccounts()
+            },
+        )
+    }
+
+    /**
+     * FR-907: one more destination override from this source.
+     *
+     * Counting only. The requirement is explicit that the app "shall **not** create the rule
+     * automatically", so nothing here writes a rule — `shouldOfferRule` reads the count and the
+     * user answers the offer.
+     */
+    fun countDestinationOverride(sourceApp: String?) {
+        if (sourceApp.isNullOrBlank()) return
+        updateSettings {
+            it.copy(destinationOverrideCounts = countingOverride(it.destinationOverrideCounts, sourceApp))
+        }
+    }
+
+    /** FR-907's answer, taken. The rule the user just agreed to. */
+    fun makeRoutingRule(sourceApp: String?, destination: Destination) {
+        val app = sourceApp?.takeIf { it.isNotBlank() } ?: return
+        updateSettings {
+            it.copy(
+                routingRules = it.routingRules +
+                    ruleFromOverride("rule." + java.util.UUID.randomUUID(), app, destination),
+            )
+        }
     }
 
     /** FR-603, held here for the reason every coordinator is: it outlives the screen. */
