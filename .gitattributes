@@ -1,0 +1,21 @@
+# Binary fixtures must never be line-ending converted.
+#
+# `git add` warned "LF will be replaced by CRLF" for a PNG and a PDF, which is a warning about
+# a conversion that would corrupt them. It happened not to this time — the blobs are
+# byte-identical to the working tree, verified with `cmp` — but the next fixture might not be so
+# lucky, and a corrupted OCR fixture fails as "recognition found nothing", which reads like a
+# defect in the recogniser rather than in the checkout.
+#
+# The `binary` macro is `-text -diff`: no conversion either way, and no attempt to diff them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.jks binary
+*.keystore binary
+
+# The AC-07 conformance vectors are deliberately pure ASCII with escaped inputs, so that an
+# editor normalising Unicode on save cannot silently turn one case into another (§7.2). Line
+# endings are part of that: a CRLF in a file whose whole purpose is byte-exact digests would
+# move every vector below the change.
+*.tsv -text
