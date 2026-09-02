@@ -112,6 +112,7 @@ android {
 
 dependencies {
     implementation(project(":core-model"))
+    implementation(project(":wire"))
     implementation(project(":parser"))
     implementation(project(":recipes"))
     implementation(project(":data"))

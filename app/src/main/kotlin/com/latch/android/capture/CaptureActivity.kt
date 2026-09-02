@@ -19,12 +19,12 @@ import com.latch.android.LatchApplication
 import com.latch.android.R
 import com.latch.android.ui.CaptureScreen
 import com.latch.android.ui.LatchTheme
+import com.latch.android.ui.RuleOffer
+import com.latch.core.model.CaptureLayer
+import com.latch.core.model.CaptureSource
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
 import com.latch.ocr.PageProgress
-import com.latch.core.model.CaptureLayer
-import com.latch.core.model.CaptureSource
-import com.latch.android.ui.RuleOffer
 import com.latch.parser.Confidence
 import com.latch.parser.DateOrder
 import com.latch.parser.DateParser

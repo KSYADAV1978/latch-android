@@ -22,7 +22,7 @@ import com.latch.data.InboxReason
 import com.latch.data.ItemDates
 import com.latch.data.LatchSettings
 import com.latch.data.PendingWrite
-import com.latch.data.RemoteMetadata
+import com.latch.wire.RemoteMetadata
 import com.latch.data.RescheduleSearch
 import com.latch.data.SqliteCaptureInbox
 import com.latch.data.SqliteItemIndex

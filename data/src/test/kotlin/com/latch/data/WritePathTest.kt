@@ -2,6 +2,19 @@ package com.latch.data
 
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
+import com.latch.wire.EXCERPT_BUDGET
+import com.latch.wire.KEY_ITEM_KEY
+import com.latch.wire.KEY_SOURCE_HASH
+import com.latch.wire.KEY_VERSION
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.dateSpans
+import com.latch.wire.itemKeyOf
+import com.latch.wire.remoteMetadataFromTaskNotes
+import com.latch.wire.sourceBlock
+import com.latch.wire.sourceExcerpt
+import com.latch.wire.sourceHashOf
+import com.latch.wire.taskNotesWithoutMetadata
+import com.latch.wire.toTaskNotes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime

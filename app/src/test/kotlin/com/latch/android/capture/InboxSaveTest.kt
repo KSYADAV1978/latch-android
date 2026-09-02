@@ -11,13 +11,14 @@ import com.latch.data.InboxReason
 import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite
-import com.latch.data.RemoteMetadata
 import com.latch.data.WriteOperation
 import com.latch.data.WrittenItem
-import com.latch.data.itemKeyOf
-import com.latch.data.sourceHashOf
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.itemKeyOf
+import com.latch.wire.itemKeyTitle
+import com.latch.wire.sourceHashOf
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate

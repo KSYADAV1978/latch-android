@@ -12,7 +12,7 @@ import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
-import com.latch.data.bodyWithNote
+import com.latch.wire.bodyWithNote
 import java.time.LocalDate
 
 /**

@@ -6,8 +6,8 @@ import android.content.Intent
 import android.util.Log
 import com.latch.android.LatchApplication
 import com.latch.data.DebugPage
-import com.latch.data.KEY_ITEM_KEY
-import com.latch.data.KEY_SOURCE_HASH
+import com.latch.wire.KEY_ITEM_KEY
+import com.latch.wire.KEY_SOURCE_HASH
 import com.latch.data.debugProbeProperty
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

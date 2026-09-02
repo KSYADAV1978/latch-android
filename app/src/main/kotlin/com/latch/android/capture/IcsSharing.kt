@@ -4,9 +4,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import com.latch.core.model.Item
-import com.latch.data.icsCalendar
-import com.latch.data.exportItems
-import com.latch.data.icsFileName
+import com.latch.wire.icsCalendar
+import com.latch.wire.exportItems
+import com.latch.wire.icsFileName
 import java.io.File
 import java.util.UUID
 

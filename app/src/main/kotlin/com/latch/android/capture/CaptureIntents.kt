@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.core.content.getSystemService
 import com.latch.core.model.CaptureLayer
 import com.latch.ocr.PageCoverage
+import com.latch.wire.WireCapture
 
 /**
  * Text handed to the app by one of the capture layers (§5.2), with where it came from.
@@ -15,9 +16,9 @@ import com.latch.ocr.PageCoverage
  * of mail clients — it is the better title than the first line of the body.
  */
 data class CapturedText(
-    val text: String,
+    override val text: String,
     val layer: CaptureLayer,
-    val preferredTitle: String? = null,
+    override val preferredTitle: String? = null,
     /** FR-203: true when the host will not accept modified text back. */
     val readOnly: Boolean = true,
     /**
@@ -32,13 +33,13 @@ data class CapturedText(
      * Reaches `CaptureSource.ocrUsed`, and from there FR-805b — an OCR capture's description
      * carries an extract around the matched dates rather than everything the recogniser saw.
      */
-    val ocrUsed: Boolean = false,
+    override val ocrUsed: Boolean = false,
     /**
      * FR-207: how much of a PDF was read, where this capture was one. Null for text and for
      * images, which have no pages to cap.
      */
     val pages: PageCoverage? = null,
-)
+) : WireCapture
 
 /**
  * What an incoming intent turned out to be.

@@ -2,7 +2,7 @@ package com.latch.android.notifications
 
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
-import com.latch.data.sourceBlock
+import com.latch.wire.sourceBlock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

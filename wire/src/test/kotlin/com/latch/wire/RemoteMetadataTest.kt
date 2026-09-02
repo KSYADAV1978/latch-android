@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.wire
 
 import java.time.Instant
 import kotlin.test.Test

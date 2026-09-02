@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.wire
 
 import com.latch.core.model.CaptureSource
 

@@ -24,7 +24,7 @@ import com.latch.data.TasksApi
 import com.latch.data.WritableCalendar
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
-import com.latch.data.sourceHashOf
+import com.latch.wire.sourceHashOf
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import java.io.IOException

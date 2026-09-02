@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.wire
 
 import java.security.MessageDigest
 import java.text.Normalizer
@@ -66,13 +66,17 @@ data class RemoteMetadata(
  */
 const val REMOTE_METADATA_VERSION: String = "1"
 
-internal const val KEY_VERSION = "latch.version"
+const val KEY_VERSION = "latch.version"
+// §7.2's key names are public, not internal, because they are the contract: a second client
+// of §4.1 reads and writes these exact strings, and a client that spelled one differently
+// would write metadata the others cannot see. They stopped being an implementation detail of
+// :data the moment the contract became a module.
 const val KEY_SOURCE_HASH = "latch.source_hash"
 const val KEY_ITEM_KEY = "latch.item_key"
-internal const val KEY_CHAIN_ID = "latch.chain_id"
-internal const val KEY_CAPTURED_AT = "latch.captured_at"
-internal const val KEY_SOURCE_APP = "latch.source_app"
-internal const val KEY_RECIPE = "latch.recipe"
+const val KEY_CHAIN_ID = "latch.chain_id"
+const val KEY_CAPTURED_AT = "latch.captured_at"
+const val KEY_SOURCE_APP = "latch.source_app"
+const val KEY_RECIPE = "latch.recipe"
 
 // ---------------------------------------------------------------------------------------
 // Hashing. The AC-07 contract.

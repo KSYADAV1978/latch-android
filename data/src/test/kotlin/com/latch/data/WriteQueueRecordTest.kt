@@ -3,6 +3,9 @@ package com.latch.data
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.core.model.SyncState
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.itemKeyOf
+import com.latch.wire.sourceHashOf
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate

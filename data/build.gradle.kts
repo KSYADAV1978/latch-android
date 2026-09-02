@@ -20,6 +20,11 @@ android {
 dependencies {
     api(project(":core-model"))
 
+    // `api`: §7.2's metadata types are in this module's own signatures — an insert takes a
+    // RemoteMetadata and a duplicate probe returns one. See settings.gradle.kts for why the
+    // contract is a shared module rather than a shared document.
+    api(project(":wire"))
+
     // implementation, not api: the storage contracts are `suspend` and nothing more, which
     // the stdlib already covers. Only the implementations need a dispatcher to move to.
     implementation(libs.kotlinx.coroutines.core)

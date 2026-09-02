@@ -17,10 +17,12 @@ requirement ID in your summary so work can be traced back.
 | `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1 |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
+| `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
 | `:ocr` | Android library | On-device OCR (FR-215, FR-207). The only module that names an ML Kit type; `:app` sees `OcrReader` and `OcrResult`. Bundled models, +12.83 MB per device — the largest single thing this app ships |
 | `:data` | Android library | Storage — the FR-701 SQLite database (Capture Inbox, FR-803's hash index, FR-807's stored offer), the write queue and account defaults in encrypted preferences, the secret store contract — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
-Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes`/`:ocr` → `:core-model`.
+Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes`/`:ocr`/`:wire` → `:core-model`.
+`:wire` → `:parser` → `:core-model`, and `:data` re-exports `:wire` as `api`.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
 `:ocr` depends on neither — it returns text, and what that text means is the parser's business.
 
@@ -58,7 +60,9 @@ in the pure function the screen calls.
 
 ## Hard constraints
 Do not violate these without asking first:
-- **`:parser` and `:recipes` stay pure Kotlin.** No Android dependency, no third-party
+- **`:parser`, `:recipes` and `:wire` stay pure Kotlin.** For `:wire` the constraint is
+  portability rather than testability: whatever goes in it has to exist on every platform §4.1
+  names, or the clients stop sharing it and the drift it exists to prevent comes back. No Android dependency, no third-party
   dependency. This is what makes FR-501 and NFR-502 enforceable by the build rather than by
   review, and it keeps the corpus running without a device.
 - **Never invent a date** (design principle 1). No date found means an undated item, never

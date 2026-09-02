@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.core.model.SyncState
+import com.latch.wire.RemoteMetadata
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime

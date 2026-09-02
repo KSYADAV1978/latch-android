@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.latch.core.model.CaptureSource
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.sourceBlock
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.MalformedURLException

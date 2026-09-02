@@ -1,5 +1,7 @@
 package com.latch.data
 
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.sourceBlock
 import java.time.LocalDate
 import java.time.LocalDateTime
 

@@ -4,6 +4,8 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
+import com.latch.wire.RemoteMetadata
+import com.latch.wire.sourceBlock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime

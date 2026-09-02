@@ -6,7 +6,7 @@ import com.latch.data.CreatedItem
 import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite
-import com.latch.data.RemoteMetadata
+import com.latch.wire.RemoteMetadata
 import com.latch.data.WriteOperation
 import java.time.Instant
 import java.time.LocalDate
