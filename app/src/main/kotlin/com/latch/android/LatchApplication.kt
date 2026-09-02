@@ -1,15 +1,28 @@
 package com.latch.android
 
 import android.app.Application
+import android.net.ConnectivityManager
+import android.net.Network
 import com.latch.android.capture.CaptureSaver
+import com.latch.android.capture.DrainTrigger
 import com.latch.android.capture.WriteQueueWorker
+import com.latch.android.capture.removeCreated
+import com.latch.android.capture.shouldDrainNow
+import com.latch.android.inbox.InboxCoordinator
 import com.latch.android.setup.AuthResolutionBridge
 import com.latch.android.setup.GoogleAuthClient
 import com.latch.android.setup.SetupCoordinator
 import com.latch.data.AccountDefaults
+import com.latch.data.CaptureInbox
 import com.latch.data.EncryptedAccountDefaultsStore
 import com.latch.data.EncryptedWriteQueueStore
+import com.latch.data.LocalItemIndex
 import com.latch.data.QueueStatus
+import com.latch.data.SqliteCaptureInbox
+import com.latch.data.SqliteItemIndex
+import com.latch.data.SqliteUndoOfferStore
+import com.latch.data.StoredUndoOffer
+import com.latch.data.UndoOfferStore
 import com.latch.data.WriteQueue
 import com.latch.data.googleCalendarApi
 import com.latch.data.googleTasksApi
@@ -22,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 /**
  * NFR-104: no persistent background service other than the optional notification listener.
@@ -77,6 +91,26 @@ class LatchApplication : Application() {
         //  a stored id already fails to name anything the next launch can see.
         refreshAccounts()
         refreshQueueStatus()
+        refreshInboxCount()
+        refreshUndoOffer()
+        // Every save moves this, wherever it was started from — the capture sheet, or the
+        // Inbox's own Save button — and every save can change all three counts: a row leaves
+        // the Inbox, an entry joins the queue, an FR-807 offer opens. Subscribing once here is
+        // what keeps the two screens from each having to remember to ask.
+        appScope.launch {
+            captureSaver.state.collect {
+                refreshInboxCount()
+                refreshQueueStatus()
+                refreshUndoOffer()
+                inboxCoordinator.refresh()
+            }
+        }
+        // Registered here rather than by a screen: the queue drains whether or not anything is
+        // on screen, and a capture made from the share sheet may never bring one up at all.
+        runCatching {
+            getSystemService(ConnectivityManager::class.java)
+                ?.registerDefaultNetworkCallback(connectivity)
+        }
         // FR-806: a queue that outlived the process — killed mid-drain, or the device
         // restarted — has nothing scheduled to drain it. WorkManager keeps its own record of
         // unfinished work, but an entry queued by a process that died before it could
@@ -106,6 +140,15 @@ class LatchApplication : Application() {
 
     /** FR-806, NFR-302. See [EncryptedWriteQueueStore] for why the payload lives here. */
     val writeQueue: WriteQueue by lazy { EncryptedWriteQueueStore(this) }
+
+    /** FR-701 to FR-705. Local only; nothing here has reached Google (FR-703). */
+    val inbox: CaptureInbox by lazy { SqliteCaptureInbox(this) }
+
+    /** FR-803's local index — see [LocalItemIndex] for the one question it is allowed to answer. */
+    val itemIndex: LocalItemIndex by lazy { SqliteItemIndex(this) }
+
+    /** FR-807's offer, written down so it outlives the process that made it. */
+    val undoOffers: UndoOfferStore by lazy { SqliteUndoOfferStore(this) }
 
     /**
      * FR-215, FR-207. Held here rather than by `CaptureActivity` because loading ML Kit's
@@ -142,6 +185,106 @@ class LatchApplication : Application() {
         appScope.launch { _queueStatus.value = writeQueue.status() }
     }
 
+    private val _inboxCount = MutableStateFlow(0)
+
+    /**
+     * FR-704: an unobtrusive count of pending Inbox items, and **it shall not nag**. The home
+     * screen draws nothing at all when it is zero, for the same reason the queue count does.
+     *
+     * Snoozed rows are excluded (FR-702): a capture the user has put off is not pending on
+     * them, and counting it would be the nagging the requirement names.
+     */
+    val inboxCount: StateFlow<Int> = _inboxCount.asStateFlow()
+
+    fun refreshInboxCount() {
+        appScope.launch { _inboxCount.value = inbox.pendingCount(Instant.now()) }
+    }
+
+    private val _pendingUndo = MutableStateFlow<StoredUndoOffer?>(null)
+
+    /**
+     * FR-807's offer where the screen that made it has gone.
+     *
+     * The capture window is a floating dialog the system may kill, and until FR-701's storage
+     * existed a process death inside the ten seconds simply lost the offer and the save stood.
+     * It is read here and shown on the home screen, which is the only surface left once that
+     * window is closed.
+     */
+    val pendingUndo: StateFlow<StoredUndoOffer?> = _pendingUndo.asStateFlow()
+
+    fun refreshUndoOffer() {
+        appScope.launch { _pendingUndo.value = undoOffers.open(Instant.now()) }
+    }
+
+    /**
+     * FR-807, taken from the home screen rather than from the capture sheet.
+     *
+     * The same [removeCreated] the sheet uses — one implementation of a destructive operation,
+     * because two would eventually differ and the one that differed would be the one nobody
+     * watched.
+     */
+    fun undoPendingOffer() {
+        appScope.launch {
+            val offer = _pendingUndo.value ?: return@launch
+            _pendingUndo.value = null
+            removeCreated(offer.created, calendarApi, tasksApi, writeQueue, itemIndex)
+            undoOffers.forget(offer.chainId)
+            refreshQueueStatus()
+            refreshUndoOffer()
+        }
+    }
+
+    private var lastImmediateDrain: Instant? = null
+
+    /**
+     * FR-806's immediate drain: throw away a backoff the worker is sitting out, where something
+     * has happened that makes it no longer the right wait.
+     *
+     * `shouldDrainNow` holds the policy and is pure; this is the part that needs a `Context`.
+     * The rate-limit clock lives here rather than in the decision so the decision stays
+     * testable without one.
+     */
+    fun drainNow(trigger: DrainTrigger) {
+        appScope.launch {
+            val now = Instant.now()
+            val entries = runCatching { writeQueue.pending() }.getOrDefault(emptyList())
+            if (!shouldDrainNow(entries, trigger, lastImmediateDrain, now)) return@launch
+            lastImmediateDrain = now
+            WriteQueueWorker.schedule(this@LatchApplication, replaceExisting = true)
+            refreshQueueStatus()
+        }
+    }
+
+    /**
+     * FR-806's "Retry now": a given-up entry goes back in the queue and a drain is asked for.
+     *
+     * FR-806's own note records that such an entry "stays in the queue and is shown as stuck,
+     * but has no manual retry or dismissal, because the screen that would offer one is Settings
+     * (FR-1000) and that is not built". This is that retry, on the screen that exists.
+     */
+    fun retryQueueNow() {
+        appScope.launch {
+            runCatching { writeQueue.reviveGivenUp() }
+            drainNow(DrainTrigger.USER_ASKED)
+        }
+    }
+
+    /**
+     * The OS reporting a usable network again (FR-806).
+     *
+     * **Not a service, and NFR-104 is why that matters.** A `NetworkCallback` registered by the
+     * application object lives exactly as long as the process does and starts nothing; it is
+     * the same standing WorkManager's own connectivity constraint has. What it adds is the one
+     * thing that constraint cannot: a drain that is not waiting on connectivity but on a
+     * backoff timer does not notice the network coming back, and `ExistingWorkPolicy.KEEP`
+     * correctly refuses to reset that timer for an ordinary request.
+     */
+    private val connectivity = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            drainNow(DrainTrigger.CONNECTIVITY_RESTORED)
+        }
+    }
+
     /**
      * Held here rather than by `CaptureActivity`, because the capture window is a floating
      * dialog that closes on a tap outside it. A write already on its way to Google must
@@ -153,12 +296,34 @@ class LatchApplication : Application() {
             calendarApi = calendarApi,
             tasksApi = tasksApi,
             writeQueue = writeQueue,
+            inbox = inbox,
+            index = itemIndex,
+            undoOffers = undoOffers,
             requestDrain = {
                 WriteQueueWorker.schedule(this)
                 refreshQueueStatus()
+                refreshUndoOffer()
             },
+            onGoogleReached = { drainNow(DrainTrigger.FOREGROUND_REQUEST_SUCCEEDED) },
             scope = appScope,
             sourceLinkTemplate = getString(R.string.capture_source_link),
+        )
+    }
+
+    /**
+     * FR-702's triage, held here rather than by the screen for the reason [captureSaver] is: a
+     * save started from the Inbox reaches Google and has to finish and be reported even if the
+     * user backs out of the list while it is in flight.
+     */
+    val inboxCoordinator: InboxCoordinator by lazy {
+        InboxCoordinator(
+            inbox = inbox,
+            saver = captureSaver,
+            scope = appScope,
+            onChanged = {
+                refreshInboxCount()
+                refreshQueueStatus()
+            },
         )
     }
 

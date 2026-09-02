@@ -1,5 +1,6 @@
 package com.latch.android.capture
 
+import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.data.CalendarApi
 import com.latch.data.DuplicateSearch
@@ -112,14 +113,31 @@ suspend fun drainEntry(
         return
     }
 
-    val alreadySaved = runDuplicateProbe(duplicateProbeFor(write), calendarApi, tasksApi)
-    if (alreadySaved.found) {
-        queue.markWritten(entry.id, alreadySaved.existingId.orEmpty())
+    // SRS 1.24, and the reason this is a branch rather than an unconditional check. FR-803
+    // asks whether the *message* has been saved. On a **resumed** entry — one whose first
+    // inserts succeeded and whose chain then failed part-way — the honest answer to that
+    // question is yes, and acting on it retires the entry with the rest of the chain never
+    // written. So a resumed entry does not ask it: the markers already say exactly which
+    // items are in the account, which is a better answer than the question was ever going to
+    // give. A fresh entry has no markers and asks as it always did.
+    val remaining = itemsLeftToWrite(entry)
+    if (entry.writtenItemIds.isEmpty()) {
+        val alreadySaved = runDuplicateProbe(duplicateProbeFor(write), calendarApi, tasksApi)
+        if (alreadySaved.found) {
+            queue.markWritten(entry.id, alreadySaved.existingId.orEmpty())
+            return
+        }
+    }
+
+    if (remaining.isEmpty()) {
+        // Every item is marked written and something still queued the entry — a crash between
+        // the last marker and the retirement. Retiring it is the whole of what is left to do.
+        queue.markWritten(entry.id, "")
         return
     }
 
     var lastRemoteId = ""
-    for (item in write.items) {
+    for (item in remaining) {
         lastRemoteId = when (item.type) {
             ItemType.EVENT -> calendarApi.insertEvent(
                 calendarId = requireNotNull(item.calendarId) { "A queued event has no calendar" },
@@ -145,15 +163,27 @@ suspend fun drainEntry(
                 ),
             )
         }
+
+        // SRS 1.24's marker, after **each** insert rather than after the last. This is the
+        // whole of the cure: a failure between two inserts now leaves a record of exactly what
+        // reached the account, so the retry resumes rather than re-asking a question about the
+        // message that the chain's own first item has already answered "yes".
+        queue.markItemWritten(entry.id, item.id, lastRemoteId)
     }
 
-    // The entry is done when the whole chain is in the account. A failure part-way leaves it
-    // queued and the drain retries it — FR-803's check at the head of the next attempt sees
-    // the chain's first item and stops there, which is the one case where that check can
-    // leave a chain short. Recorded rather than solved: solving it needs a per-item written
-    // marker, which is the local index FR-701 will bring.
+    // The entry is done when the whole chain is in the account.
     queue.markWritten(entry.id, lastRemoteId)
 }
+
+/**
+ * The items of this entry's chain that are not yet in the account, in order.
+ *
+ * Pure, so SRS 1.24's resume is testable — which is the point of it existing as a function at
+ * all. The bug it cures was invisible for the same reason the drain's own duplicate check was:
+ * it lived inside a `CoroutineWorker` and nothing without a `Context` could reach it.
+ */
+fun itemsLeftToWrite(entry: QueuedWrite): List<Item> =
+    entry.write.items.filterNot { it.id in entry.writtenItemIds }
 
 /**
  * FR-804's update, drained.

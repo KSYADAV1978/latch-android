@@ -1,28 +1,8 @@
 package com.latch.data
 
-import com.latch.core.model.Capture
 import com.latch.core.model.Item
 import com.latch.core.model.RoutingMode
 import java.time.Instant
-
-/**
- * FR-701 to FR-703: the Capture Inbox holds items that are undated, incomplete, or below
- * the confidence threshold.
- *
- * Nothing here reaches Google. Inbox contents are local until the user confirms them
- * (FR-703), the store is app-private and encrypted at rest (NFR-204), and content from the
- * notification listener is never written at all (FR-210, NFR-206) — that layer holds its
- * text in memory and only a confirmed item ever arrives here.
- */
-interface CaptureInbox {
-    suspend fun add(capture: Capture, items: List<Item>)
-    suspend fun pending(): List<Capture>
-    suspend fun pendingCount(): Int
-    suspend fun discard(captureId: String)
-
-    /** NFR-205: one action revokes access and deletes everything local. */
-    suspend fun deleteAll()
-}
 
 /**
  * FR-806: writes are queued locally when offline and retried on reconnection, with the queue
@@ -55,6 +35,23 @@ interface WriteQueue {
     suspend fun markWritten(queueId: String, remoteId: String)
 
     /**
+     * SRS 1.24's per-item written marker, and the cure for the limitation §7.1 records beside
+     * it: **a chain that fails part-way through its inserts is left short on the next attempt.**
+     *
+     * The entry stays queued, as it must — dropping it would lose the capture. But FR-803 at
+     * the head of the retry asks whether the *message* has been saved, finds the items that did
+     * get written, and answers yes; the drain then retires the entry with the rest of the chain
+     * never written. No reordering of that check fixes both cases: asked per item it loses whole
+     * chains to the duplicate the chain created itself, asked once it cannot tell a
+     * half-succeeded chain from one already saved.
+     *
+     * So the drain stops asking a question about the message on a retry and resumes at the
+     * first item it has no marker for. Called after **each** insert of a chain, not after the
+     * last, which is the whole point.
+     */
+    suspend fun markItemWritten(queueId: String, itemId: String, remoteId: String)
+
+    /**
      * NFR-303: a failure surfaces a clear, actionable message. Silent failure is a defect.
      *
      * [permanent] separates "not yet" from "not ever". A lost network is the first and must
@@ -67,12 +64,31 @@ interface WriteQueue {
      *   again. Distinct from [permanent] — this entry has **not** been given up on; it is
      *   waiting on a tap the user can actually make.
      */
+    /**
+     * @param failureClass FR-806's immediate drain applies only to a queue held up by the
+     *   transport. A 429 or a 500 is not cured by learning that the socket works, and retrying
+     *   one the moment connectivity is reported would be hammering a server that has just said
+     *   it is busy.
+     */
     suspend fun markFailed(
         queueId: String,
         error: String,
         permanent: Boolean,
         needsSignIn: Boolean = false,
+        failureClass: FailureClass = FailureClass.TRANSPORT,
     )
+
+    /**
+     * FR-806's "Retry now": puts a given-up entry back in the queue so the next drain takes it.
+     *
+     * FR-806's own note records that an entry given up on "stays in the queue and is shown as
+     * stuck, but has no manual retry or dismissal, because the screen that would offer one is
+     * Settings (FR-1000) and that is not built". The home screen offers one now. Nothing about
+     * the classification changes — a 403 for a scope the user has not granted will fail again —
+     * but the user has usually done something between the failure and the tap, and refusing to
+     * try is worse than trying and saying so.
+     */
+    suspend fun reviveGivenUp(): Int
 
     /**
      * FR-807: an undo of a write that has not drained yet. Returns true where the entry was
@@ -173,6 +189,23 @@ data class QueuedWrite(
      * into the account.
      */
     val queuedAt: Instant,
+    /**
+     * What kind of thing stopped the last attempt, so FR-806's immediate drain can tell an
+     * entry that connectivity would help from one it would not.
+     *
+     * [FailureClass.TRANSPORT] on a fresh entry, because a fresh entry is here for exactly that
+     * reason: the queue is a fallback taken when a write could not reach Google.
+     */
+    val failureClass: FailureClass = FailureClass.TRANSPORT,
+    /**
+     * SRS 1.24: which items of this chain are already in the account, by `Item.id`.
+     *
+     * Empty for every entry that has never been attempted, which is every entry that has never
+     * failed part-way. A retry resumes at the first item not in here rather than re-asking
+     * FR-803's question about the message — which finds the chain's own first item and
+     * concludes, wrongly, that there is nothing left to do.
+     */
+    val writtenItemIds: Set<String> = emptySet(),
 )
 
 /**
@@ -202,6 +235,28 @@ data class QueueStatus(
 }
 
 enum class WriteOperation { CREATE, UPDATE, DELETE }
+
+/**
+ * What kind of thing stopped a write, as far as FR-806 needs to care.
+ *
+ * The distinction exists for one decision: whether learning that the network is back is
+ * *evidence* that this entry might now succeed. For [TRANSPORT] it is; for the others it is
+ * not, and treating them alike would turn a restored connection into a burst of requests
+ * against a server that has already said it is overloaded.
+ */
+enum class FailureClass {
+    /** No network, DNS, TLS, timeout — [GoogleUnreachable]. Connectivity returning is real news. */
+    TRANSPORT,
+
+    /** A 429 or a 5xx. Waiting is the cure, and the wait is the server's to set, not ours. */
+    SERVER,
+
+    /** FR-806a: Google wants a sign-in. A tap fixes it; a network does not. */
+    SIGN_IN,
+
+    /** A 400, a 403 for a scope not granted, or a bug in our own mapping. Retrying repeats it. */
+    PERMANENT,
+}
 
 /**
  * NFR-203: OAuth tokens go in the platform secure store, never in plain preferences. The

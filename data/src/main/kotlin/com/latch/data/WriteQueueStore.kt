@@ -103,11 +103,43 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
         withContext(Dispatchers.IO) { prefs.edit().remove(keyFor(queueId)).commit() }
     }
 
+    /**
+     * SRS 1.24's marker, written after each insert of a chain rather than after the last.
+     *
+     * `commit`, like every other write here: the whole value of a marker is that it survives
+     * the process dying between two inserts, which is precisely the case `apply` would lose.
+     */
+    override suspend fun markItemWritten(queueId: String, itemId: String, remoteId: String) {
+        withContext(Dispatchers.IO) {
+            val entry = read(keyFor(queueId)) ?: return@withContext
+            val updated = entry.copy(writtenItemIds = entry.writtenItemIds + itemId)
+            prefs.edit()
+                .putString(keyFor(queueId), cipher.encrypt(encodeQueuedWrite(updated)))
+                .commit()
+        }
+    }
+
+    override suspend fun reviveGivenUp(): Int = withContext(Dispatchers.IO) {
+        val revived = pending().filter { it.givenUp }
+        val editor = prefs.edit()
+        revived.forEach { entry ->
+            // The error text is kept. The user asked to try again, not to be told the last
+            // attempt never happened, and NFR-303 wants the reason available if it fails again.
+            editor.putString(
+                keyFor(entry.id),
+                cipher.encrypt(encodeQueuedWrite(entry.copy(givenUp = false, attempts = 0))),
+            )
+        }
+        editor.commit()
+        revived.size
+    }
+
     override suspend fun markFailed(
         queueId: String,
         error: String,
         permanent: Boolean,
         needsSignIn: Boolean,
+        failureClass: FailureClass,
     ) {
         withContext(Dispatchers.IO) {
             val entry = read(keyFor(queueId)) ?: return@withContext
@@ -116,6 +148,7 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
                 lastError = error,
                 givenUp = permanent,
                 needsSignIn = needsSignIn,
+                failureClass = failureClass,
             )
             prefs.edit()
                 .putString(keyFor(queueId), cipher.encrypt(encodeQueuedWrite(updated)))
@@ -175,16 +208,28 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  * to null and is dropped rather than mis-parsed into a write that would reach the user's
  * account wrong.
  *
- * **Version 3 holds a chain of items where 1 and 2 held one** (SRS §7.1, corrected at
- * v1.23), and **version 2 added FR-804's `target` and `prior` (v1.16). Both older layouts are
- * still read**, a v1 or v2 record decoding to a chain of one, which is exactly what it was.** This is the opposite of the account-defaults store's
- * answer, where a v1 record is dropped and setup simply runs again, and the difference is
- * what is lost: dropping a queue entry loses a capture that exists nowhere else, which is
- * the one thing NFR-302 forbids. Nothing has to be inferred to read one, either — an UPDATE
- * was never issued at v1, so every v1 record is a CREATE, and a CREATE carries neither of
- * the new fields anyway.
+ * **Every earlier layout is still read**, which is the opposite of the account-defaults
+ * store's answer — there a v1 record is dropped and setup simply runs again. The difference is
+ * what is lost: dropping a queue entry loses a capture that exists nowhere else, which is the
+ * one thing NFR-302 forbids. Nothing has to be inferred to read an old one either, because
+ * every field added since has an honest default for a record that predates it.
+ *
+ *  - **v2** added FR-804's `target` and `prior` (SRS 1.16). An `UPDATE` was never issued at v1,
+ *    so every v1 record is a `CREATE` and a `CREATE` carries neither.
+ *  - **v3** holds a chain of items where 1 and 2 held one (SRS §7.1 at v1.23). An older record
+ *    decodes to a chain of one, which is exactly what it was.
+ *  - **v4** adds SRS 1.24's per-item written marker and the failure class FR-806's immediate
+ *    drain reads. An older record has written nothing yet, and is presumed to have stopped on
+ *    the transport — which is why the queue exists, and is the reading that retries soonest.
+ *
+ * **The queue deliberately did not move into FR-701's SQLite database.** SRS 1.24 named the
+ * marker as needing that storage, and it does not: this record can carry it. What the move
+ * would have cost is a migration of entries holding captures that exist nowhere else,
+ * undertaken to tidy a storage layer — exactly the trade NFR-302 forbids. FR-803's hash index
+ * went into the database instead, because that is a new index and loses nothing if it starts
+ * empty.
  */
-internal const val QUEUE_RECORD_VERSION = 3
+internal const val QUEUE_RECORD_VERSION = 4
 
 /** The oldest record layout still readable. See [QUEUE_RECORD_VERSION]. */
 internal const val QUEUE_RECORD_MIN_VERSION = 1
@@ -236,6 +281,7 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
         .put("attempts", entry.attempts)
         .put("given_up", entry.givenUp)
         .put("needs_sign_in", entry.needsSignIn)
+        .put("failure_class", entry.failureClass.name)
         .put("queued_at", entry.queuedAt.toString())
         .put("zone", entry.write.timeZone)
         .put("body", entry.write.body)
@@ -251,6 +297,15 @@ internal fun encodeQueuedWrite(entry: QueuedWrite): String {
     val items = JSONArray()
     for (one in entry.write.items) items.put(encodeItem(one))
     json.put("items", items)
+
+    // SRS 1.24. Omitted where empty rather than written as an empty array — the rule §7.2
+    // applies to its own optional keys, and it keeps a v4 record of an unattempted entry the
+    // same shape as the v3 record it replaces.
+    if (entry.writtenItemIds.isNotEmpty()) {
+        val written = JSONArray()
+        entry.writtenItemIds.sorted().forEach(written::put)
+        json.put("written_items", written)
+    }
 
     json.put(
         "metadata",
@@ -332,6 +387,16 @@ internal fun decodeQueuedWrite(record: String): QueuedWrite? = try {
                 givenUp = json.optBoolean("given_up"),
                 needsSignIn = json.optBoolean("needs_sign_in"),
                 queuedAt = Instant.parse(json.getString("queued_at")),
+                // Not valueOf: a class written by a later version decodes to the default
+                // rather than throwing. TRANSPORT is the honest default for a record that
+                // predates the field — it is why the queue exists, and it is the reading that
+                // retries soonest, which is the safe direction for a capture.
+                failureClass = FailureClass.entries
+                    .firstOrNull { it.name == json.optString("failure_class") }
+                    ?: FailureClass.TRANSPORT,
+                writtenItemIds = json.optJSONArray("written_items")
+                    ?.let { array -> (0 until array.length()).map(array::getString).toSet() }
+                    .orEmpty(),
                 write = PendingWrite(
                     items = items.filterNotNull(),
                     metadata = RemoteMetadata(

@@ -3,6 +3,7 @@ package com.latch.android.capture
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.data.CreatedItem
 import com.latch.data.CalendarApi
 import com.latch.data.TasksApi
 import com.latch.data.itemKeyOf
@@ -277,6 +278,9 @@ class MultiDateSaveTest {
         calendarApi = calendar,
         tasksApi = tasks,
         writeQueue = queue,
+        inbox = RecordingInbox(),
+        index = RecordingIndex(),
+        undoOffers = RecordingUndoOffers(),
         requestDrain = { queue.drainsRequested++ },
         scope = this,
         sourceLinkTemplate = "Captured from %1\$s",

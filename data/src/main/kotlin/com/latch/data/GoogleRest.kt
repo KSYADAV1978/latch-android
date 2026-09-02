@@ -782,3 +782,29 @@ suspend fun debugProbeProperty(
         DebugPage(url, null, null, null, "${failure::class.simpleName}: ${failure.message}")
     }
 }
+
+/**
+ * Which [FailureClass] a failed write belongs to, for FR-806's immediate drain.
+ *
+ * The sibling of [isWorthRetrying] and deliberately a separate function rather than a field on
+ * it: whether to retry at all and whether *connectivity returning is news* are two different
+ * questions, and collapsing them would make a 429 look like a lost socket. A 429 is retryable
+ * and must not be retried the instant the network comes back — the server has just said it is
+ * busy, and hammering it is the failure the rate limit exists to describe.
+ *
+ * Anything unrecognised is [FailureClass.PERMANENT], which is the same answer [isWorthRetrying]
+ * gives it and for the same reason: it is a bug in our own mapping rather than an answer from
+ * Google, and repeating it repeats the bug.
+ */
+fun failureClassOf(failure: Throwable): FailureClass = when (failure) {
+    is GoogleUnreachable -> FailureClass.TRANSPORT
+    // A 2xx we could not parse. The socket worked, so this is not the transport; the write may
+    // even have happened, which is why FR-803 runs again before each insert.
+    is GoogleUnreadable -> FailureClass.SERVER
+    is SignInRequiredException -> FailureClass.SIGN_IN
+    is GoogleRejected ->
+        if (failure.status == 429 || failure.status in 500..599) FailureClass.SERVER
+        else FailureClass.PERMANENT
+
+    else -> FailureClass.PERMANENT
+}

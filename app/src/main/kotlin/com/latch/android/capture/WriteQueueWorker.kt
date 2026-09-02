@@ -15,6 +15,7 @@ import com.latch.data.QueuedWrite
 import com.latch.data.SignInRequiredException
 import com.latch.data.TasksApi
 import com.latch.data.WriteQueue
+import com.latch.data.failureClassOf
 import com.latch.data.isWorthRetrying
 import java.time.Duration
 import java.time.Instant
@@ -63,7 +64,7 @@ class WriteQueueWorker(
         // Something is there but not yet ours to touch — an entry still inside its FR-807
         // undo window. Come back rather than report the queue drained.
         if (ready.isEmpty()) {
-            return if (entries.any { !it.givenUp }) Result.retry() else Result.success()
+            return if (entries.any { !it.givenUp }) retryResult() else Result.success()
         }
 
         var retryable = false
@@ -85,6 +86,9 @@ class WriteQueueWorker(
                     // here is not the network — it is Google asking for a sign-in, and the
                     // queue has to be able to say so rather than showing a silent wait.
                     needsSignIn = failure is SignInRequiredException,
+                    // FR-806's immediate drain reads this: only a transport failure is cured
+                    // by learning that the network is back.
+                    failureClass = failureClassOf(failure),
                 )
                 // One entry's permanent failure does not stop the rest: the next capture in
                 // the queue is a different item and may write perfectly well.
@@ -92,32 +96,65 @@ class WriteQueueWorker(
             }
         }
 
-        return if (retryable) Result.retry() else Result.success()
+        return if (retryable) retryResult() else Result.success()
+    }
+
+    /**
+     * `Result.retry()` while the wait is inside the ceiling, and a fresh delayed request once
+     * it is not.
+     *
+     * WorkManager's exponential backoff doubles to `MAX_BACKOFF_MILLIS` — five hours — which is
+     * how a queue that failed overnight is still waiting at breakfast. Enqueueing a new request
+     * at the ceiling resets the attempt counter, so the wait pins there instead of continuing
+     * to double. See [retryPlan], which is where the arithmetic is and where it is tested.
+     *
+     * **Enqueueing under this worker's own unique name while it is running cancels this run.**
+     * That is intended and is why the plan is chosen *after* everything else has been done:
+     * `doWork` has no work left, the replacement is enqueued regardless, and a cancelled
+     * `Result` that nobody reads is the correct outcome. It is called out because it looks like
+     * a mistake, and because it is the one thing here a device pass has to watch rather than
+     * reason about.
+     */
+    private fun retryResult(): Result = when (val plan = retryPlan(runAttemptCount)) {
+        RetryPlan.Backoff -> Result.retry()
+        is RetryPlan.Reschedule -> {
+            schedule(applicationContext, after = plan.delay, replaceExisting = true)
+            Result.success()
+        }
     }
 
     companion object {
         private const val WORK_NAME = "latch.write-queue"
 
         /**
-         * Asks for a drain. `KEEP`, so a burst of offline captures schedules one drain and
-         * not one per capture — the worker reads the whole queue anyway.
+         * Asks for a drain.
          *
-         * The backoff floor is ten seconds, which is also [UNDO_WINDOW]. That is not a
-         * coincidence worth relying on, but it does mean the retry that follows a skipped
-         * young entry lands about when that entry becomes eligible.
+         * `KEEP` by default, so a burst of offline captures schedules one drain and not one per
+         * capture — the worker reads the whole queue anyway. [replaceExisting] is the override
+         * FR-806's immediate drain needs: `KEEP` correctly refuses to reset a backoff timer,
+         * which is right for a new capture and wrong when the reason for the backoff has
+         * measurably gone away. `shouldDrainNow` is what decides that, and it is pure.
          */
-        fun schedule(context: Context) {
+        fun schedule(
+            context: Context,
+            after: Duration = Duration.ZERO,
+            replaceExisting: Boolean = false,
+        ) {
             val request = OneTimeWorkRequestBuilder<WriteQueueWorker>()
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .build()
                 )
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_FLOOR)
+                .apply { if (!after.isZero) setInitialDelay(after) }
                 .build()
 
-            WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                WORK_NAME,
+                if (replaceExisting) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                request,
+            )
         }
     }
 }
@@ -132,11 +169,12 @@ class WriteQueueWorker(
  * a save back, and for a queued save taking it back means dropping the entry. If the worker
  * could drain inside that window, an undo would sometimes be a dequeue and sometimes a chase
  * into the user's account after an item that had just been written — a race whose losing side
- * is a delete the user did not watch happen. Skipping young entries removes the race rather
- * than trying to win it, and costs at most ten seconds on a write that is already late.
+ * is a delete the user did not watch happen. Skipping young entries removes the race instead of
+ * trying to win it, at a cost of at most ten seconds on a write that is already late.
  *
  * **An entry that has been given up on is not retried.** It stays, because dropping it would
- * lose the capture, and it is counted separately so the user is told it is stuck.
+ * lose the capture, and it is counted separately so the user is told it is stuck. FR-806's
+ * "Retry now" is how it comes back — `reviveGivenUp` clears the flag, and then this admits it.
  */
 internal fun drainable(entries: List<QueuedWrite>, now: Instant): List<QueuedWrite> =
     entries.filter { entry ->

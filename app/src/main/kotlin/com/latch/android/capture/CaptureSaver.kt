@@ -6,15 +6,24 @@ import com.latch.core.model.ItemType
 import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
 import com.latch.data.CalendarApi
+import com.latch.data.CaptureInbox
+import com.latch.data.CreatedItem
+import com.latch.data.DuplicateSearch
 import com.latch.data.EventWrite
+import com.latch.data.InboxCapture
+import com.latch.data.InboxReason
 import com.latch.data.ItemDates
+import com.latch.data.LocalItemIndex
 import com.latch.data.RemoteMetadata
 import com.latch.data.RescheduleMatch
+import com.latch.data.StoredUndoOffer
 import com.latch.data.TaskWrite
 import com.latch.data.PendingWrite
 import com.latch.data.TasksApi
+import com.latch.data.UndoOfferStore
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
+import com.latch.data.WrittenItem
 import com.latch.data.isWorthRetrying
 import com.latch.data.itemKeyOf
 import com.latch.data.sourceBlock
@@ -83,60 +92,20 @@ fun saveBlocker(
     destination: DestinationState,
     result: ParseResult?,
     saveState: SaveState,
+    /**
+     * FR-512: where the capture is going. An Inbox route needs no destination and cannot be
+     * blocked for want of a date — the Inbox is precisely where a capture with no date goes
+     * (FR-506 row 4, AC-03), and refusing to put it there would lose it.
+     */
+    route: SaveRoute = SaveRoute.Google,
 ): SaveBlocker? = when {
     result == null -> SaveBlocker.NEEDS_A_DATE
     saveState !is SaveState.Idle -> SaveBlocker.NOT_IDLE
+    route is SaveRoute.Inbox -> null
     destination is DestinationState.Loading -> SaveBlocker.READING_DESTINATION
     destination is DestinationState.None -> SaveBlocker.NO_DESTINATION
     draftBlocker(result) == DraftBlocker.NEEDS_A_DATE -> SaveBlocker.NEEDS_A_DATE
     else -> null
-}
-
-/**
- * One item a save produced, and the whole of what is needed to take it back again.
- *
- * Two shapes, because FR-806 gave a save two possible outcomes. A write that reached Google
- * is undone by deleting it; a write that was queued because there was no network is undone by
- * dropping the queue entry, and there is no remote id to delete because nothing was created.
- * Collapsing the two would mean undo guessing, and the wrong guess either leaves an item in
- * the account or sends a delete for an id that does not exist.
- */
-sealed interface CreatedItem {
-    /**
-     * [containerId] is the calendar id for an event and the task list id for a task — both
-     * APIs address an item by its container and its own id, and neither can be deleted by
-     * id alone.
-     */
-    data class Written(
-        val type: ItemType,
-        val containerId: String,
-        val remoteId: String,
-    ) : CreatedItem
-
-    /**
-     * FR-806: still in the queue. `WriteQueueWorker` will not drain an entry inside its undo
-     * window, so this stays droppable for as long as the offer stands — see [drainable].
-     */
-    data class Queued(val queueId: String) : CreatedItem
-
-    /**
-     * FR-804: an item that already existed and was **moved**, not created.
-     *
-     * Undoing this is a restore and never a delete. The item was the user's before this save
-     * touched it, and deleting it would destroy something they already had — the one outcome
-     * FR-807 must not produce, and the reason its wording had to be corrected at SRS 1.16.
-     *
-     * [priorDates] is what the item held when the match was made, which is the only place
-     * those values still exist once the patch has gone through. SRS 1.19 records the
-     * staleness that follows: where the update waited in the queue, this restores what was
-     * true at match time and overwrites any hand edit made in between.
-     */
-    data class Updated(
-        val type: ItemType,
-        val containerId: String,
-        val remoteId: String,
-        val priorDates: ItemDates,
-    ) : CreatedItem
 }
 
 /** FR-807: not less than ten seconds. */
@@ -228,6 +197,17 @@ sealed interface SaveState {
         val proposed: ItemDates,
     ) : SaveState
 
+    /**
+     * FR-512, FR-506 rows 3 and 4, AC-03: the capture is in the Capture Inbox and **nothing
+     * was written to Google** (FR-703).
+     *
+     * Deliberately not a [Saved], for the reason [Queued] is not one either: saying "saved"
+     * about something that is not in the user's account is the swallowed failure NFR-303
+     * forbids, dressed as success. It carries no undo window — nothing left the device, and
+     * the Inbox's own Discard is the way back.
+     */
+    data class SentToInbox(val reason: InboxReason) : SaveState
+
     data class Failed(val reason: SaveFailure) : SaveState
 
     /** FR-807: the deletes are in flight. */
@@ -274,6 +254,7 @@ fun saveIsOffered(state: SaveState): Boolean = when (state) {
     is SaveState.RescheduleOffered,
     is SaveState.Saved,
     is SaveState.Queued,
+    is SaveState.SentToInbox,
     SaveState.AlreadySaved,
     SaveState.Undoing,
     SaveState.Undone,
@@ -297,12 +278,27 @@ class CaptureSaver(
     private val calendarApi: CalendarApi,
     private val tasksApi: TasksApi,
     private val writeQueue: WriteQueue,
+    /** FR-701: where a capture goes when FR-512 says it is not to be written yet. */
+    private val inbox: CaptureInbox,
+    /**
+     * FR-803's local index. Consulted **after** Google, never instead of it — see
+     * [LocalItemIndex], and [findDuplicate] below for the two places it actually answers.
+     */
+    private val index: LocalItemIndex,
+    /** FR-807: the offer, written down so it survives the process that made it. */
+    private val undoOffers: UndoOfferStore,
     /**
      * FR-806: asks for a drain. A function rather than the `WorkManager` itself, so this
      * class stays free of Android — everything else it touches is a `:data` contract, and
      * `CaptureSaverTest` runs on the JVM.
      */
     private val requestDrain: () -> Unit,
+    /**
+     * FR-806: a foreground request to Google just succeeded, so the transport demonstrably
+     * works. Any queue entry backing off after a transport failure could go now, and
+     * `shouldDrainNow` is what decides whether that is worth acting on.
+     */
+    private val onGoogleReached: () -> Unit = {},
     private val scope: CoroutineScope,
     /**
      * FR-805's link back to the source, as a format string taking the source application.
@@ -328,15 +324,23 @@ class CaptureSaver(
      * @param selected FR-511's answer: the candidates left ticked, by index. Defaults to all
      *   of them, which is what the checkboxes start as.
      */
+    /**
+     * @param fromInboxId FR-702/FR-703: this save is the user confirming a row that was
+     *   already in the Inbox. It forces the route to Google — routing it back to the Inbox it
+     *   came from would be a loop with a button on it — and the row is discarded once the
+     *   write lands, because the item now exists in the account and the Inbox holds only what
+     *   has not been confirmed.
+     */
     fun save(
         captured: CapturedText,
         result: ParseResult,
         context: ParseContext,
         selected: Set<Int> = result.candidates.indices.toSet(),
+        fromInboxId: String? = null,
     ) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
-        scope.launch { perform(captured, result, context, selected) }
+        scope.launch { perform(captured, result, context, selected, fromInboxId) }
     }
 
     /**
@@ -386,22 +390,65 @@ class CaptureSaver(
         scope.launch { completeAsCreate(standing) }
     }
 
-    fun reset() {
+    /**
+     * So a second capture in the same process does not open on the last one's outcome.
+     *
+     * **[captureKey] is what tells a new capture from the same one arriving again**, and it is
+     * load-bearing rather than tidy. `CaptureActivity` is recreated on rotation and on its own
+     * `recreate()`, and an unconditional reset here meant a rotation inside FR-807's ten
+     * seconds silently ended the offer — the requirement met on paper and not in the hand, in
+     * exactly the way the touch-outside suppression exists to prevent. Same key, same capture:
+     * the state stands.
+     *
+     * A genuinely new capture still ends the offer, which is FR-807's own recorded limit: the
+     * countdown belonged to a save the user has moved on from. The **stored** offer is dropped
+     * with it, so the home screen does not go on offering an undo for a capture that has been
+     * replaced.
+     *
+     * A save or an undo already in flight is left alone — it has reached Google and its outcome
+     * still has to be reported.
+     */
+    fun reset(captureKey: String? = null) {
         val current = _state.value
-        if (current != SaveState.Saving && current != SaveState.Undoing) {
-            // An offer the user walked away from wrote nothing, and must not be answerable
-            // by a tap belonging to the next capture.
-            offer = null
-            _state.value = SaveState.Idle
+        if (current == SaveState.Saving || current == SaveState.Undoing) return
+        if (captureKey != null && captureKey == lastCaptureKey) return
+
+        undoWindowOf(current)?.let { window ->
+            scope.launch { undoOffers.forget(window.chainId) }
         }
+        lastCaptureKey = captureKey
+        // An offer the user walked away from wrote nothing, and must not be answerable
+        // by a tap belonging to the next capture.
+        offer = null
+        _state.value = SaveState.Idle
     }
+
+    private var lastCaptureKey: String? = null
 
     private suspend fun perform(
         captured: CapturedText,
         result: ParseResult,
         context: ParseContext,
         selected: Set<Int>,
+        fromInboxId: String? = null,
     ) {
+        val source = CaptureSource(
+            layer = captured.layer,
+            appId = captured.appId,
+            ocrUsed = captured.ocrUsed,
+        )
+
+        // FR-512, and the end of its interim reading. A capture already confirmed out of the
+        // Inbox is not routed back into it.
+        val route =
+            if (fromInboxId != null) SaveRoute.Google
+            else saveRoute(result, selected, context.confidenceThreshold, source)
+
+        if (route is SaveRoute.Inbox) {
+            sendToInbox(captured, result, context, route.reason)
+            return
+        }
+
         val defaults = try {
             defaultsStore.allAccounts().firstOrNull()
         } catch (cancelled: CancellationException) {
@@ -428,11 +475,6 @@ class CaptureSaver(
 
         // ocrUsed reaches FR-805b through sourceBlock below: an OCR capture's description
         // carries an extract around the dates, not everything the recogniser saw.
-        val source = CaptureSource(
-            layer = captured.layer,
-            appId = captured.appId,
-            ocrUsed = captured.ocrUsed,
-        )
         val metadata = RemoteMetadata(
             // The whole capture, so every item of one save shares it and FR-803 asks
             // "was this message saved", not "was this item created".
@@ -458,7 +500,7 @@ class CaptureSaver(
         )
 
         val outcome = try {
-            write(items, defaults, metadata, body, context)
+            write(items, defaults, metadata, body, context).also { onGoogleReached() }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -466,12 +508,120 @@ class CaptureSaver(
             // on its own still is one, and is reported rather than hidden in a queue the
             // user would watch never drain.
             if (isWorthRetrying(failure)) {
-                queue(items, metadata, body, context)
+                offlineFallback(captured, result, context, items, metadata, body)
             } else {
                 SaveState.Failed(SaveFailure.WRITE_FAILED)
             }
         }
+
+        // FR-703: the Inbox holds what has not been confirmed. Once the write has landed — or
+        // is queued to land, which is a promise the queue keeps under NFR-302 — the row has
+        // done its job. A failure leaves it exactly where it was, which is the point of it.
+        if (fromInboxId != null && (outcome is SaveState.Saved || outcome is SaveState.Queued)) {
+            inbox.discard(fromInboxId)
+        }
+
         settle(outcome)
+    }
+
+    /**
+     * FR-701, FR-512: the capture goes to the Inbox and nothing is written (FR-703).
+     *
+     * The capture's own `now` and zone travel with it, and that is the load-bearing part. The
+     * Inbox re-parses when the row is opened, and re-parsing against *today's* clock would
+     * resolve "kal" one day further every time the user looked — design principle 1's failure
+     * inverted, not inventing a date but quietly moving one. FR-515 makes a parse a pure
+     * function of its text and its context, so carrying the context is what makes the reading
+     * reproducible.
+     */
+    private suspend fun sendToInbox(
+        captured: CapturedText,
+        result: ParseResult,
+        context: ParseContext,
+        reason: InboxReason,
+    ) {
+        val outcome = try {
+            inbox.add(
+                InboxCapture(
+                    id = UUID.randomUUID().toString(),
+                    rawText = captured.text,
+                    layer = captured.layer,
+                    appId = captured.appId,
+                    preferredTitle = captured.preferredTitle,
+                    ocrUsed = captured.ocrUsed,
+                    capturedAt = Instant.now(),
+                    capturedLocal = context.now,
+                    zone = context.zone.id,
+                    confidence = result.overallConfidence.value,
+                    reason = reason,
+                )
+            )
+            SaveState.SentToInbox(reason)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            // NFR-303. There is no queue for this — the Inbox *is* the local store — so a
+            // failure here means the capture is nowhere, and saying so is the whole of what
+            // can be done about it.
+            SaveState.Failed(SaveFailure.WRITE_FAILED)
+        }
+        settle(outcome)
+    }
+
+    /**
+     * What to do with a write that could not reach Google, now that there is somewhere other
+     * than the queue to put it.
+     *
+     * **FR-804's offline limitation gets the cure its own note names.** That note records: "an
+     * offline reschedule therefore becomes a second item, and the recourse is to remove one by
+     * hand… **The Inbox is the cure**, and this should be revisited when FR-701 lands." It has
+     * landed. Where the local index says an item with this `latch.item_key` already stands at a
+     * different date, queueing a create would write the second item that note describes — so
+     * the capture waits in the Inbox instead, and the question is asked when it can be answered.
+     *
+     * **The index decides only whether there is a question worth asking.** The answer, and the
+     * prior state an undo would need, are read from Google at match time when the row is
+     * confirmed — SRS 1.19 requires that, and an index row records what Latch wrote rather than
+     * what the item holds now.
+     *
+     * Confined to a single-candidate capture, because SRS 1.25 confines FR-804's offer to one.
+     * A multi-date capture is queued as it always was.
+     */
+    private suspend fun offlineFallback(
+        captured: CapturedText,
+        result: ParseResult,
+        context: ParseContext,
+        items: List<Item>,
+        metadata: RemoteMetadata,
+        body: String,
+    ): SaveState {
+        val source = CaptureSource(captured.layer, captured.appId, captured.ocrUsed)
+        if (items.size == 1 && source.routableToInbox && looksLikeOfflineReschedule(items.first(), metadata, context)) {
+            sendToInbox(captured, result, context, InboxReason.RESCHEDULE_UNRESOLVED)
+            // sendToInbox has already settled the state; returning it keeps the caller's
+            // single `settle` harmless — it publishes the same value a second time.
+            return _state.value
+        }
+        return queue(items, metadata, body, context)
+    }
+
+    private suspend fun looksLikeOfflineReschedule(
+        leader: Item,
+        metadata: RemoteMetadata,
+        context: ParseContext,
+    ): Boolean {
+        val proposed = itemDatesOf(leader, context.zone.id)
+        val known = try {
+            index.byItemKey(metadata.itemKey)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unreadable: Exception) {
+            // An index that cannot be read is an index that knows nothing, which is the
+            // answer it gives for an unseen capture anyway. The queue is the fallback either
+            // way, and losing the capture is not on the table.
+            emptyList()
+        }
+        return known.any { it.type == leader.type && !movesNothing(it.dates, proposed) }
     }
 
     /**
@@ -490,9 +640,18 @@ class CaptureSaver(
         _state.value = outcome
 
         val window = undoWindowOf(outcome) ?: return
+        // FR-807, and the limit its own note recorded as needing FR-701's storage: written
+        // down before the wait, so a process death inside the ten seconds no longer loses the
+        // offer. The home screen picks it up where the capture window has gone.
+        undoOffers.remember(StoredUndoOffer(window.chainId, window.expiresAt, window.created))
+
         delay(UNDO_WINDOW.toMillis())
         val current = _state.value
         if (undoWindowOf(current)?.chainId != window.chainId) return
+        // Lapsed untaken: the save stands and there is nothing left to offer, here or on the
+        // home screen. The store's own sweep would catch it, but leaving it to that would mean
+        // a stale offer visible for as long as nothing looked.
+        undoOffers.forget(window.chainId)
         _state.value = when (current) {
             is SaveState.Saved -> current.copy(undo = null)
             is SaveState.Queued -> current.copy(undo = null)
@@ -624,51 +783,16 @@ class CaptureSaver(
     }
 
     private suspend fun remove(window: UndoWindow) {
-        var removed = 0
-        var failed = false
+        val outcome = removeCreated(window.created, calendarApi, tasksApi, writeQueue, index)
+        // The offer is spent either way. A partial removal leaves items in the account, and
+        // re-offering an undo that would try the same deletes again is not the recourse —
+        // NFR-303's message says to remove the rest in Google by hand, which is.
+        undoOffers.forget(window.chainId)
 
-        // The loop does not stop at the first failure: a chain half in the account is worse
-        // than one that is wholly there or wholly gone, so every item still gets its delete.
-        for (item in window.created) {
-            try {
-                when (item) {
-                    is CreatedItem.Written -> when (item.type) {
-                        ItemType.EVENT -> calendarApi.deleteEvent(item.containerId, item.remoteId)
-                        ItemType.TASK -> tasksApi.deleteTask(item.containerId, item.remoteId)
-                    }
-
-                    // FR-806: nothing was written, so there is nothing to delete — the entry
-                    // stops existing. A false here would mean the worker drained it first,
-                    // which `drainable` exists to prevent; if it ever happens the item is in
-                    // the account and this undo did not remove it, so it counts as a failure
-                    // rather than as a quiet success.
-                    is CreatedItem.Queued -> check(writeQueue.drop(item.queueId)) {
-                        "Queue entry was already drained"
-                    }
-
-                    // FR-807, corrected at SRS 1.16: undoing an update is a restore. The
-                    // item existed before this save touched it, so deleting it would destroy
-                    // something the user already had — the one thing an undo must not do.
-                    is CreatedItem.Updated -> when (val prior = item.priorDates) {
-                        is ItemDates.Event ->
-                            calendarApi.patchEventDates(item.containerId, item.remoteId, prior)
-
-                        is ItemDates.Task ->
-                            tasksApi.patchTaskDates(item.containerId, item.remoteId, prior)
-                    }
-                }
-                removed++
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                failed = true
-            }
-        }
-
-        _state.value = if (failed) {
-            SaveState.UndoFailed(removed = removed, total = window.created.size)
-        } else {
+        _state.value = if (outcome.complete) {
             SaveState.Undone
+        } else {
+            SaveState.UndoFailed(removed = outcome.removed, total = outcome.total)
         }
     }
 
@@ -761,21 +885,55 @@ class CaptureSaver(
         }
     }
 
+    /**
+     * FR-803, asked of Google first and of the local index only where Google could not answer.
+     *
+     * **The order is the whole of the design.** Google sees what every client of §4.1 wrote;
+     * the index sees what this device wrote. Consulting the index first would be faster and
+     * would answer "already saved" about an item the user had since deleted by hand in Google
+     * Calendar — leaving them unable to capture it again, with no recourse and nothing on
+     * screen to explain it. FR-807's own note is careful about the mirror-image case: "an item
+     * the user undid does not prevent them capturing it again."
+     *
+     * So the index answers exactly one question, and it is the one Google cannot: **the scan
+     * stopped looking.** `DuplicateSearch.scanCapped` is the Tasks API's honest admission that
+     * it read ten pages and gave up, and FR-803's own note names the cure — "a local index of
+     * source hashes… deferred because it needs local storage that does not yet exist; it
+     * should be revisited when the Capture Inbox (FR-701) brings that storage with it."
+     *
+     * A capped scan that the index *can* answer is upgraded from "may be a duplicate" to
+     * "is one". A capped scan the index cannot answer stays capped, and the user still gets
+     * the "could not check every task" warning rather than a false all-clear.
+     */
     private suspend fun findDuplicate(
         item: Item,
         defaults: AccountDefaults,
         metadata: RemoteMetadata,
-    ) = when (item.type) {
-        ItemType.EVENT -> calendarApi.findEventBySourceHash(
-            calendarId = defaults.destinationCalendarId,
-            sourceHash = metadata.sourceHash,
-        )
+    ): DuplicateSearch {
+        val remote = when (item.type) {
+            ItemType.EVENT -> calendarApi.findEventBySourceHash(
+                calendarId = defaults.destinationCalendarId,
+                sourceHash = metadata.sourceHash,
+            )
 
-        ItemType.TASK -> tasksApi.findTaskBySourceHash(
-            taskListId = defaults.taskListId,
-            sourceHash = metadata.sourceHash,
-            due = item.dueDate,
-        )
+            ItemType.TASK -> tasksApi.findTaskBySourceHash(
+                taskListId = defaults.taskListId,
+                sourceHash = metadata.sourceHash,
+                due = item.dueDate,
+            )
+        }
+        if (remote.found || !remote.scanCapped) return remote
+
+        val known = try {
+            index.bySourceHash(metadata.sourceHash)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unreadable: Exception) {
+            null
+        }
+        // Still capped where the index knows nothing: the search did stop looking, and saying
+        // otherwise would be the false negative `scanCapped` exists to refuse.
+        return known?.let { DuplicateSearch(existingId = it.remoteId, scanCapped = false) } ?: remote
     }
 
     /**
@@ -857,6 +1015,24 @@ class CaptureSaver(
                         metadata = metadata,
                     ),
                 ),
+            )
+        }
+
+        // FR-803's index, after the insert and never before it: a row here asserts that an item
+        // exists in the user's account, and one written speculatively would suppress a save
+        // that never happened. Failing to remember costs a fast path, so it is swallowed —
+        // failing the save over a cache would be the tail wagging the dog.
+        runCatching {
+            index.remember(
+                WrittenItem(
+                    remoteId = created.remoteId,
+                    containerId = created.containerId,
+                    type = item.type,
+                    sourceHash = metadata.sourceHash,
+                    itemKey = metadata.itemKey,
+                    dates = itemDatesOf(item, context.zone.id),
+                    writtenAt = Instant.now(),
+                )
             )
         }
 

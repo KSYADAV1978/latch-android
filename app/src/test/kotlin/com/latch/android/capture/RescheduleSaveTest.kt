@@ -4,6 +4,7 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.data.CreatedItem
 import com.latch.data.AccountDefaultsStore
 import com.latch.data.CalendarApi
 import com.latch.data.ItemDates
@@ -298,6 +299,9 @@ class RescheduleSaveTest {
         calendarApi = calendar,
         tasksApi = tasks,
         writeQueue = queue,
+        inbox = RecordingInbox(),
+        index = RecordingIndex(),
+        undoOffers = RecordingUndoOffers(),
         requestDrain = { queue.drainsRequested++ },
         scope = this,
         sourceLinkTemplate = "Captured from %1\$s",

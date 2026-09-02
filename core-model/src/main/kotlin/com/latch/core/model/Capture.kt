@@ -70,4 +70,20 @@ data class CaptureSource(
      * not one.
      */
     val storesWholeSourceText: Boolean get() = storesSourceText && !ocrUsed
+
+    /**
+     * FR-701, NFR-206. Whether this capture may be held in the Capture Inbox.
+     *
+     * The fourth of these properties and the third appearance of one rule: the Inbox is
+     * persistent storage, NFR-206 forbids notification content reaching persistent storage,
+     * and [storesSourceText] and [webhookEligible] already exclude the same layer from the
+     * item description and from webhook delivery for the same reason.
+     *
+     * **The consequence is a narrowing, not a deferral.** FR-512 routes a below-threshold
+     * capture to the Inbox; for this layer there is nowhere to route it, so its interim
+     * reading — the confidence is shown and the save is not blocked — survives here
+     * permanently. The alternative would be to refuse the save, which loses the capture, and
+     * design principle 1 puts that above everything else.
+     */
+    val routableToInbox: Boolean get() = layer != CaptureLayer.NOTIFICATION
 }

@@ -21,6 +21,7 @@ import com.latch.android.ui.LatchTheme
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
 import com.latch.ocr.PageProgress
+import com.latch.core.model.CaptureSource
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import java.time.LocalDateTime
@@ -72,13 +73,17 @@ class CaptureActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as LatchApplication
 
-        // A previous capture in this process may have left an outcome on screen.
-        app.captureSaver.reset()
+        val request = intent.toCaptureRequest(this)
+
+        // A previous capture in this process may have left an outcome on screen — but a
+        // *recreation* of this one has not. Keying the reset on what was captured is what
+        // stops a rotation inside FR-807's ten seconds silently ending the offer, which is the
+        // requirement met on paper and not in the hand. See `CaptureSaver.reset`.
+        app.captureSaver.reset(captureKeyOf(request))
         // Setup may have completed in another task since this process read its defaults.
         app.refreshAccounts()
 
         val openedAt = SystemClock.elapsedRealtime()
-        val request = intent.toCaptureRequest(this)
         val parseContext = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
         val referrer = referrerPackage()
 
@@ -122,9 +127,26 @@ class CaptureActivity : ComponentActivity() {
                     mutableStateOf(result?.candidates?.indices?.toSet() ?: emptySet())
                 }
 
+                // FR-512: where this capture is going, decided once and read by the button,
+                // the destination chip and the saver alike. A screen that worked it out its own
+                // way would eventually offer Save and perform something else.
+                val route = remember(result, selected, captured) {
+                    if (captured == null || result == null) {
+                        SaveRoute.Google
+                    } else {
+                        saveRoute(
+                            result = result,
+                            selected = selected,
+                            threshold = parseContext.confidenceThreshold,
+                            source = CaptureSource(captured.layer, captured.appId, captured.ocrUsed),
+                        )
+                    }
+                }
+
                 CaptureScreen(
                     captured = captured,
                     result = result,
+                    route = route,
                     onDismiss = { finish() },
                     // Three states, not a nullable value: not-yet-read and none-configured
                     // are opposite facts, and only the second is worth telling the user.
@@ -314,6 +336,22 @@ class CaptureActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recreate()
+    }
+
+    /**
+     * What this capture *is*, so a recreation of it can be told from a new one.
+     *
+     * Not a hash of the text — the capture may still be extracting, and an image capture's
+     * text does not exist yet. The intent's own content is what identifies it, and that is
+     * available at `onCreate` on both paths.
+     */
+    private fun captureKeyOf(request: CaptureRequest): String = when (request) {
+        is CaptureRequest.Ready -> "text:" + request.captured.text.hashCode()
+        is CaptureRequest.Image -> "image:" + request.uri
+        is CaptureRequest.Pdf -> "pdf:" + request.uri
+        // Two empty captures in a row are indistinguishable and there is nothing to preserve
+        // for either, so they may as well be the same one.
+        is CaptureRequest.Nothing -> "nothing"
     }
 
     /**

@@ -18,7 +18,7 @@ requirement ID in your summary so work can be traced back.
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
 | `:ocr` | Android library | On-device OCR (FR-215, FR-207). The only module that names an ML Kit type; `:app` sees `OcrReader` and `OcrResult`. Bundled models, +12.83 MB per device — the largest single thing this app ships |
-| `:data` | Android library | Storage — Inbox, write queue and secret store contracts, account defaults persisted — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
+| `:data` | Android library | Storage — the FR-701 SQLite database (Capture Inbox, FR-803's hash index, FR-807's stored offer), the write queue and account defaults in encrypted preferences, the secret store contract — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
 Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes`/`:ocr` → `:core-model`.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
@@ -107,8 +107,10 @@ which requirements the change serves, and any decision the code cannot state for
 ## State of the build
 Skeleton only. Working: the six-module structure, the parser (87-case corpus, all passing),
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
-confirmation screen, first-run setup (FR-100 series) end to end, and on-device OCR of
-images and PDFs (FR-215, FR-207) verified on a device.
+confirmation screen, first-run setup (FR-100 series) end to end, on-device OCR of
+images and PDFs (FR-215, FR-207) verified on a device, and the FR-700 Capture Inbox with the
+local storage under it — **the Inbox and everything in its slice is JVM-verified and
+DEVICE-OWED; see the Device pass backlog at the end of this file.**
 
 Setup runs against real Google. `StubGoogle.kt` is gone. The NFR-501 question it was waiting
 on is settled: `play-services-auth` for the OAuth grant and nothing else (+135 KB, measured),
@@ -470,9 +472,76 @@ because the capture window closes on a tap outside it and a write in flight must
 and setup runs once more. That was the point of the leading version field, and it stops being
 an acceptable answer the moment there are users.
 
-FR-512 is under an **interim** reading recorded in the SRS: with no Capture Inbox to route to,
-a user-confirmed item is saved whatever its confidence, and the confidence is shown instead of
-blocking the save. That reading dies when the FR-700 series lands.
+**FR-512's interim reading is retired.** It said that with no Capture Inbox to route to, a
+user-confirmed item was saved whatever its confidence — and that it died the moment the FR-700
+series landed. It has. A capture below the threshold, one with no date at all (FR-506 row 4,
+AC-03) and one that cannot be completed (FR-506 row 3) now go to the Inbox, and the button says
+**Add to Inbox** rather than Save so the routing is a thing the user chose rather than a save
+that quietly went somewhere else. `saveRoute` is that decision as a pure function.
+
+**One narrowing survives permanently and is not a deferral.** A notification-derived capture is
+never routed: the Inbox is persistent storage and NFR-206 forbids that layer's content reaching
+it, which is the third appearance of the rule FR-805a and FR-210a already apply to the item
+description and to webhook delivery. For that layer the interim behaviour stands for good —
+confidence shown, save not blocked — because the alternative is losing the capture, and design
+principle 1 puts that above everything.
+
+**FR-701's storage is a hand-rolled `SQLiteOpenHelper`** (`LatchDatabase` in `:data`), one
+encrypted payload per row under the same `KeystoreCipher` the preferences use. Three tables:
+the Inbox, FR-803's index of written items, and FR-807's stored offer. Room stays deferred on
+the build-configuration grounds `docs/DEPENDENCIES.md` records.
+
+Three things about it are decisions rather than mechanics.
+
+**The write queue did not move into it.** SRS 1.24 named the per-item written marker as needing
+this storage; it does not — the queue record carries it at version 4. What the move would have
+cost is a migration of entries holding captures that exist nowhere else, done to tidy a storage
+layer, which is the trade NFR-302 forbids. The index went into the database instead, because it
+is new and loses nothing by starting empty.
+
+**FR-803's index is stored in the clear.** A SHA-256 digest is not content — NFR-206 says
+exactly that of `latch.source_hash` in a Google item — and an index that must be decrypted row
+by row to be searched is not an index. Everything with content beside it stays encrypted.
+
+**The Inbox re-parses at the captured instant, never at the instant it is opened.** It stores
+the raw text plus the capture's own `now` and zone; FR-515 makes a parse a pure function of
+those, so replaying them reproduces the reading the user was shown. Parsing against today's
+clock would walk "kal" one day further every time the list was opened, which is design
+principle 1's failure inverted — not inventing a date, but quietly moving one.
+
+**FR-803's local index cures the capped task scan, and nothing else.** It is consulted *after*
+Google, never instead: Google sees what every §4.1 client wrote and the index sees only this
+device, so asking it first would answer "already saved" about an item the user had deleted by
+hand and leave them unable to capture it again. Its one job is the question Google cannot
+answer — `scanCapped`, the Tasks API admitting it read ten pages and stopped. **It is
+deliberately not used for FR-804's capped scan**: a row records what Latch wrote, and SRS 1.19
+requires an update's prior state to be what the item held before this app changed it, so
+restoring an index row would overwrite a hand edit with a value the user never saw.
+
+**FR-804's offline limitation gets the cure its own note names.** Where there is no network and
+the index shows the same `item_key` at a different date, the capture is **held in the Inbox**
+rather than queued as a create — the question waits for a surface it can be asked on. The
+answer, and the prior state, are still read from Google at match time.
+
+**FR-807's offer survives process death.** It is written to the database as it opens and
+surfaces on the home screen once the capture window has gone. Two of its three recorded limits
+stand: a new capture still ends the offer, and cross-device undo is still a different feature.
+A latent defect went with it — `CaptureActivity` reset the saver unconditionally on every
+`onCreate`, so a **rotation** inside the ten seconds silently ended the offer; `reset` is now
+keyed on what was captured, so a recreation of the same capture keeps it.
+
+**FR-806 gained the three things its own note recorded as missing.** A **backoff ceiling** of
+thirty minutes, because WorkManager's exponential doubles to five hours and a queue that failed
+overnight was still waiting at breakfast. An **immediate drain** on OS-reported connectivity or
+any successful foreground request — applied only to entries whose last failure was
+transport-class, because a 429 is not cured by learning the socket works, and rate-limited to
+once a minute so a flaky network cannot turn `onAvailable` into a burst of replaced work. And a
+**Retry now** button beside the pending count, which also revives a given-up entry: the note
+said such an entry "has no manual retry or dismissal, because the screen that would offer one
+is Settings (FR-1000)", and this is that retry on the screen that exists.
+
+`shouldDrainNow`, `retryPlan` and `itemsLeftToWrite` are pure, for the reason `drainable` is
+and the reason the drain's own FR-803 check was not.
 
 FR-805a is structural rather than careful: call sites never compose an item's description
 themselves, `sourceBlock` does, and it drops the source text for `CaptureLayer.NOTIFICATION`.
@@ -553,16 +622,15 @@ as an FR-804 reschedule (accepting one would patch a single item and discard the
 FR-803 runs **once per capture** before the chain is written, at the saver and at the drain
 alike. The queue holds a chain as one entry for the same reason.
 
-Also not built, and user-visible now that saving is real: FR-506 row 3's date picker, so a
-capture with a time but no date cannot be saved — and its per-row form is unreachable until
-the assembler can leave a time unpaired beside dated candidates (SRS 1.25);
-FR-507's type override; and FR-510's past-date follow-up. Each is recorded against
-its requirement in the SRS. Further out:
-the Capture Inbox (FR-700 series), Settings (FR-1000 series), OCR (FR-215) and the
-notification listener (FR-208). FR-908 is not built either — the calendar list is not
-refreshed on launch and a stored destination that has been deleted or has lost write access
-is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where it goes. NFR-205's
-revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op.
+Also not built, and user-visible: FR-506 row 3's own date picker on the confirmation sheet —
+such a capture now goes to the Inbox, where a date *can* be assigned, so it is no longer lost,
+but the requirement asks for the picker to open there and then; FR-507's type override; and
+FR-510's past-date follow-up. Each is recorded against its requirement in the SRS. Further out:
+Settings (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
+the calendar list is not refreshed on launch and a stored destination that has been deleted or
+has lost write access is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where
+it goes. NFR-205's revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op —
+`LatchDatabase.deleteEverything` and the stores' `clear` are in place for it.
 
 Sign-in works only on builds whose signing certificate is registered against the Android
 OAuth client. There is no release signing config, so that means debug builds from a machine
@@ -596,3 +664,32 @@ that has not been watched yet.
 | A short PDF still says the same thing | `letter.pdf` (2 pages) counts 1→2 and shows **no** cap line | `testdata/fr215/letter.pdf` |
 | An **image** capture is unchanged | The spinner says "Reading the text…", never "Reading page…". An image has nothing to count, and a progress line on one would be a number invented from nothing | any `testdata/fr215/*.png` |
 | NFR-101 for text is unmoved | An ordinary text capture is still synchronous — `content ready, ocr=false` in `LatchTiming`, no spinner at any point. NFR-102's note requires this re-check whenever the asynchronous path is touched | "Kickoff 8 September 2027 at 9am" |
+
+### Slice 2 — FR-701 storage, the FR-700 Capture Inbox, FR-806's queue improvements
+
+**Nothing in `:data`'s SQLite is reachable from a JVM test.** `SQLiteOpenHelper` is a throwing
+stub under unit tests — the same property that hid the `decodeBitmap` defect in `:ocr` for a
+whole slice — so the record formats are tested and the SQL is not. That is the single biggest
+gap in this slice and the first thing to watch.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **AC-03** — text with no date | An undated row appears in the Inbox and **nothing** is created in Google Calendar or Tasks. Failure: an item appears in the account, or the sheet reports "Saved" | "Ask about the uniform order" |
+| The database is actually created | The first capture routed to the Inbox does not crash. Failure looks like a `SQLiteException` on `onCreate`, which no JVM test can reach | any undated capture, on a **fresh install** |
+| A row survives a process death | Route a capture to the Inbox, force-stop the app, reopen: the row is still there with its reason. Failure: an empty Inbox, meaning `commit`/encryption never landed | as above, plus `adb shell am force-stop com.latch.android` |
+| The Inbox re-parses at the **captured** instant | Capture "kal 4 baje meeting" (routes on confidence), leave it a day, reopen the Inbox: the date must still read the day after the **capture**, not the day after today. Failure is a date that walks forward every time the list is opened | "kal 4 baje meeting", checked on two different days |
+| FR-702's five actions | Assign a date, edit the title, snooze, discard, save. Each must persist across a back-and-return, and Save must produce exactly one item in Google | any Inbox row |
+| FR-702's assigned date reaches Google | A row with no date, given 20 Sep 2027, saves as a **TASK due 20 Sep 2027** — not an event, not undated | undated capture + date picker |
+| FR-703 | Nothing in the Inbox appears in Google Calendar or Tasks until Save is pressed. Verified by looking at the account, not at the screen | any row left un-saved |
+| FR-704 does not nag | The count is absent at zero, and there is no notification and no badge anywhere | empty Inbox |
+| FR-705 | A row older than a fortnight shows its review line. Needs a clock change or a seeded row — recorded as awkward rather than skipped | `adb shell date`, or an Inbox row aged by hand |
+| **FR-807 across a process death** | Save, force-stop inside the ten seconds, reopen: the home screen offers Undo with the remaining seconds, and taking it removes the item from Google. This is the limit FR-807's note recorded as unfixable without FR-701 | "Kickoff 8 September 2027 at 9am" |
+| **FR-807 across a rotation** | Save, rotate inside the ten seconds: the offer is **still there**. Before this slice the recreation reset the saver and the offer vanished — a latent defect no test could see | any capture, rotate |
+| FR-803's index cures the capped scan | Needs a task list with more than ~1000 undated tasks, which is why it is unverified. Cheaper proxy: capture, undo, capture again — it must save the second time, proving the index forgot | capture → undo → capture |
+| **FR-804's offline hold** | Save an event online; edit its date in the message; aeroplane mode; capture the edited text. Expect the **Inbox**, reason "looks like a change", and **no queue entry** — the failure being a second item written on reconnection, which is the defect FR-804's note describes | "Kickoff 8 September 2027 at 9am" then "Kickoff 9 September 2027 at 9am" |
+| **SRS 1.24's resume** | Needs a chain whose first insert succeeds and whose second fails. Hard to arrange by hand; the JVM test pins the logic, and the device check is that an ordinary four-item chain still writes four items and retires once | a four-date capture, offline then online |
+| FR-806's backoff ceiling | After eight failed attempts the next drain is scheduled ~30 minutes out rather than hours. **Watch for the `REPLACE`-from-inside-a-worker behaviour**: the worker enqueues its own unique work while running, which cancels the current run. Intended, and the one thing here to watch rather than reason about | aeroplane mode for a long stretch, `adb shell dumpsys jobscheduler` |
+| FR-806's immediate drain | Queue a capture offline, wait past one backoff, turn the network on: the drain runs within seconds rather than at the next scheduled attempt | aeroplane mode on → capture → off |
+| FR-806's Retry now | With something queued, the button appears and a tap drains. With a given-up entry, the tap revives it and it is attempted again | a 403 or an entry given up on |
+| **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms. The Inbox route adds a decision to the save path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
+| **AC-17 still holds** | A network monitor over a cycle including an Inbox save shows only Google hosts. The Inbox adds no network path, but it adds a save path | any capture cycle |

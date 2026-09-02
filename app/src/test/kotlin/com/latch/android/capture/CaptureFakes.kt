@@ -3,7 +3,14 @@ package com.latch.android.capture
 import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
 import com.latch.data.CalendarApi
+import com.latch.data.CaptureInbox
 import com.latch.data.DuplicateSearch
+import com.latch.data.FailureClass
+import com.latch.data.InboxCapture
+import com.latch.data.LocalItemIndex
+import com.latch.data.StoredUndoOffer
+import com.latch.data.UndoOfferStore
+import com.latch.data.WrittenItem
 import com.latch.data.EventWrite
 import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
@@ -16,6 +23,7 @@ import com.latch.data.TasksApi
 import com.latch.data.WritableCalendar
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
+import java.time.Instant
 import java.time.LocalDate
 
 /**
@@ -44,7 +52,10 @@ internal class RecordingQueue : WriteQueue {
         return id
     }
 
-    override suspend fun pending(): List<QueuedWrite> = emptyList()
+    /** Entries a test seeded, so the drain and the resume can be exercised. */
+    val queued = mutableListOf<QueuedWrite>()
+
+    override suspend fun pending(): List<QueuedWrite> = queued
 
     override suspend fun status() = QueueStatus(waiting = entries.size, givenUp = 0)
 
@@ -59,16 +70,118 @@ internal class RecordingQueue : WriteQueue {
     /** FR-806a: the reason is recorded, so a test can assert the queue can say "Sign in needed". */
     val signInNeeded = mutableSetOf<String>()
 
+    /** SRS 1.24: which items were marked written, in order, per entry. */
+    val itemsWritten = mutableListOf<Triple<String, String, String>>()
+
+    override suspend fun markItemWritten(queueId: String, itemId: String, remoteId: String) {
+        itemsWritten += Triple(queueId, itemId, remoteId)
+        val index = queued.indexOfFirst { it.id == queueId }
+        if (index >= 0) {
+            queued[index] = queued[index].let {
+                it.copy(writtenItemIds = it.writtenItemIds + itemId)
+            }
+        }
+    }
+
+    /** FR-806's failure classes, so the immediate-drain policy can be asserted against them. */
+    val failures = mutableListOf<Triple<String, Boolean, FailureClass>>()
+
     override suspend fun markFailed(
         queueId: String,
         error: String,
         permanent: Boolean,
         needsSignIn: Boolean,
+        failureClass: FailureClass,
     ) {
         if (needsSignIn) signInNeeded += queueId
+        failures += Triple(queueId, permanent, failureClass)
+    }
+
+    var revived = 0
+
+    override suspend fun reviveGivenUp(): Int {
+        revived = queued.count { it.givenUp }
+        queued.replaceAll { if (it.givenUp) it.copy(givenUp = false, attempts = 0) else it }
+        return revived
     }
 
     override suspend fun drop(queueId: String): Boolean = entries.remove(queueId) != null
+}
+
+/**
+ * An in-memory [CaptureInbox]. FR-701's SQLite store needs a device; its record format is
+ * tested on its own in `:data`, which is the same split every store in this project keeps.
+ */
+internal class RecordingInbox : CaptureInbox {
+    val rows = linkedMapOf<String, InboxCapture>()
+    val discarded = mutableListOf<String>()
+
+    override suspend fun add(capture: InboxCapture) {
+        rows[capture.id] = capture
+    }
+
+    override suspend fun all(): List<InboxCapture> = rows.values.sortedBy { it.capturedAt }
+
+    override suspend fun due(now: Instant): List<InboxCapture> = all().filter { it.isDue(now) }
+
+    override suspend fun pendingCount(now: Instant): Int = due(now).size
+
+    override suspend fun find(id: String): InboxCapture? = rows[id]
+
+    override suspend fun update(capture: InboxCapture) {
+        rows[capture.id] = capture
+    }
+
+    override suspend fun discard(id: String) {
+        discarded += id
+        rows.remove(id)
+    }
+
+    override suspend fun deleteAll() = rows.clear()
+}
+
+/** An in-memory [LocalItemIndex], keyed the way the real one is indexed. */
+internal class RecordingIndex : LocalItemIndex {
+    val items = mutableListOf<WrittenItem>()
+    val forgotten = mutableListOf<Pair<String, String>>()
+
+    override suspend fun remember(item: WrittenItem) {
+        items.removeAll { it.containerId == item.containerId && it.remoteId == item.remoteId }
+        items += item
+    }
+
+    override suspend fun bySourceHash(sourceHash: String): WrittenItem? =
+        items.lastOrNull { it.sourceHash == sourceHash }
+
+    override suspend fun byItemKey(itemKey: String): List<WrittenItem> =
+        items.filter { it.itemKey == itemKey }.sortedByDescending { it.writtenAt }
+
+    override suspend fun forget(containerId: String, remoteId: String) {
+        forgotten += containerId to remoteId
+        items.removeAll { it.containerId == containerId && it.remoteId == remoteId }
+    }
+
+    override suspend fun clear() = items.clear()
+}
+
+/** An in-memory [UndoOfferStore], so FR-807's persistence can be asserted without a device. */
+internal class RecordingUndoOffers : UndoOfferStore {
+    val offers = linkedMapOf<String, StoredUndoOffer>()
+    val forgotten = mutableListOf<String>()
+
+    override suspend fun remember(offer: StoredUndoOffer) {
+        offers[offer.chainId] = offer
+    }
+
+    override suspend fun open(now: Instant): StoredUndoOffer? =
+        offers.values.filter { it.isOpen(now) }.maxByOrNull { it.expiresAt }
+
+    override suspend fun forget(chainId: String) {
+        forgotten += chainId
+        offers.remove(chainId)
+    }
+
+    override suspend fun clear() = offers.clear()
 }
 
 internal class FixedDefaults(private val defaults: AccountDefaults) : AccountDefaultsStore {
@@ -178,9 +291,12 @@ internal class RecordingTasksApi(
         return "task-${written.size}"
     }
 
+    /** Set to make the FR-803 task scan report that it stopped looking (`scanCapped`). */
+    var duplicateAnswer: DuplicateSearch = DuplicateSearch(existingId = null)
+
     override suspend fun findTaskBySourceHash(taskListId: String, sourceHash: String, due: LocalDate?): DuplicateSearch {
         sourceHashesQueried += sourceHash
-        return DuplicateSearch(existingId = null)
+        return duplicateAnswer
     }
 
     override suspend fun deleteTask(taskListId: String, taskId: String) {

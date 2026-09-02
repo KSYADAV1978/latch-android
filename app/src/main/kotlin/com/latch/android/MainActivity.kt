@@ -13,19 +13,29 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
+import com.latch.android.ui.InboxScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
 import com.latch.data.QueueStatus
+import com.latch.data.StoredUndoOffer
+import java.time.Duration
+import java.time.Instant
+import kotlinx.coroutines.delay
 
 /**
  * FR-101: first launch runs setup. It is not "first launch" that is tested, but whether an
@@ -60,6 +70,11 @@ class MainActivity : ComponentActivity() {
         // whether or not anything is on screen — so the count is re-read rather than trusted
         // to be whatever it was when the process started.
         latchApplication.refreshQueueStatus()
+        // FR-704 and FR-807: a capture may have been added to the Inbox, or a save undone,
+        // from a window that is not this one. Both are read again rather than remembered.
+        latchApplication.refreshInboxCount()
+        latchApplication.refreshUndoOffer()
+        latchApplication.inboxCoordinator.refresh()
     }
 
     override fun onStop() {
@@ -89,6 +104,11 @@ class MainActivity : ComponentActivity() {
                         if (outcome == SetupOutcome.COMPLETED) app.refreshAccounts()
                     }
 
+                    // The one piece of navigation this app has. A `when` over a screen value
+                    // rather than a navigation library: two destinations do not justify a
+                    // dependency (NFR-501), and the Inbox is reached from exactly one place.
+                    var showingInbox by remember { mutableStateOf(false) }
+
                     when {
                         // Stored defaults have not been read yet. This lasts a frame or
                         // two, and drawing nothing through it is the only option that
@@ -98,14 +118,35 @@ class MainActivity : ComponentActivity() {
                         // The outcome covers the account configured moments ago in this
                         // process; the stored list covers every earlier launch.
                         outcome == SetupOutcome.COMPLETED || configured?.isNotEmpty() == true ->
-                            Home(
-                                queue = app.queueStatus.collectAsState().value,
-                                // FR-806a. The consent screen can only go out from here —
-                                // this is the Activity that attaches the resolution bridge —
-                                // which is precisely why a capture cannot ask for one and
-                                // why the queue routes the user to this button instead.
-                                onSignIn = { app.reauthorize() },
-                            )
+                            if (showingInbox) {
+                                InboxScreen(
+                                    rows = app.inboxCoordinator.rows.collectAsState().value,
+                                    onBack = { showingInbox = false },
+                                    onAssignDate = app.inboxCoordinator::assignDate,
+                                    onEditTitle = app.inboxCoordinator::editTitle,
+                                    onSave = app.inboxCoordinator::save,
+                                    onSnooze = { app.inboxCoordinator.snooze(it) },
+                                    onDiscard = app.inboxCoordinator::discard,
+                                    saveState = app.captureSaver.state.collectAsState().value,
+                                )
+                            } else {
+                                Home(
+                                    queue = app.queueStatus.collectAsState().value,
+                                    inboxCount = app.inboxCount.collectAsState().value,
+                                    undoOffer = app.pendingUndo.collectAsState().value,
+                                    // FR-806a. The consent screen can only go out from here —
+                                    // this is the Activity that attaches the resolution bridge —
+                                    // which is precisely why a capture cannot ask for one and
+                                    // why the queue routes the user to this button instead.
+                                    onSignIn = { app.reauthorize() },
+                                    onRetryQueue = { app.retryQueueNow() },
+                                    onOpenInbox = {
+                                        app.inboxCoordinator.refresh()
+                                        showingInbox = true
+                                    },
+                                    onUndo = { app.undoPendingOffer() },
+                                )
+                            }
 
                         else -> {
                             BackHandler { coordinator.dispatch(SetupEvent.BackRequested) }
@@ -119,7 +160,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Home(queue: QueueStatus, onSignIn: () -> Unit = {}) {
+private fun Home(
+    queue: QueueStatus,
+    /** FR-704: pending Inbox items, drawn only when there are some. */
+    inboxCount: Int = 0,
+    /** FR-807: an offer that outlived the window that made it. */
+    undoOffer: StoredUndoOffer? = null,
+    onSignIn: () -> Unit = {},
+    onRetryQueue: () -> Unit = {},
+    onOpenInbox: () -> Unit = {},
+    onUndo: () -> Unit = {},
+) {
     Column(
         modifier = Modifier.padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -127,6 +178,40 @@ private fun Home(queue: QueueStatus, onSignIn: () -> Unit = {}) {
         Text(stringResource(R.string.home_headline), style = MaterialTheme.typography.headlineMedium)
         Text(stringResource(R.string.home_setup_pending), style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(R.string.home_try_it), style = MaterialTheme.typography.bodyMedium)
+
+        // FR-807, where the capture window has gone. The countdown is read here rather than
+        // trusted to a timer, and the offer disappears of its own accord when it lapses —
+        // the store sweeps it, and this stops drawing it a fraction earlier.
+        if (undoOffer != null) {
+            val remaining by produceState(undoOffer.secondsLeft(Instant.now()), undoOffer) {
+                while (value > 0) {
+                    delay(250)
+                    value = undoOffer.secondsLeft(Instant.now())
+                }
+            }
+            if (remaining > 0) {
+                Text(
+                    text = stringResource(R.string.home_undo_offer),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Button(onClick = onUndo) {
+                    Text(stringResource(R.string.home_undo, remaining))
+                }
+            }
+        }
+
+        // FR-704: an unobtrusive count, and nothing at all when there is none. The second half
+        // of that requirement — "and shall not nag" — is why this is a line of text and a text
+        // button rather than a badge, a colour or a notification.
+        if (inboxCount > 0) {
+            Text(
+                text = pluralStringResource(R.plurals.home_inbox_pending, inboxCount, inboxCount),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onOpenInbox) {
+                Text(stringResource(R.string.home_open_inbox))
+            }
+        }
 
         // FR-806's "visible to the user", and the whole of it for now — this is the only
         // screen the app has until Settings (FR-1000) lands. Nothing is drawn when the queue
@@ -158,5 +243,23 @@ private fun Home(queue: QueueStatus, onSignIn: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        // FR-806's manual retry, which its own note recorded as absent until Settings existed.
+        // Offered whenever anything is in the queue at all, given-up entries included: those
+        // are revived by the tap, because the user has usually done something between the
+        // failure and pressing it and refusing to try is worse than trying and saying so.
+        if (!queue.isEmpty) {
+            TextButton(onClick = onRetryQueue) {
+                Text(stringResource(R.string.home_queue_retry))
+            }
+        }
     }
+}
+
+/**
+ * FR-807's countdown, on the home screen. Counts 10, 9, … 1 and never a visible zero, exactly
+ * as the capture sheet's does — the same offer seen from the other surface.
+ */
+private fun StoredUndoOffer.secondsLeft(now: Instant): Int {
+    val millis = Duration.between(now, expiresAt).toMillis()
+    return if (millis <= 0) 0 else ((millis + 999) / 1000).toInt()
 }

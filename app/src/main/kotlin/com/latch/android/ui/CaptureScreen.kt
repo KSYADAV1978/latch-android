@@ -33,6 +33,7 @@ import com.latch.android.capture.DestinationState
 import com.latch.android.capture.DraftBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
+import com.latch.android.capture.SaveRoute
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.candidateBlocker
@@ -40,6 +41,7 @@ import com.latch.android.capture.titleFor
 import com.latch.android.capture.saveIsOffered
 import com.latch.android.capture.undoOffer
 import com.latch.data.AccountDefaults
+import com.latch.data.InboxReason
 import com.latch.data.ItemDates
 import com.latch.core.model.ItemType
 import com.latch.ocr.OcrFailure
@@ -76,8 +78,17 @@ fun CaptureScreen(
     /** FR-904: where this will go, and whether that is known yet. */
     destination: DestinationState = DestinationState.Loading,
     saveState: SaveState = SaveState.Idle,
-    /** FR-512, interim: shown rather than blocking the save until the Inbox exists. */
+    /** FR-512: shown, so a route to the Inbox is explained rather than merely happening. */
     lowConfidence: Boolean = false,
+    /**
+     * FR-512, FR-506 rows 3 and 4: where this capture will go.
+     *
+     * The button reads **Add to Inbox** rather than Save when it is not going to Google, which
+     * is the difference between a routing decision the user made and a save that quietly went
+     * somewhere else. FR-703 is the promise behind it: nothing reaches the account until it is
+     * confirmed.
+     */
+    route: SaveRoute = SaveRoute.Google,
     onSave: () -> Unit = {},
     /** FR-807: take back everything this save wrote. */
     onUndo: () -> Unit = {},
@@ -103,7 +114,9 @@ fun CaptureScreen(
     /** FR-215: recognition finished and produced nothing usable. */
     ocrFailure: OcrFailure? = null,
 ) {
-    val blocker = if (captured == null) SaveBlocker.NEEDS_A_DATE else saveBlocker(destination, result, saveState)
+    val blocker =
+        if (captured == null) SaveBlocker.NEEDS_A_DATE
+        else saveBlocker(destination, result, saveState, route)
 
     // FR-807's countdown. The saver decides when the offer actually ends — this only reads
     // the clock often enough for the number beside Undo to look like it is running out, and
@@ -173,13 +186,22 @@ fun CaptureScreen(
                 }
 
                 // FR-904: the destination is on screen before the user confirms, which is
-                // also what FR-906 means by never routing somewhere they have not seen.
-                if (destination is DestinationState.Ready) {
+                // also what FR-906 means by never routing somewhere they have not seen. Not
+                // shown for an Inbox route: nothing is going to a calendar, and naming one
+                // would say the opposite of what is about to happen.
+                if (destination is DestinationState.Ready && route is SaveRoute.Google) {
                     DestinationChip(destination.defaults)
                 }
 
-                if (lowConfidence) {
+                if (lowConfidence && route is SaveRoute.Google) {
                     Note(stringResource(R.string.capture_low_confidence))
+                }
+
+                // FR-512, FR-506 rows 3 and 4, AC-03. Says why this is not being written, on
+                // the screen where the user is deciding — rather than leaving them to discover
+                // that a Save button put something somewhere else.
+                if (route is SaveRoute.Inbox) {
+                    Note(stringResource(inboxReasonText(route.reason)))
                 }
 
                 // Every reason Save is unavailable says so. A disabled button with nothing
@@ -210,10 +232,13 @@ fun CaptureScreen(
                 if (saveIsOffered(saveState)) {
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = onSave, enabled = blocker == null) {
-                        Text(
+                        ActionLabel(
                             stringResource(
-                                if (saveState is SaveState.Saving) R.string.capture_saving
-                                else R.string.capture_save
+                                when {
+                                    saveState is SaveState.Saving -> R.string.capture_saving
+                                    route is SaveRoute.Inbox -> R.string.capture_add_to_inbox
+                                    else -> R.string.capture_save
+                                }
                             )
                         )
                     }
@@ -432,6 +457,10 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
 
         SaveState.AlreadySaved -> Note(stringResource(R.string.capture_already_saved))
 
+        // FR-703: local only. Deliberately not phrased as a save, for the reason Queued is
+        // not — the item is on this phone and not in the user's account.
+        is SaveState.SentToInbox -> Note(stringResource(R.string.capture_sent_to_inbox))
+
         // FR-804. The weekdays here are computed from the dates themselves and never taken
         // from the captured text, which may name one that contradicts the date beside it —
         // §7.2 requires such a contradiction to be absorbed, not repeated back at the user.
@@ -494,7 +523,7 @@ private fun ItemTypeBadge(candidate: DatedCandidate) {
 }
 
 @Composable
-private fun Note(text: String) {
+internal fun Note(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
@@ -548,6 +577,20 @@ private fun describeDates(dates: ItemDates): String = when (dates) {
 
     is ItemDates.Task ->
         dates.due?.format(OFFER_DATE) ?: stringResource(R.string.capture_reschedule_no_date)
+}
+
+/**
+ * FR-512 and FR-506's rows, as the sentence the user reads before they choose.
+ *
+ * NFR-402 keeps the wording here rather than in `:data`, which is why [InboxReason] is an enum
+ * of named facts and not of phrases — the same division `SaveFailure`, `OcrFailure` and
+ * `ShiftResult` all keep.
+ */
+internal fun inboxReasonText(reason: InboxReason): Int = when (reason) {
+    InboxReason.UNDATED -> R.string.capture_route_undated
+    InboxReason.LOW_CONFIDENCE -> R.string.capture_route_low_confidence
+    InboxReason.INCOMPLETE -> R.string.capture_route_incomplete
+    InboxReason.RESCHEDULE_UNRESOLVED -> R.string.capture_route_reschedule_offline
 }
 
 private val OFFER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")

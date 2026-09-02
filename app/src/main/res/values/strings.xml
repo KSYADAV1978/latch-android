@@ -61,6 +61,18 @@
     <string name="capture_source_link">Captured from %1$s</string>
     <!-- FR-512, interim: confidence is shown rather than blocking the save. -->
     <string name="capture_low_confidence">Latch is not confident about this one — check it before saving.</string>
+    <!--
+      FR-512, FR-506 rows 3 and 4, AC-03: the capture is going to the Capture Inbox rather than
+      to Google. The button says so, because a Save button that quietly put something somewhere
+      else would be the routing decision hidden from the person making it.
+    -->
+    <string name="capture_add_to_inbox">Add to Inbox</string>
+    <string name="capture_sent_to_inbox">Added to your Inbox on this phone. Nothing was written to Google yet.</string>
+    <string name="capture_route_undated">No date found, so this goes to your Inbox. Latch never guesses one — give it a date there.</string>
+    <string name="capture_route_low_confidence">Latch is not confident about this one, so it goes to your Inbox to check first.</string>
+    <string name="capture_route_incomplete">There is a time here but no day. This goes to your Inbox, where you can give it one.</string>
+    <!-- FR-804 offline: the reschedule question needs a network to answer and a user to ask. -->
+    <string name="capture_route_reschedule_offline">This looks like a change to something already saved, and Latch cannot check while offline. It goes to your Inbox so nothing is written twice.</string>
     <string name="capture_nothing_shared">Nothing was shared with Latch</string>
     <string name="capture_clipboard_empty">The clipboard is empty. Copy some text, then tap the tile.</string>
 
@@ -104,9 +116,56 @@
     <!-- NFR-303: an entry that will not come right on its own says so rather than sitting
          in the count looking like it is still on its way. -->
     <plurals name="home_queue_given_up">
-        <item quantity="one">%1$d could not be saved. Open it again to retry.</item>
-        <item quantity="other">%1$d could not be saved. Open them again to retry.</item>
+        <item quantity="one">%1$d could not be saved.</item>
+        <item quantity="other">%1$d could not be saved.</item>
     </plurals>
+    <!--
+      FR-806: the manual retry the requirement's own note recorded as missing until Settings
+      exists. It also revives an entry that had been given up on — the user has usually done
+      something between the failure and the tap, and refusing to try is worse than trying.
+    -->
+    <string name="home_queue_retry">Retry now</string>
+
+    <!--
+      FR-704: an unobtrusive count of Inbox items, and nothing at all when there are none. The
+      requirement's second half — "and shall not nag" — is why there is no badge, no
+      notification and no colour on this.
+    -->
+    <plurals name="home_inbox_pending">
+        <item quantity="one">%1$d capture waiting in your Inbox</item>
+        <item quantity="other">%1$d captures waiting in your Inbox</item>
+    </plurals>
+    <string name="home_open_inbox">Open Inbox</string>
+
+    <!--
+      FR-807, where the capture window has gone. Same offer, same ten seconds, on the one
+      surface left after a process death.
+    -->
+    <string name="home_undo_offer">Just saved. You can still undo it.</string>
+    <string name="home_undo">Undo (%1$d)</string>
+
+    <!-- ===== Capture Inbox, FR-701 to FR-705 ===== -->
+
+    <string name="inbox_title">Inbox</string>
+    <string name="inbox_empty">Nothing waiting. Captures Latch is unsure about will appear here.</string>
+    <string name="inbox_back">Back</string>
+    <!-- FR-702's five actions, in the requirement's own order. -->
+    <string name="inbox_set_date">Set a date</string>
+    <string name="inbox_edit_title">Title</string>
+    <string name="inbox_save">Save to Google</string>
+    <string name="inbox_snooze">Snooze a week</string>
+    <string name="inbox_discard">Discard</string>
+    <string name="inbox_snoozed_until">Snoozed until %1$s</string>
+    <!-- FR-705: surfaced for review, never deleted automatically. -->
+    <string name="inbox_aged">Waiting since %1$s. Still want it?</string>
+    <string name="inbox_no_date_yet">No date yet</string>
+    <string name="inbox_captured_on">Captured %1$s</string>
+    <string name="inbox_date_picker_confirm">Use this date</string>
+    <string name="inbox_date_picker_cancel">Cancel</string>
+    <!-- FR-703: nothing here has reached the user's Google account. -->
+    <string name="inbox_local_only">Everything here is on this phone only. Nothing reaches Google until you save it.</string>
+    <string name="inbox_saving">Saving…</string>
+    <string name="inbox_save_failed">Could not save that to Google. It is still here — try again.</string>
 
     <!-- ===== First-run setup, FR-101 to FR-110 ===== -->
 
@@ -176,6 +235,6 @@
       landed, on the same screen that was correctly reporting a write queue. Anything asserting
       what is or is not built belongs under review whenever a slice lands.
     -->
-    <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google, and every save can be undone for ten seconds afterwards.</string>
+    <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google, every save can be undone for ten seconds, and anything Latch is unsure about waits in your Inbox instead of guessing.</string>
     <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text, a screenshot or a PDF to Latch.</string>
 </resources>
