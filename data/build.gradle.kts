@@ -25,6 +25,11 @@ dependencies {
     // contract is a shared module rather than a shared document.
     api(project(":wire"))
 
+    // `api` for the same reason: the repositories in this module hand a GoogleApi to :app.
+    // The client lives in its own module so both clients of §4.1 compose identical requests —
+    // FR-803's paging query above all. See google/build.gradle.kts.
+    api(project(":google"))
+
     // implementation, not api: the storage contracts are `suspend` and nothing more, which
     // the stdlib already covers. Only the implementations need a dispatcher to move to.
     implementation(libs.kotlinx.coroutines.core)

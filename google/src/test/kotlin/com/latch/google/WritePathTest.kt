@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.json.JSONObject
+import com.latch.google.json.JSONObject
 
 /**
  * FR-801 to FR-803: what the app sends to Google, and the duplicate check that must precede
@@ -379,7 +379,7 @@ class WritePathTest {
     fun `a task is matched by the hash in its notes`() {
         val page = JSONObject().put(
             "items",
-            org.json.JSONArray()
+            com.latch.google.json.JSONArray()
                 .put(JSONObject().put("id", "other").put("notes", "unrelated task"))
                 .put(
                     JSONObject().put("id", "task_42")
@@ -394,7 +394,7 @@ class WritePathTest {
     fun `a task whose notes the user mangled is skipped, not fatal`() {
         val page = JSONObject().put(
             "items",
-            org.json.JSONArray()
+            com.latch.google.json.JSONArray()
                 .put(JSONObject().put("id", "broken").put("notes", "[latch]v=1;sh=garbage"))
                 .put(JSONObject().put("id", "no_notes"))
                 .put(

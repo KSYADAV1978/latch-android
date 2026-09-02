@@ -3,9 +3,13 @@ package com.latch.android.capture
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
-import com.latch.data.CalendarApi
+import com.latch.google.CalendarApi
 import com.latch.data.CreatedItem
-import com.latch.data.TasksApi
+import com.latch.google.TasksApi
+import com.latch.google.GoogleUnreachable
+import com.latch.google.ItemDates
+import com.latch.google.RescheduleMatch
+import com.latch.google.RescheduleSearch
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.wire.itemKeyOf
@@ -157,10 +161,10 @@ class MultiDateSaveTest {
         // patch one item and write none of the other three — four items in front of the user
         // becoming one moved event and three discarded silently.
         val calendar = RecordingCalendarApi(
-            rescheduleMatch = com.latch.data.RescheduleSearch(
-                com.latch.data.RescheduleMatch(
+            rescheduleMatch = com.latch.google.RescheduleSearch(
+                com.latch.google.RescheduleMatch(
                     remoteId = "ev_old",
-                    dates = com.latch.data.ItemDates.Event(
+                    dates = com.latch.google.ItemDates.Event(
                         start = LocalDateTime.parse("2026-09-30T09:00"),
                         end = LocalDateTime.parse("2026-09-30T10:00"),
                     ),
@@ -186,10 +190,10 @@ class MultiDateSaveTest {
         // FR-804 is unchanged for the captures it was written against.
         val single = "Kickoff 1 September at 9am"
         val calendar = RecordingCalendarApi(
-            rescheduleMatch = com.latch.data.RescheduleSearch(
-                com.latch.data.RescheduleMatch(
+            rescheduleMatch = com.latch.google.RescheduleSearch(
+                com.latch.google.RescheduleMatch(
                     remoteId = "ev_old",
-                    dates = com.latch.data.ItemDates.Event(
+                    dates = com.latch.google.ItemDates.Event(
                         start = LocalDateTime.parse("2026-09-30T09:00"),
                         end = LocalDateTime.parse("2026-09-30T10:00"),
                     ),
@@ -250,7 +254,7 @@ class MultiDateSaveTest {
     fun `a chain that cannot be written now is queued as one entry`() = runTest {
         val queue = RecordingQueue()
         val saver = saver(
-            calendar = RecordingCalendarApi(failInsert = com.latch.data.GoogleUnreachable("offline", java.io.IOException())),
+            calendar = RecordingCalendarApi(failInsert = com.latch.google.GoogleUnreachable("offline", java.io.IOException())),
             queue = queue,
         )
 

@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import com.latch.wire.KEY_ITEM_KEY
 import com.latch.wire.KEY_SOURCE_HASH
@@ -15,8 +15,8 @@ import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import org.json.JSONArray
-import org.json.JSONObject
+import com.latch.google.json.JSONArray
+import com.latch.google.json.JSONObject
 
 private const val CALENDAR_V3 = "https://www.googleapis.com/calendar/v3"
 private const val TASKS_V1 = "https://tasks.googleapis.com/tasks/v1"
@@ -387,7 +387,7 @@ internal fun taskListsFrom(page: JSONObject, defaultListId: String?): List<TaskL
  * A page that is empty but carries a `nextPageToken` is the normal case here, not an oddity,
  * which is exactly what the old single-page read got wrong.
  */
-internal suspend fun findEventPaged(
+suspend fun findEventPaged(
     urlFor: (String?) -> String,
     maxPages: Int = MAX_DEDUP_PAGES,
     get: suspend (String) -> JSONObject,
@@ -654,7 +654,7 @@ internal fun taskDueFrom(task: JSONObject): LocalDate? =
  * order the API returned would make the offer differ between the two transports for no
  * reason a user could see.
  */
-internal fun latestEventMatch(
+fun latestEventMatch(
     current: RescheduleMatch?,
     candidates: List<RescheduleMatch>,
 ): RescheduleMatch? {
@@ -693,7 +693,7 @@ internal fun latestTaskMatch(
  * expired grant, a 403 — leaves the item in place and must reach the user, because the
  * recourse is to go and remove it in Google by hand.
  */
-internal fun alreadyGone(rejected: GoogleRejected): Boolean =
+fun alreadyGone(rejected: GoogleRejected): Boolean =
     rejected.status == HttpURLConnection.HTTP_NOT_FOUND ||
         rejected.status == HttpURLConnection.HTTP_GONE
 

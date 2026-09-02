@@ -1,8 +1,8 @@
-package com.latch.data
+package com.latch.google
 
 import kotlinx.coroutines.runBlocking
-import org.json.JSONArray
-import org.json.JSONObject
+import com.latch.google.json.JSONArray
+import com.latch.google.json.JSONObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

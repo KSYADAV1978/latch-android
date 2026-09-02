@@ -12,7 +12,6 @@ import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
-import com.latch.wire.dateSpans
 import com.latch.wire.sourceBlock
 import java.io.File
 import java.time.LocalDateTime

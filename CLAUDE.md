@@ -18,12 +18,14 @@ requirement ID in your summary so work can be traced back.
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
 | `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
+| `:google` | pure Kotlin (JVM) | **Every request either client makes to Google.** The API contracts and their REST implementations, FR-803/FR-804's duplicate and reschedule queries, AC-17's `ALLOWED_HOSTS` guard, and a hand-written JSON — because `org.json` ships inside `android.jar` and nowhere else |
 | `:desktop` | Kotlin/JVM application | **The Windows client (FR-300 series).** Swing UI, WinRT OCR, `RegisterHotKey`, DPAPI — all reached through what Windows already ships, so no SDK and no third-party dependency. Shares `:wire`, `:parser`, `:recipes`, `:core-model` with `:app` |
 | `:ocr` | Android library | On-device OCR (FR-215, FR-207). The only module that names an ML Kit type; `:app` sees `OcrReader` and `OcrResult`. Bundled models, +12.83 MB per device — the largest single thing this app ships |
 | `:data` | Android library | Storage — the FR-701 SQLite database (Capture Inbox, FR-803's hash index, FR-807's stored offer), the write queue and account defaults in encrypted preferences, the secret store contract — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
-Dependencies point one way: `:app` → `:data`/`:parser`/`:recipes`/`:ocr`/`:wire` → `:core-model`.
-`:wire` → `:parser` → `:core-model`, and `:data` re-exports `:wire` as `api`.
+Dependencies point one way: `:app` and `:desktop` → `:data`/`:google`/`:parser`/`:recipes`/`:ocr`/`:wire`
+→ `:core-model`. `:google` → `:wire` → `:parser` → `:core-model`. `:desktop` never touches `:data`,
+which is Android storage; it has its own.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
 `:ocr` depends on neither — it returns text, and what that text means is the parser's business.
 

@@ -1,12 +1,13 @@
 package com.latch.android.capture
 
 import com.latch.core.model.ItemType
-import com.latch.data.CalendarApi
 import com.latch.data.CreatedItem
-import com.latch.data.ItemDates
 import com.latch.data.LocalItemIndex
-import com.latch.data.TasksApi
 import com.latch.data.WriteQueue
+import com.latch.google.CalendarApi
+import com.latch.google.ItemDates
+import com.latch.google.TasksApi
+import com.latch.google.findEventPaged
 import kotlin.coroutines.cancellation.CancellationException
 
 /**

@@ -2,10 +2,10 @@ package com.latch.android.capture
 
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
-import com.latch.data.DuplicateSearch
-import com.latch.data.ItemDates
-import com.latch.data.RescheduleMatch
-import com.latch.data.RescheduleSearch
+import com.latch.google.DuplicateSearch
+import com.latch.google.ItemDates
+import com.latch.google.RescheduleMatch
+import com.latch.google.RescheduleSearch
 
 /**
  * What a save should do about what is already in the account: SRS §7.2's decision table,

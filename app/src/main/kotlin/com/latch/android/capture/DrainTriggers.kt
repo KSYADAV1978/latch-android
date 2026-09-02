@@ -1,6 +1,6 @@
 package com.latch.android.capture
 
-import com.latch.data.FailureClass
+import com.latch.google.FailureClass
 import com.latch.data.QueuedWrite
 import java.time.Duration
 import java.time.Instant

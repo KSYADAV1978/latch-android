@@ -2,7 +2,7 @@ package com.latch.android.capture
 
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
-import com.latch.data.FailureClass
+import com.latch.google.FailureClass
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite
 import com.latch.wire.RemoteMetadata

@@ -1,7 +1,7 @@
 package com.latch.android.settings
 
 import com.latch.data.AccountDefaults
-import com.latch.data.WritableCalendar
+import com.latch.google.WritableCalendar
 
 /**
  * FR-908: "The calendar list shall be refreshed on launch. If a stored destination is missing or

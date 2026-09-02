@@ -3,6 +3,11 @@ package com.latch.data
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.core.model.SyncState
+import com.latch.google.GoogleHttp
+import com.latch.google.GoogleRejected
+import com.latch.google.GoogleUnreachable
+import com.latch.google.ItemDates
+import com.latch.google.isWorthRetrying
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.itemKeyOf
 import com.latch.wire.sourceHashOf

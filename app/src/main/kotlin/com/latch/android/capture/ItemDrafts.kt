@@ -3,11 +3,12 @@ package com.latch.android.capture
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.data.AccountDefaults
-import com.latch.wire.dateSpans
-import com.latch.wire.titleFor
+import com.latch.google.EventWrite
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
+import com.latch.wire.dateSpans
+import com.latch.wire.titleFor
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter

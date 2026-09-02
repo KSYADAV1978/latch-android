@@ -113,6 +113,11 @@ android {
 dependencies {
     implementation(project(":core-model"))
     implementation(project(":wire"))
+
+    // Declared rather than taken transitively through :data. This module names CalendarApi,
+    // ItemDates and GoogleUnreachable directly, and a module that names a type should say
+    // where it comes from — the transitive route also does not reach the unit tests.
+    implementation(project(":google"))
     implementation(project(":parser"))
     implementation(project(":recipes"))
     implementation(project(":data"))

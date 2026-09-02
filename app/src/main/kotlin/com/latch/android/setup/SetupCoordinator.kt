@@ -3,11 +3,11 @@ package com.latch.android.setup
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
-import com.latch.data.AuthClient
-import com.latch.data.CalendarApi
-import com.latch.data.LATCH_CALENDAR_MARKER
-import com.latch.data.SignInCancelledException
-import com.latch.data.TasksApi
+import com.latch.google.AuthClient
+import com.latch.google.CalendarApi
+import com.latch.google.LATCH_CALENDAR_MARKER
+import com.latch.google.SignInCancelledException
+import com.latch.google.TasksApi
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow

@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.sourceBlock
@@ -348,4 +348,26 @@ interface TasksApi {
      * the item's `source_hash` and `item_key` as a side effect of moving its date.
      */
     suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task)
+}
+
+/**
+ * What kind of thing stopped a write, as far as FR-806 needs to care.
+ *
+ * The distinction exists for one decision: whether learning that the network is back is
+ * *evidence* that this entry might now succeed. For [TRANSPORT] it is; for the others it is
+ * not, and treating them alike would turn a restored connection into a burst of requests
+ * against a server that has already said it is overloaded.
+ */
+enum class FailureClass {
+    /** No network, DNS, TLS, timeout — [GoogleUnreachable]. Connectivity returning is real news. */
+    TRANSPORT,
+
+    /** A 429 or a 5xx. Waiting is the cure, and the wait is the server's to set, not ours. */
+    SERVER,
+
+    /** FR-806a: Google wants a sign-in. A tap fixes it; a network does not. */
+    SIGN_IN,
+
+    /** A 400, a 403 for a scope not granted, or a bug in our own mapping. Retrying repeats it. */
+    PERMANENT,
 }

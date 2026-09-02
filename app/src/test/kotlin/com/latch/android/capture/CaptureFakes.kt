@@ -2,27 +2,28 @@ package com.latch.android.capture
 
 import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
-import com.latch.data.CalendarApi
+import com.latch.google.CalendarApi
 import com.latch.data.CaptureInbox
-import com.latch.data.DuplicateSearch
-import com.latch.data.FailureClass
+import com.latch.google.DuplicateSearch
+import com.latch.google.EventWrite
+import com.latch.google.FailureClass
 import com.latch.data.InboxCapture
+import com.latch.google.ItemDates
 import com.latch.data.LocalItemIndex
-import com.latch.data.StoredUndoOffer
-import com.latch.data.UndoOfferStore
-import com.latch.data.WrittenItem
-import com.latch.data.EventWrite
-import com.latch.data.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueueStatus
 import com.latch.data.QueuedWrite
-import com.latch.data.RescheduleSearch
-import com.latch.data.TaskList
-import com.latch.data.TaskWrite
-import com.latch.data.TasksApi
-import com.latch.data.WritableCalendar
+import com.latch.google.RescheduleSearch
+import com.latch.data.StoredUndoOffer
+import com.latch.google.TaskList
+import com.latch.google.TaskWrite
+import com.latch.google.TasksApi
+import com.latch.data.UndoOfferStore
+import com.latch.google.WritableCalendar
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
+import com.latch.data.WrittenItem
+import com.latch.google.GoogleUnreachable
 import java.time.Instant
 import java.time.LocalDate
 
@@ -262,7 +263,7 @@ internal class RecordingCalendarApi(
     }
 
     override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
-        if (failPatch) throw com.latch.data.GoogleUnreachable("no network", java.io.IOException())
+        if (failPatch) throw com.latch.google.GoogleUnreachable("no network", java.io.IOException())
         patched += Triple(calendarId, eventId, dates)
     }
 
@@ -310,7 +311,7 @@ internal class RecordingTasksApi(
     }
 
     override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
-        if (failPatch) throw com.latch.data.GoogleUnreachable("no network", java.io.IOException())
+        if (failPatch) throw com.latch.google.GoogleUnreachable("no network", java.io.IOException())
         patched += Triple(taskListId, taskId, dates)
     }
 

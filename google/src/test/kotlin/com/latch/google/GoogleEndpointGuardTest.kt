@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

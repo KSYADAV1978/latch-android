@@ -3,11 +3,11 @@ package com.latch.android.capture
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.data.CreatedItem
-import com.latch.data.ItemDates
+import com.latch.google.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite
-import com.latch.wire.RemoteMetadata
 import com.latch.data.WriteOperation
+import com.latch.wire.RemoteMetadata
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime

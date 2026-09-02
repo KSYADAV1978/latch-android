@@ -1,9 +1,9 @@
 package com.latch.android.setup
 
 import com.latch.core.model.RoutingMode
-import com.latch.data.GoogleAccount
-import com.latch.data.TaskList
-import com.latch.data.WritableCalendar
+import com.latch.google.GoogleAccount
+import com.latch.google.TaskList
+import com.latch.google.WritableCalendar
 
 /**
  * NFR-402: failures are named, not phrased. The state machine says which failure occurred

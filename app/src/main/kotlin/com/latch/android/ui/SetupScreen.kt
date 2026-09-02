@@ -40,8 +40,8 @@ import com.latch.android.setup.SetupFailure
 import com.latch.android.setup.SetupState
 import com.latch.android.setup.SetupStep
 import com.latch.core.model.RoutingMode
-import com.latch.data.TaskList
-import com.latch.data.WritableCalendar
+import com.latch.google.TaskList
+import com.latch.google.WritableCalendar
 
 private const val STEP_COUNT = 3
 

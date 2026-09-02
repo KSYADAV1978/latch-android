@@ -2,7 +2,7 @@ package com.latch.android.settings
 
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
-import com.latch.data.WritableCalendar
+import com.latch.google.WritableCalendar
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

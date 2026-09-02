@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.itemKeyOf
@@ -13,8 +13,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.json.JSONArray
-import org.json.JSONObject
+import com.latch.google.json.JSONArray
+import com.latch.google.json.JSONObject
 
 /**
  * FR-804: finding the item a capture reschedules, and moving it.

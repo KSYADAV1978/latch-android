@@ -5,10 +5,10 @@ import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
 import com.latch.data.CreatedItem
-import com.latch.data.DuplicateSearch
-import com.latch.data.GoogleUnreachable
+import com.latch.google.DuplicateSearch
+import com.latch.google.GoogleUnreachable
 import com.latch.data.InboxReason
-import com.latch.data.ItemDates
+import com.latch.google.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite
 import com.latch.data.WriteOperation

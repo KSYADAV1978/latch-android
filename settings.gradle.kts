@@ -50,6 +50,7 @@ rootProject.name = "latch-android"
 // its hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's .ics. What
 // does not is anything a client is free to do its own way — HTTP, JSON, storage, UI.
 include(":wire")
+include(":google")
 include(":app")
 include(":core-model")
 include(":parser")

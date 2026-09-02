@@ -1,11 +1,11 @@
-package com.latch.data
+package com.latch.google
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.json.JSONObject
+import com.latch.google.json.JSONObject
 
 /**
  * The response mappers, against captured Google response bodies.

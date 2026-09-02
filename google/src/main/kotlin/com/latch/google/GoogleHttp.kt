@@ -1,4 +1,4 @@
-package com.latch.data
+package com.latch.google
 
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -6,8 +6,8 @@ import java.net.MalformedURLException
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
-import org.json.JSONException
-import org.json.JSONObject
+import com.latch.google.json.JSONException
+import com.latch.google.json.JSONObject
 
 /**
  * Supplies the OAuth access token, and is told when one has stopped working.
@@ -72,7 +72,12 @@ class SignInRequiredException(message: String) : GoogleFailure(message)
  * `oauth2.googleapis.com` is here for NFR-205's revoke, which is not built. Listing it now
  * costs nothing and means the guard does not have to be reopened by someone in a hurry.
  */
-internal val ALLOWED_HOSTS = setOf(
+// AC-17's guard is public now that it spans modules, and that is the requirement's own
+// instinct rather than a concession to the compiler. NFR-201 is "every outbound request in
+// this app goes through one check"; a check the callers outside this file cannot reach is a
+// check that grows a second, unguarded path the first time somebody needs one. Widening
+// ALLOWED_HOSTS remains an AC-17 decision and not a refactor.
+val ALLOWED_HOSTS = setOf(
     "www.googleapis.com",
     "tasks.googleapis.com",
     "oauth2.googleapis.com",
@@ -84,7 +89,7 @@ internal val ALLOWED_HOSTS = setOf(
  * test on the text and fails it on the host — which is the whole class of mistake this guard
  * exists to catch.
  */
-internal fun requireGoogleEndpoint(rawUrl: String): URL {
+fun requireGoogleEndpoint(rawUrl: String): URL {
     val url = try {
         URL(rawUrl)
     } catch (malformed: MalformedURLException) {
@@ -109,7 +114,7 @@ internal fun requireGoogleEndpoint(rawUrl: String): URL {
  * interrupt, which Android's connection does respond to. Timeouts are set regardless, because
  * both default to infinite and a hung setup screen has no retry on it.
  */
-internal class GoogleHttp(private val tokens: TokenProvider) {
+class GoogleHttp(private val tokens: TokenProvider) {
 
     suspend fun get(url: String): JSONObject = authorised(url, "GET", body = null)
 

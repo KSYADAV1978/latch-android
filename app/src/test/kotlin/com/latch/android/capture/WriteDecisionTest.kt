@@ -1,9 +1,9 @@
 package com.latch.android.capture
 
-import com.latch.data.DuplicateSearch
-import com.latch.data.ItemDates
-import com.latch.data.RescheduleMatch
-import com.latch.data.RescheduleSearch
+import com.latch.google.DuplicateSearch
+import com.latch.google.ItemDates
+import com.latch.google.RescheduleMatch
+import com.latch.google.RescheduleSearch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.test.Test

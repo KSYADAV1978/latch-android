@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -25,9 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.settings.Destinations
@@ -40,14 +41,13 @@ import com.latch.data.AccountDefaults
 import com.latch.data.EndpointRefusal
 import com.latch.data.LatchSettings
 import com.latch.data.RevokeOutcome
-import com.latch.data.TaskList
-import com.latch.data.WritableCalendar
+import com.latch.google.TaskList
+import com.latch.google.WritableCalendar
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
-import androidx.compose.ui.platform.LocalLocale
 import java.time.format.TextStyle
 
 private val HOLIDAY_DATE: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)

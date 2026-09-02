@@ -4,6 +4,7 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.google.EventWrite
 import com.latch.parser.Classification
 import com.latch.parser.Confidence
 import com.latch.parser.DateParser
