@@ -95,6 +95,7 @@ class InboxCoordinator(
                 result = result,
                 context = context,
                 fromInboxId = capture.id,
+                titleOverrides = titleOverridesOf(capture, result),
             )
         }
     }
@@ -148,11 +149,26 @@ fun parseOf(
     return withTypeOverrides(dated, dated.candidates.indices.associateWith { override })
 }
 
-/** The row as the save path sees it. The edited title wins, exactly as FR-206's subject does. */
+/**
+ * The row as the save path sees it.
+ *
+ * **FR-702's edited title deliberately does not go in `preferredTitle`**, and this was a defect
+ * until v1.51. §7.2 step 1 returns a `preferredTitle` verbatim as `latch.item_key`'s input,
+ * because FR-206's subject comes from the sending application — so routing the *user's*
+ * correction through the same field silently moved the key. Correcting a typo would have made
+ * the item permanently unmatchable by FR-804. The edit travels as FR-509b's title override
+ * instead, which reaches the summary and nothing else.
+ */
 fun capturedTextOf(capture: InboxCapture): CapturedText = CapturedText(
     text = capture.rawText,
     layer = capture.layer,
-    preferredTitle = capture.editedTitle ?: capture.preferredTitle,
+    preferredTitle = capture.preferredTitle,
     appId = capture.appId,
     ocrUsed = capture.ocrUsed,
 )
+
+/** FR-509b, from the Inbox: one edited title applies to every item the row produces. */
+fun titleOverridesOf(capture: InboxCapture, result: ParseResult): Map<Int, String> =
+    capture.editedTitle?.takeIf { it.isNotBlank() }
+        ?.let { edited -> result.candidates.indices.associateWith { edited } }
+        .orEmpty()

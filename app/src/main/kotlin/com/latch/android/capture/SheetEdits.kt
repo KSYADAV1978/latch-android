@@ -26,8 +26,21 @@ data class SheetEdits(
     val assignedDates: Map<Int, LocalDate> = emptyMap(),
     /** FR-507: the type the user chose for a row, by candidate index. */
     val typeOverrides: Map<Int, ItemType> = emptyMap(),
+    /**
+     * FR-509b: a title the user corrected, by candidate index.
+     *
+     * **Not part of [ParseResult], and that is the point.** The other two edits are applied to
+     * the parse — a date and a classification are things the parser had an opinion about. A
+     * title correction is not: §7.2 derives `latch.item_key` from the captured text with date
+     * spans blanked, and if an edit reached the parse it would reach the key with it. A
+     * corrected OCR error would then make the item permanently unmatchable by FR-804, and two
+     * users correcting one garbled capture differently would derive different identities for the
+     * same message. So this travels separately and is consumed by `titleFor` alone.
+     */
+    val titleOverrides: Map<Int, String> = emptyMap(),
 ) {
-    val isEmpty: Boolean get() = assignedDates.isEmpty() && typeOverrides.isEmpty()
+    val isEmpty: Boolean
+        get() = assignedDates.isEmpty() && typeOverrides.isEmpty() && titleOverrides.isEmpty()
 }
 
 /** Applies [edits] to [result], in the order they have to be applied in. */

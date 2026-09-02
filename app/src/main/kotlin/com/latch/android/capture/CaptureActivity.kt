@@ -292,6 +292,18 @@ class CaptureActivity : ComponentActivity() {
                     onOverrideType = { index, type ->
                         edits = edits.copy(typeOverrides = edits.typeOverrides + (index to type))
                     },
+                    // FR-509b. A null index is the header title, which governs every item this
+                    // capture creates, so it is applied to every candidate — which is what the
+                    // screen is already showing. An index is one FR-509a row.
+                    onEditTitle = { index, text ->
+                        val overrides = if (index == null) {
+                            result?.candidates?.indices?.associateWith { text }.orEmpty()
+                        } else {
+                            edits.titleOverrides + (index to text)
+                        }
+                        edits = edits.copy(titleOverrides = overrides)
+                    },
+                    titleOverrides = edits.titleOverrides,
                     today = today,
                     layerDisabled = layerDisabled,
                     // FR-1005. Drafted through exactly the same path a save uses, so an
@@ -380,6 +392,7 @@ class CaptureActivity : ComponentActivity() {
                                     RecipeApplication(id, recipeSteps, recipeSelection)
                                 },
                                 destination = routed,
+                                titleOverrides = edits.titleOverrides,
                             )
                         }
                     },

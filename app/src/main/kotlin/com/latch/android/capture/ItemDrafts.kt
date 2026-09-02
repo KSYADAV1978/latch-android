@@ -70,12 +70,17 @@ fun draftItems(
      * `strings.xml` — the same arrangement as `CaptureSaver`'s source-link template.
      */
     pastDateNoteTemplate: String = "",
+    /**
+     * FR-509b: titles the user corrected, by **candidate** index — which is not the same as the
+     * position in the chain, since unticked and blocked rows are dropped before drafting. The
+     * two are kept apart below for exactly that reason.
+     */
+    titleOverrides: Map<Int, String> = emptyMap(),
 ): DraftResult {
     val drafted = result.candidates
         .withIndex()
         .filter { (index, _) -> index in selected }
         .filter { (_, candidate) -> candidateBlocker(candidate) == null }
-        .map { (_, candidate) -> candidate }
 
     if (drafted.isEmpty()) {
         // Everything the user chose is unsaveable, or they chose nothing. The first reason a
@@ -88,8 +93,9 @@ fun draftItems(
         return DraftResult.Blocked(reason)
     }
 
-    val items = drafted.mapIndexed { index, candidate ->
-        val title = titleFor(captured, result, candidate)
+    val items = drafted.mapIndexed { index, indexed ->
+        val (candidateIndex, candidate) = indexed
+        val title = titleFor(captured, result, candidate, titleOverrides[candidateIndex])
 
         // FR-510, and it outranks the classification rather than sitting beside it: "where the
         // only date found is in the past, the app shall **not** create a dated item. It shall
@@ -226,6 +232,12 @@ private fun itemId(chainId: String, index: Int) = "$chainId#$index"
 /**
  * The item's title with every date and time the parser matched cut out of it — the input to
  * §7.2's `latch.item_key`.
+ *
+ * **FR-509b's edit does not reach here, and must not.** §7.2 writes metadata once at insert and
+ * forbids recomputing a key; if a corrected title moved it, fixing an OCR error would make the
+ * item permanently unmatchable by FR-804 — a later reschedule would create a second item — and
+ * two users correcting one garbled capture differently would derive different identities for the
+ * same message. The key is a function of what was captured; the title is what is displayed.
  *
  * FR-804 detects a reschedule by "matching title and identifiers, different date", so the
  * identity it matches on has to survive the date changing. Hashing the title as displayed
@@ -423,7 +435,25 @@ private fun lineRanges(text: String): List<IntRange> {
  * would have received another, which is the kind of divergence a confirmation screen exists to
  * make impossible.
  */
-fun titleFor(captured: CapturedText, result: ParseResult, candidate: DatedCandidate): String {
+fun titleFor(
+    captured: CapturedText,
+    result: ParseResult,
+    candidate: DatedCandidate,
+    /**
+     * FR-509b: the title the user corrected, where they did.
+     *
+     * **It wins over everything, including FR-206's subject.** A user looking at the sheet has
+     * seen what the app derived and has replaced it; nothing the app inferred outranks that.
+     * Blank is treated as no override rather than as an empty title — a cleared field is a user
+     * mid-edit, not a request for an item with no name.
+     *
+     * It reaches the item's **summary** and never `latch.item_key`: `itemKeyTitle` does not
+     * consult this, deliberately, and §7.2's derivation is unchanged. See FR-509b.
+     */
+    editedTitle: String? = null,
+): String {
+    editedTitle?.takeIf { it.isNotBlank() }?.let { return it.trim() }
+
     // FR-206: a mail client's subject names the thing better than any row of a page, and a
     // shared PDF carries one. It wins over both FR-509 and FR-509a.
     val fallback = captured.preferredTitle?.takeIf { it.isNotBlank() } ?: result.title.value

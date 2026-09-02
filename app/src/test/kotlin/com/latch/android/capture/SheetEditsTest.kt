@@ -59,6 +59,9 @@ class SheetEditsTest {
             captureId = "capture",
             chainId = "chain",
             pastDateNoteTemplate = note,
+            // FR-509b travels beside the parse rather than in it, so the helper has to carry
+            // it explicitly — which is the whole reason it is a separate channel.
+            titleOverrides = edits.titleOverrides,
         )
         return assertIs<DraftResult.Ready>(drafted).items
     }
@@ -259,5 +262,103 @@ class SheetEditsTest {
     fun `the note is a template the app supplies, so NFR-402 holds`() {
         val item = draft(pastText, note = "").single()
         assertNull(item.notes, "no template means no note, rather than English baked into :app")
+    }
+
+    // ----- FR-509b: the title, corrected before anything is written -----
+
+    @Test
+    fun `an edited title is what the item is written with`() {
+        val items = draft(timedEvent, SheetEdits(titleOverrides = mapOf(0 to "Status review")))
+        assertEquals("Status review", items.single().title)
+    }
+
+    @Test
+    fun `an edited title does NOT change latch item_key`() {
+        // FR-509b's clause with teeth. §7.2 writes metadata once at insert and forbids
+        // recomputing a key, so if a correction moved it, fixing an OCR error would make the
+        // item permanently unmatchable by FR-804 — a later reschedule would create a second
+        // item — and two users correcting one garbled capture differently would derive
+        // different identities for the same message.
+        val result = parse(timedEvent)
+        val before = itemKeyTitle(captured(timedEvent), result)
+
+        val edited = result.withEdits(SheetEdits(titleOverrides = mapOf(0 to "Something else entirely")), today)
+        val after = itemKeyTitle(captured(timedEvent), edited)
+
+        assertEquals(before, after)
+    }
+
+    @Test
+    fun `an edited title outranks FR-206's subject line`() {
+        // The user has seen what the app derived and replaced it; nothing inferred outranks that.
+        val withSubject = CapturedText(
+            text = timedEvent,
+            layer = CaptureLayer.SHARE_SHEET,
+            preferredTitle = "Weekly sync",
+        )
+        val result = parse(timedEvent)
+        assertEquals("Weekly sync", titleFor(withSubject, result, result.primary))
+        assertEquals("Corrected", titleFor(withSubject, result, result.primary, "Corrected"))
+    }
+
+    @Test
+    fun `a subject line still governs the item key, because it is not a correction`() {
+        // §7.2 step 1: a subject comes from the sending application, not from the user, so it
+        // remains the key's input. FR-509b is explicit that this is not an exception it invents.
+        val withSubject = CapturedText(
+            text = timedEvent,
+            layer = CaptureLayer.SHARE_SHEET,
+            preferredTitle = "Weekly sync",
+        )
+        assertEquals("Weekly sync", itemKeyTitle(withSubject, parse(timedEvent)))
+    }
+
+    @Test
+    fun `a blank edit reverts to the derived title rather than writing an empty one`() {
+        // A cleared field is a user midway through retyping, not a request for an item with no
+        // name. The screen and the write must agree about that, so the rule lives in `titleFor`.
+        val result = parse(timedEvent)
+        val derived = titleFor(captured(timedEvent), result, result.primary)
+        assertEquals(derived, titleFor(captured(timedEvent), result, result.primary, "   "))
+        assertEquals(derived, draft(timedEvent, SheetEdits(titleOverrides = mapOf(0 to " "))).single().title)
+    }
+
+    @Test
+    fun `an edit is trimmed`() {
+        val items = draft(timedEvent, SheetEdits(titleOverrides = mapOf(0 to "  Status review  ")))
+        assertEquals("Status review", items.single().title)
+    }
+
+    @Test
+    fun `editing one row of a chain leaves the others alone`() {
+        // FR-509a gives an OCR capture a title per row; FR-509b makes each editable on its own.
+        // The override is keyed on the **candidate** index, which is not the position in the
+        // chain once unticked rows are dropped — this is what that distinction is for.
+        val text = "Invoice dated 20 September 2027, review on 24 September 2027"
+        val result = parse(text)
+        assertEquals(2, result.candidates.size, "the fixture must hold two dates")
+
+        val items = draft(text, SheetEdits(titleOverrides = mapOf(1 to "Second only")))
+        assertEquals("Second only", items[1].title)
+        assertTrue(items[0].title != "Second only")
+    }
+
+    @Test
+    fun `an override for an unticked row does not shift onto its neighbour`() {
+        // The failure this pins: keying the override on the drafted position rather than the
+        // candidate index would move row 1's correction onto row 0 the moment row 0 was unticked.
+        val text = "Invoice dated 20 September 2027, review on 24 September 2027"
+        val result = parse(text)
+        val drafted = draftItems(
+            captured = captured(text),
+            result = result,
+            context = context,
+            defaults = defaults,
+            captureId = "capture",
+            chainId = "chain",
+            selected = setOf(1),
+            titleOverrides = mapOf(1 to "Second only"),
+        )
+        assertEquals("Second only", assertIs<DraftResult.Ready>(drafted).items.single().title)
     }
 }

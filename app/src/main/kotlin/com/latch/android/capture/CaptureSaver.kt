@@ -381,10 +381,14 @@ class CaptureSaver(
          * they did not touch.
          */
         destination: Destination? = null,
+        /** FR-509b: titles the user corrected, by candidate index. Summary only, never the key. */
+        titleOverrides: Map<Int, String> = emptyMap(),
     ) {
         if (_state.value == SaveState.Saving) return
         _state.value = SaveState.Saving
-        scope.launch { perform(captured, result, context, selected, fromInboxId, recipe, destination) }
+        scope.launch {
+            perform(captured, result, context, selected, fromInboxId, recipe, destination, titleOverrides)
+        }
     }
 
     /**
@@ -477,6 +481,7 @@ class CaptureSaver(
         fromInboxId: String? = null,
         recipe: RecipeApplication? = null,
         destination: Destination? = null,
+        titleOverrides: Map<Int, String> = emptyMap(),
     ) {
         val source = CaptureSource(
             layer = captured.layer,
@@ -562,6 +567,7 @@ class CaptureSaver(
                 chainId = chainId,
                 selected = selected,
                 pastDateNoteTemplate = pastDateNoteTemplate,
+                titleOverrides = titleOverrides,
             )
             if (draft is DraftResult.Blocked) {
                 _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)

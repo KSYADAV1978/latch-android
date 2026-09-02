@@ -42,7 +42,15 @@
       FR-507: the override is the badge itself — "a single control" taken literally, and put
       where FR-508 already requires the classification to be shown.
     -->
-    <string name="capture_override_hint">Tap the badge to switch between event and to-do.</string>
+    <string name="capture_override_hint">Tap the badge above to switch between event and to-do.</string>
+    <!--
+      FR-509b: the title is editable before anything is written. OCR gets titles wrong on
+      layouts no derivation anticipates — a table's column heading, a letterhead — and this is
+      the escape hatch that stops any one heuristic being load-bearing.
+    -->
+    <string name="capture_edit_title">Edit</string>
+    <string name="capture_title_label">Title</string>
+    <string name="capture_title_done">Done</string>
     <string name="capture_override_loses_time">As a to-do this keeps the day but not the time — Google Tasks has no time of day.</string>
     <string name="capture_override_loses_end">As a to-do this keeps the first day but not the last — a to-do has one date, not a span.</string>
     <string name="capture_override_loses_time_and_end">As a to-do this keeps the first day only — no time, and no closing date.</string>

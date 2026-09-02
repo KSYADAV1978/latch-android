@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Button
@@ -21,6 +23,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -137,6 +140,13 @@ fun CaptureScreen(
     /** FR-507: the user tapped the badge. The index is into `result.candidates`. */
     onOverrideType: (Int, ItemType) -> Unit = { _, _ -> },
     /**
+     * FR-509b: the user corrected a title. A null index means the header title, which governs
+     * every item this capture creates; an index means that row alone (FR-509a).
+     */
+    onEditTitle: (Int?, String) -> Unit = { _, _ -> },
+    /** FR-509b: the corrections so far, by candidate index. */
+    titleOverrides: Map<Int, String> = emptyMap(),
+    /**
      * Today, for FR-506 row 3's suggestion chips. Passed in rather than read here so the sheet
      * stays a function of its inputs and the chips are testable — the same reason
      * `ParseContext` takes `now` rather than reading a clock (FR-515).
@@ -211,8 +221,32 @@ fun CaptureScreen(
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
+        /*
+         * **The content scrolls; the actions do not.**
+         *
+         * This sheet was a title, a date line, a chip and two buttons when it was laid out as a
+         * single Column. It is now capable of holding a badge, a title, a when-line, FR-504's
+         * and FR-510's notes, FR-507's cost line, FR-506 row 3's day picker, FR-601's recipe
+         * chooser and its expanded chain, FR-511's candidate rows, FR-904's destination chip and
+         * picker, FR-907's offer and the save outcome — and on a device at a large font scale
+         * that is several screens of content.
+         *
+         * With no scroll and no separation, the action row was simply **off the bottom of the
+         * display and unreachable**: the user could see a perfectly good parse and had no way to
+         * save it. Found on a device on 2 Sep 2026, on the first real image capture anyone tried.
+         *
+         * `weight(1f, fill = false)` is what makes the split work. The dialog's height is bounded
+         * by the screen, so the content takes what it needs up to the space left over by the
+         * action row, and `fill = false` keeps a short capture's sheet short rather than
+         * stretching it to full height. A `verticalScroll` on the whole Column would have fixed
+         * reachability and left Save below nine recipe chips, which is not the same thing as
+         * fixing it.
+         */
+        Column(modifier = Modifier.padding(20.dp)) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (extracting) {
@@ -258,7 +292,10 @@ fun CaptureScreen(
                     style = MaterialTheme.typography.bodyLarge,
                 )
             } else {
-                CaptureBody(captured, result, selected, onToggleCandidate, onAssignDate, onOverrideType, today)
+                CaptureBody(
+                    captured, result, selected, onToggleCandidate, onAssignDate,
+                    onOverrideType, onEditTitle, titleOverrides, today,
+                )
 
                 // FR-601 to FR-608. Below the dates, because a recipe is applied *to* a date
                 // and the user has to see which one first.
@@ -333,12 +370,16 @@ fun CaptureScreen(
             }
 
             SaveOutcome(saveState, destination)
+        }
 
             // FlowRow, not Row: with an FR-804 offer up this holds three actions on a narrow
             // floating dialog. A Row gives the labels whatever is left and they clip, which is
             // silent — "Update" became "Up…" on a Pixel 6 Pro. This wraps to a second line
             // instead, so the failure mode for a longer translation is a taller dialog rather
             // than a word the user cannot read.
+            //
+            // Outside the scrolling Column above, and that is the point: Save must be reachable
+            // without reading to the end of the sheet.
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -403,6 +444,8 @@ private fun CaptureBody(
     onToggleCandidate: (Int) -> Unit,
     onAssignDate: (Int, LocalDate) -> Unit,
     onOverrideType: (Int, ItemType) -> Unit,
+    onEditTitle: (Int?, String) -> Unit,
+    titleOverrides: Map<Int, String>,
     today: LocalDate,
 ) {
     val candidate = result.primary
@@ -420,6 +463,12 @@ private fun CaptureBody(
         // times, and putting the override on it satisfies "a single control" literally — the
         // classification and the way to change it are the same thing on screen.
         ItemTypeBadge(candidate, onOverride = { onOverrideType(0, it) })
+        // FR-507's second sentence, added at v1.51: the control shall be **discoverable**. The
+        // badge had looked exactly like the read-only badge it used to be, and a user asked for
+        // the ability to change an item's type while looking at a screen that offered it.
+        if (canOverrideTo(candidate, otherTypeOf(candidate))) {
+            Note(stringResource(R.string.capture_override_hint))
+        }
     }
 
     // FR-509a moved the title of an OCR capture onto the row carrying each date, so the
@@ -428,8 +477,12 @@ private fun CaptureBody(
     // saved. The same function decides both, so the screen and the write cannot disagree.
     val perRowTitles = captured.ocrUsed && captured.preferredTitle.isNullOrBlank()
     if (!perRowTitles || single) {
-        Text(
-            text = titleFor(captured, result, candidate),
+        // FR-509b. The index is the primary's where there is one candidate, and null where one
+        // title governs a list — which is what the screen is already showing.
+        val primaryIndex = result.candidates.indexOf(candidate).takeIf { it >= 0 }
+        EditableTitle(
+            title = titleFor(captured, result, candidate, titleOverrides[primaryIndex ?: 0]),
+            onEdit = { onEditTitle(if (single) primaryIndex else null, it) },
             style = MaterialTheme.typography.titleMedium,
         )
     }
@@ -470,11 +523,12 @@ private fun CaptureBody(
         result.candidates.forEachIndexed { index, each ->
             CandidateRow(
                 candidate = each,
-                title = if (perRowTitles) titleFor(captured, result, each) else null,
+                title = if (perRowTitles) titleFor(captured, result, each, titleOverrides[index]) else null,
                 checked = index in selected,
                 onToggle = { onToggleCandidate(index) },
                 onAssignDate = { onAssignDate(index, it) },
                 onOverrideType = { onOverrideType(index, it) },
+                onEditTitle = { onEditTitle(index, it) },
                 today = today,
             )
         }
@@ -516,11 +570,33 @@ private fun RecipeSection(
         null -> Unit
     }
 
+    /*
+     * **Folded away until asked for.** FR-602 ships eight recipes and FR-603 adds the user's
+     * own, so the chooser is nine chips or more — and at a large font scale each takes a line
+     * of its own, which on a device pushed everything below it off the screen.
+     *
+     * A recipe is also the exception rather than the rule: most captures are one date going to
+     * one calendar, and a chooser that costs nine lines on every capture to serve the few that
+     * want one is the wrong trade. Unfolded when a recipe is applied, so the choice stays
+     * visible and changeable rather than hiding behind a control that no longer says what it did.
+     */
+    var choosing by remember(appliedRecipeId == null) { mutableStateOf(appliedRecipeId != null) }
+
+    if (!choosing) {
+        TextButton(onClick = { choosing = true }) {
+            Text(stringResource(R.string.capture_recipe_prompt))
+        }
+        return
+    }
+
     Note(stringResource(R.string.capture_recipe_prompt))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
             selected = appliedRecipeId == null,
-            onClick = { onApplyRecipe(null) },
+            onClick = {
+                onApplyRecipe(null)
+                choosing = false
+            },
             label = { Text(stringResource(R.string.capture_recipe_none)) },
         )
         recipes.forEach { recipe ->
@@ -623,6 +699,7 @@ private fun CandidateRow(
     onToggle: () -> Unit,
     onAssignDate: (LocalDate) -> Unit,
     onOverrideType: (ItemType) -> Unit,
+    onEditTitle: (String) -> Unit,
     today: LocalDate,
 ) {
     val blocker = candidateBlocker(candidate)
@@ -642,13 +719,13 @@ private fun CandidateRow(
                 Text(text = whenLine(candidate), style = MaterialTheme.typography.bodyMedium)
             }
             // FR-509a. Shown here rather than above the list because for an OCR capture the
-            // title belongs to the date's own row, and this is what will be written.
+            // title belongs to the date's own row, and this is what will be written — and
+            // FR-509b: editable here for the same reason.
             title?.let {
-                Text(
-                    text = it,
+                EditableTitle(
+                    title = it,
+                    onEdit = onEditTitle,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (blocker == DraftBlocker.NEEDS_A_DATE) {
@@ -836,6 +913,10 @@ private fun ItemTypeBadge(
     )
 }
 
+/** The type a row would become if its badge were tapped. */
+private fun otherTypeOf(candidate: DatedCandidate): ItemType =
+    if (candidate.classification.itemType == ItemType.EVENT) ItemType.TASK else ItemType.EVENT
+
 /**
  * FR-510, on the row it applies to.
  *
@@ -954,6 +1035,63 @@ private fun DayPicker(
             DatePicker(state = state)
         }
     }
+}
+
+/**
+ * FR-509b: the title, and a way to correct it before anything is written.
+ *
+ * **Text with an Edit button rather than a permanently open field.** The title is right on most
+ * captures, and a field that is always open raises the keyboard over a sheet whose whole job is
+ * to be read and confirmed in a second or two. Two taps to fix it, nothing at all when it is
+ * already correct.
+ *
+ * **A cleared field is not an empty title.** Blank reverts to the derived one — a user midway
+ * through retyping has not asked for an item with no name, and `titleFor` treats it the same way
+ * so the screen and the write cannot differ about it.
+ *
+ * The edit reaches the item's summary and never `latch.item_key`; see FR-509b and `itemKeyTitle`.
+ */
+@Composable
+private fun EditableTitle(
+    title: String,
+    onEdit: (String) -> Unit,
+    style: androidx.compose.ui.text.TextStyle,
+) {
+    var editing by remember { mutableStateOf(false) }
+
+    if (!editing) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                modifier = Modifier.weight(1f, fill = false),
+                text = title,
+                style = style,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = { editing = true }) {
+                Text(stringResource(R.string.capture_edit_title))
+            }
+        }
+        return
+    }
+
+    var typed by remember { mutableStateOf(title) }
+    OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = typed,
+        onValueChange = {
+            typed = it
+            onEdit(it)
+        },
+        label = { Text(stringResource(R.string.capture_title_label)) },
+        trailingIcon = {
+            TextButton(onClick = { editing = false }) {
+                Text(stringResource(R.string.capture_title_done))
+            }
+        },
+        singleLine = true,
+    )
 }
 
 @Composable
