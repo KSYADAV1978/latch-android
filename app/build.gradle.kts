@@ -138,11 +138,17 @@ dependencies {
     // milliseconds. testImplementation only; see docs/DEPENDENCIES.md.
     testImplementation(libs.kotlinx.coroutines.test)
 
-    // The launch canary, and deliberately nothing more — no Espresso, no Compose UI test.
-    // See docs/DEPENDENCIES.md. These build the androidTest APK and never the app's.
+    // The instrumented suite: the launch canary, plus the tests that exist because a platform
+    // call's stubbed behaviour under JVM unit tests inverts the real one. Still no Espresso and
+    // no Compose UI test — every assertion here is over a store, a file or a recogniser, which
+    // is the class of thing a device can settle and a JVM cannot. See docs/DEPENDENCIES.md.
+    // These build the androidTest APK and never the app's.
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    // `runBlocking`, for the suspending store contracts. Already on the app's own classpath;
+    // named here because a source set that imports a class should declare what supplies it.
+    androidTestImplementation(libs.kotlinx.coroutines.core)
 }
 
 // The setup state machine (FR-101 to FR-110) has no Android types, so AC-15 and AC-16 are

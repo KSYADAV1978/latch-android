@@ -34,10 +34,27 @@ components download on first run; `local.properties` needs `sdk.dir` and is not 
 ./gradlew :parser:test         # the parser corpus alone — seconds, no emulator
 ./gradlew :app:assembleDebug   # debug APK
 
-# The launch canary. Needs a connected device and is NOT part of `build`, so a green
-# build says nothing about whether the app starts — that gap is what it exists for.
+# The instrumented suite. Needs a connected device and is NOT part of `build`, so a green
+# build says nothing about whether the app starts or whether any of its storage works —
+# that gap is what it exists for.
 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+**The instrumented suite leaves the app installed.** `connectedAndroidTest` uninstalls both APKs
+when it finishes, and for this project that has teeth: the device is left with no Latch, and the
+next thing anyone does is a device pass that needs one. `gradle.properties` sets
+`android.injected.androidTest.leaveApksInstalledAfterRun=true`. There is no DSL for it, so if a
+future AGP drops the property the symptom is the old behaviour rather than a build failure —
+the check is that the app is still on the device afterwards.
+
+**What the suite is for, and what it is not.** It covers one class of defect: *a platform call
+whose stubbed behaviour under JVM unit tests inverts the real one.* `BitmapFactory` is a throwing
+stub in the `android.jar` unit tests compile against — the same property that makes the parser
+corpus cheap — and it hid a dead image path for a whole slice with 328 tests green.
+`SQLiteOpenHelper`, `SharedPreferences` and the Keystore have exactly that standing. Espresso and
+Compose UI test are still absent and adding either is still a new NFR-501 decision: every
+assertion here is over a store, a file or a recogniser, and an assertion about a screen belongs
+in the pure function the screen calls.
 
 ## Hard constraints
 Do not violate these without asking first:
@@ -1000,3 +1017,26 @@ JVM-reachable code.** Every filter is tested; nothing that actually reads a noti
 | **AC-19** | Configure a webhook, enable it, confirm a notification capture with a monitor running: **no** request to the endpoint. This is the criterion that has waited on this slice | a request-bin endpoint |
 | The Inbox is never reached | A low-confidence notification capture is **saved** with its confidence shown, not routed. That is the permanent narrowing SRS 1.43 records | a vague dated message |
 | NFR-104 | The listener is the only persistent service. Nothing else appears in `adb shell dumpsys activity services com.latch.android` | any state |
+
+### Slice 9 — the instrumented suite
+
+**The suite itself has never been run**, there being no device attached to the session that
+wrote it. A suite that has never executed is one whose fixtures may not be reachable and whose
+assertions may not hold, so it is not counted among the 576 tests that pass.
+
+    ./gradlew :app:connectedDebugAndroidTest
+
+| Check | What failure looks like |
+|---|---|
+| It runs at all | The two assets (`latin-chat.png`, `letter.pdf`) resolve from `app/src/androidTest/assets` and copy to the cache. A missing asset fails every OCR test at once and says so |
+| **The app is still installed afterwards** | `adb shell pm list packages com.latch.android` still lists it. If it does not, the AGP property has stopped working and the note in `gradle.properties` is now wrong |
+| The three defect tests genuinely bite | Each is written against a defect that actually shipped. Worth confirming at least one **fails** when reintroduced — the launch canary was verified that way and it is what makes a regression test a regression test |
+| The storage tests are order-independent | Run the class twice, and run it after a device pass has left real data behind. `@Before` clears every store; a test that only passes on a clean install is one that will fail on someone's phone |
+| NFR-103 is unmoved | The androidTest APK is separate and never linked into the app's, so the release APK must not have grown. `./gradlew :app:assembleRelease` and compare |
+
+**One record is now stale and was left alone deliberately.** `docs/DEPENDENCIES.md`'s entry for
+the three `androidx.test` artifacts says "This is a canary, not a test layer". It is a test layer
+now — a small one, over stores and files, with no Espresso and no Compose UI test. The three
+artifacts are unchanged and no dependency was added, so the justification still holds; the
+sentence describing its scope does not. Recorded here rather than edited there, because this
+session was instructed to leave that file untouched.
