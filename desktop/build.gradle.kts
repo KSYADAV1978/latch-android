@@ -35,6 +35,9 @@ dependencies {
     // SKIPPED and not as passed. `CLAUDE.md` records why — an inconclusive run looks exactly
     // like a pass in a log — and `Assumptions` is what makes the distinction visible.
     testImplementation(libs.kotlin.test.junit5)
+    // `runTest` for the save path, which is suspend all the way down. testImplementation
+    // only, exactly as :app declares it; see docs/DEPENDENCIES.md.
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 tasks.test {

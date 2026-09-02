@@ -14,6 +14,13 @@ import com.latch.desktop.capture.buildCapture
 import com.latch.desktop.capture.parseHotkey
 import com.latch.desktop.capture.writeForRecognition
 import com.latch.desktop.ocr.WindowsOcr
+import com.latch.desktop.save.DesktopSaver
+import com.latch.desktop.save.DesktopSetup
+import com.latch.desktop.save.SaveFailure
+import com.latch.desktop.save.SaveResult
+import com.latch.desktop.save.SetupResult
+import com.latch.desktop.save.toWireDestination
+import com.latch.desktop.store.DefaultsStore
 import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.latchDataDirectory
 import com.latch.desktop.ui.CaptureWindow
@@ -23,8 +30,16 @@ import com.latch.desktop.ui.TrayAction
 import com.latch.desktop.ui.TrayModel
 import com.latch.desktop.ui.messageFor
 import com.latch.desktop.ui.popupModel
+import com.latch.google.TokenProvider
+import com.latch.google.fetchPrimaryAccount
+import com.latch.google.googleCalendarApi
+import com.latch.google.googleTasksApi
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import com.latch.parser.ParseResult
+import com.latch.wire.DraftResult
+import com.latch.wire.draftItems
+import kotlinx.coroutines.runBlocking
 import java.awt.Desktop
 import java.awt.TrayIcon
 import java.io.File
@@ -47,6 +62,24 @@ import kotlin.system.exitProcess
 object Latch {
     private val secrets by lazy { SecretFile(File(latchDataDirectory(), "secrets.dat")) }
     private val auth by lazy { DesktopAuth(secrets, ClientConfig.load()) }
+    private val defaultsStore by lazy { DefaultsStore(secrets) }
+
+    /**
+     * The bridge from this client's sign-in to the shared Google client.
+     *
+     * `invalidate` drops the cached access token so the next call refreshes. It does not
+     * discard the refresh token: only Google saying the grant is gone does that, and
+     * `DesktopAuth` is where that decision lives.
+     */
+    private val tokens = object : TokenProvider {
+        override suspend fun accessToken(): String =
+            auth.accessToken() ?: throw IllegalStateException("not signed in")
+
+        override suspend fun invalidate(token: String) = auth.dropCachedAccessToken()
+    }
+
+    private val calendarApi by lazy { googleCalendarApi(tokens) }
+    private val tasksApi by lazy { googleTasksApi(tokens) }
     private val clipboard = ClipboardCapture()
     private val recogniser = WindowsOcr()
 
@@ -90,7 +123,7 @@ object Latch {
 
     private fun model() = TrayModel(
         hotkeyLabel = spec.display,
-        signedInAs = if (auth.isSignedIn) "your Google account" else null,
+        signedInAs = if (auth.isSignedIn) defaultsStore.read()?.email ?: "your Google account" else null,
         configured = auth.isConfigured,
         pending = 0,
     )
@@ -99,7 +132,11 @@ object Latch {
         TrayAction.CAPTURE -> SwingUtilities.invokeLater(::capture)
         TrayAction.SIGN_IN -> signIn()
         TrayAction.SIGN_OUT -> {
+            // NFR-205's local half only: this forgets the sign-in on this machine and
+            // leaves everything already in the user's Google account alone. Revoking the
+            // grant is a different action and is owed.
             auth.forget()
+            defaultsStore.clear()
             tray?.update(model())
         }
         TrayAction.SETTINGS -> tray?.say("Latch", "Settings are not built yet.") ?: Unit
@@ -146,7 +183,9 @@ object Latch {
 
                 window?.close()
                 val opened = CaptureWindow(
-                    onSave = { ticked, titles -> save(ticked, titles) },
+                    onSave = { ticked, titles ->
+                        save(outcome.capture, result, context, ticked, titles)
+                    },
                     onClose = { window = null },
                 )
                 window = opened
@@ -156,21 +195,83 @@ object Latch {
     }
 
     /**
-     * Not built past this point, and it says so rather than appearing to work.
+     * FR-801 to FR-803, on the client `:app` uses.
      *
-     * The write path is `:google`'s and is shared with Android; what is missing here is the
-     * destination — FR-901's calendar list and the FR-100 setup that chooses from it — and the
-     * FR-806 queue that holds a save made offline. Both are owed, and a Save that silently did
-     * nothing would be worse than a Save that explains itself.
+     * **What is deliberately not here, and is named rather than silently missing**:
+     * FR-806's queue, so a save made offline is reported instead of held; FR-804's
+     * reschedule offer, which needs a surface to ask on; and FR-807's undo. Each is owed
+     * and each is in the backlog. A Save that quietly did nothing would be worse than one
+     * that explains itself.
      */
-    private fun save(selected: Set<Int>, titleOverrides: Map<Int, String>) {
-        val message = when {
-            !auth.isConfigured -> DesktopStrings.NOT_CONFIGURED
-            !auth.isSignedIn -> DesktopStrings.NOT_SIGNED_IN
-            else -> "Saving is not wired up yet: this build has no calendar chosen."
-        }
-        tray?.say("Latch", message, TrayIcon.MessageType.WARNING)
+    private fun save(
+        captured: com.latch.desktop.capture.DesktopCapture,
+        result: ParseResult,
+        context: ParseContext,
+        selected: Set<Int>,
+        titleOverrides: Map<Int, String>,
+    ) {
         window?.close()
+        if (!auth.isConfigured) {
+            tray?.say("Latch", DesktopStrings.NOT_CONFIGURED, TrayIcon.MessageType.WARNING)
+            return
+        }
+        if (!auth.isSignedIn) {
+            tray?.say("Latch", DesktopStrings.NOT_SIGNED_IN, TrayIcon.MessageType.WARNING)
+            return
+        }
+
+        Thread({
+            val outcome = runCatching {
+                runBlocking {
+                    val defaults = defaultsStore.read() ?: return@runBlocking null
+                    val chainId = java.util.UUID.randomUUID().toString()
+                    val draft = draftItems(
+                        captured = captured,
+                        result = result,
+                        context = context,
+                        destination = defaults.toWireDestination(),
+                        captureId = chainId,
+                        chainId = chainId,
+                        selected = selected,
+                        titleOverrides = titleOverrides,
+                    )
+                    if (draft !is DraftResult.Ready) {
+                        return@runBlocking SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
+                    }
+                    DesktopSaver(calendarApi, tasksApi, context.zone.id)
+                        .save(captured, result, draft.items, defaults, chainId)
+                }
+            }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
+
+            SwingUtilities.invokeLater {
+                when (outcome) {
+                    null -> tray?.say(
+                        "Latch", "No calendar is chosen yet. Sign in again to set one up.",
+                        TrayIcon.MessageType.WARNING,
+                    )
+                    is SaveResult.Written -> tray?.say(
+                        "Latch",
+                        if (outcome.count == 1) "Saved to Latch."
+                        else outcome.count.toString() + " items saved to Latch.",
+                    )
+                    SaveResult.AlreadySaved ->
+                        tray?.say("Latch", "Already saved. Nothing was written again.")
+                    is SaveResult.Failed -> tray?.say(
+                        "Latch", saveMessage(outcome.reason), TrayIcon.MessageType.WARNING,
+                    )
+                }
+            }
+        }, "latch-save").apply { isDaemon = true }.start()
+    }
+
+    private fun saveMessage(reason: SaveFailure) = when (reason) {
+        SaveFailure.NOT_SIGNED_IN -> DesktopStrings.NOT_SIGNED_IN
+        SaveFailure.NO_DESTINATION -> "No calendar is chosen yet."
+        // FR-806's queue is owed on this client, so offline is reported rather than held —
+        // and it says why, because a failure with no reason is what NFR-303 forbids.
+        SaveFailure.OFFLINE -> "No connection, and this build cannot hold a capture until there is one."
+        SaveFailure.REFUSED -> "Google refused the write."
+        SaveFailure.NOTHING_TO_WRITE -> DesktopStrings.NOTHING_TICKED
     }
 
     private fun signIn() {
@@ -183,13 +284,50 @@ object Latch {
             SwingUtilities.invokeLater {
                 tray?.update(model())
                 when (outcome) {
-                    SignInOutcome.Succeeded -> tray?.say("Latch", "Signed in.")
+                    SignInOutcome.Succeeded -> chooseDestination()
                     is SignInOutcome.Failed -> tray?.say(
                         "Latch", signInMessage(outcome.reason), TrayIcon.MessageType.WARNING,
                     )
                 }
             }
         }, "latch-signin").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-901 and FR-104, narrowed: reuse the account's Latch calendar or make one.
+     *
+     * Not FR-100's setup wizard, which asks which mode and which calendar. There is no
+     * screen to ask on yet, so this takes the Option B default and says what it did. The
+     * FR-900 destination picker is owed on this client.
+     */
+    private fun chooseDestination() {
+        Thread({
+            val outcome = runCatching {
+                runBlocking {
+                    val token = auth.accessToken() ?: return@runBlocking null
+                    val account = fetchPrimaryAccount(token)
+                    DesktopSetup(calendarApi, tasksApi).chooseDestination(account.email)
+                }
+            }.getOrNull()
+
+            SwingUtilities.invokeLater {
+                when (outcome) {
+                    is SetupResult.Ready -> {
+                        defaultsStore.write(outcome.defaults)
+                        tray?.update(model())
+                        tray?.say(
+                            "Latch",
+                            "Signed in. Captures go to your " + outcome.defaults.calendarName + " calendar.",
+                        )
+                    }
+                    else -> tray?.say(
+                        "Latch",
+                        "Signed in, but Latch could not read your calendars. Try again later.",
+                        TrayIcon.MessageType.WARNING,
+                    )
+                }
+            }
+        }, "latch-setup").apply { isDaemon = true }.start()
     }
 
     private fun signInMessage(reason: SignInFailure) = when (reason) {

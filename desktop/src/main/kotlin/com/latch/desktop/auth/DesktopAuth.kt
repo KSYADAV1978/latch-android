@@ -186,6 +186,18 @@ class DesktopAuth(
         return tokens.accessToken
     }
 
+    /**
+     * Throw away the cached access token so the next call fetches a fresh one.
+     *
+     * What Google's 401 handling asks for, and deliberately **not** the same as [forget]: a
+     * spent access token is an ordinary hourly event, while a dead refresh token means the
+     * user has to sign in again. Conflating them would sign a user out every time a request
+     * happened to cross the hour.
+     */
+    fun dropCachedAccessToken() {
+        cached = null
+    }
+
     /** NFR-205's local half. The revoke itself is `:google`'s, and runs first. */
     fun forget() {
         cached = null
