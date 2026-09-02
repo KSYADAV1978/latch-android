@@ -5,35 +5,40 @@ import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.data.AccountDefaults
 import com.latch.data.AccountDefaultsStore
-import com.latch.google.CalendarApi
 import com.latch.data.CaptureInbox
 import com.latch.data.CreatedItem
-import com.latch.google.DuplicateSearch
-import com.latch.google.EventWrite
 import com.latch.data.InboxCapture
 import com.latch.data.InboxReason
-import com.latch.google.ItemDates
 import com.latch.data.LatchSettings
 import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
-import com.latch.google.RescheduleMatch
 import com.latch.data.StoredUndoOffer
-import com.latch.google.TaskWrite
-import com.latch.google.TasksApi
 import com.latch.data.UndoOfferStore
 import com.latch.data.WebhookSender
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.WrittenItem
-import com.latch.google.isWorthRetrying
+import com.latch.data.toWireDestination
 import com.latch.data.webhookEligible
 import com.latch.data.webhookPayloadForChain
 import com.latch.google.ALLOWED_HOSTS
+import com.latch.google.CalendarApi
+import com.latch.google.DuplicateSearch
+import com.latch.google.EventWrite
+import com.latch.google.ItemDates
+import com.latch.google.RescheduleMatch
+import com.latch.google.TaskWrite
+import com.latch.google.TasksApi
+import com.latch.google.isWorthRetrying
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
+import com.latch.wire.DraftBlocker
+import com.latch.wire.DraftResult
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.bodyWithNote
 import com.latch.wire.dateSpans
+import com.latch.wire.draftBlocker
+import com.latch.wire.draftItems
 import com.latch.wire.itemKeyOf
 import com.latch.wire.itemKeyTitle
 import com.latch.wire.sourceBlock
@@ -565,7 +570,7 @@ class CaptureSaver(
                 captured = captured,
                 result = result,
                 context = context,
-                defaults = defaults,
+                destination = defaults.toWireDestination(),
                 captureId = captureId,
                 chainId = chainId,
                 selected = selected,

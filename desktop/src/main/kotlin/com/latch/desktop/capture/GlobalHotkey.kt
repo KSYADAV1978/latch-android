@@ -40,11 +40,12 @@ const val ERROR_HOTKEY_ALREADY_REGISTERED: Int = 1409
  * under NFR-501 or a preview foreign-function API; this uses the C# compiler that ships inside
  * Windows, so there is nothing to install.
  *
- * **What it costs, stated because it is the honest downside.** The registration lives as long
- * as the child does, so if this process is killed the hotkey goes with it — which is correct —
- * but a child left behind by a hard kill of the parent would hold the combination until it is
- * reaped. `destroyForcibly` on shutdown is what prevents that, and the sidecar's `finally`
- * unregisters on any ordinary exit.
+ * **The sidecar must not outlive this process, and two things make sure of it.** A shutdown
+ * hook destroys it on an ordinary exit; and because Task Manager's End task and a crash send
+ * no signal at all, the sidecar also *watches the parent handle* and stops when it goes. This
+ * was found by running the application and killing it: the registration is system-wide, so an
+ * orphan holds the user's combination until somebody notices, and what they notice is that a
+ * shortcut silently does nothing in every application on the machine.
  */
 class GlobalHotkey(
     private val spec: HotkeySpec,
@@ -95,6 +96,9 @@ private fun launchSidecar(spec: HotkeySpec): Process {
     ).apply {
         environment()["LATCH_HOTKEY_MODIFIERS"] = spec.modifiers.toString()
         environment()["LATCH_HOTKEY_VK"] = spec.virtualKey.toString()
+        // So the sidecar can outlive nothing. See hotkey.ps1: a shutdown hook covers an
+        // ordinary exit, and Task Manager's End task sends no signal at all.
+        environment()["LATCH_PARENT_PID"] = ProcessHandle.current().pid().toString()
         redirectErrorStream(false)
     }.start()
 }

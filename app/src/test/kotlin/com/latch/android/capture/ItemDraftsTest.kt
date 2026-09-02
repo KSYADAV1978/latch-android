@@ -4,6 +4,7 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.data.toWireDestination
 import com.latch.google.EventWrite
 import com.latch.parser.Classification
 import com.latch.parser.Confidence
@@ -12,6 +13,10 @@ import com.latch.parser.DatedCandidate
 import com.latch.parser.Field
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
+import com.latch.wire.DraftBlocker
+import com.latch.wire.DraftResult
+import com.latch.wire.draftBlocker
+import com.latch.wire.draftItems
 import com.latch.wire.itemKeyOf
 import com.latch.wire.itemKeyTitle
 import com.latch.wire.sourceHashOf
@@ -81,7 +86,7 @@ class ItemDraftsTest {
 
     private fun titlesFrom(captured: CapturedText, text: String = screenshot): List<String> {
         val parsed = DateParser.parse(text, context)
-        val drafted = draftItems(captured, parsed, context, defaults, "cap", "chain")
+        val drafted = draftItems(captured, parsed, context, defaults.toWireDestination(), "cap", "chain")
         return (drafted as DraftResult.Ready).items.map { it.title }
     }
 
@@ -133,7 +138,7 @@ class ItemDraftsTest {
         val typed = CapturedText(text = screenshot, layer = CaptureLayer.SHARE_SHEET)
         val parsed = DateParser.parse(screenshot, context)
 
-        val drafted = draftItems(typed, parsed, context, defaults, "cap", "chain")
+        val drafted = draftItems(typed, parsed, context, defaults.toWireDestination(), "cap", "chain")
 
         (drafted as DraftResult.Ready).items.forEach {
             assertEquals(parsed.title.value, it.title, "a typed capture's title changed")
@@ -170,7 +175,7 @@ class ItemDraftsTest {
             captured = captured(),
             result = result(candidate, title, location),
             context = context,
-            defaults = defaults,
+            destination = defaults.toWireDestination(),
             captureId = "cap-1",
             chainId = "chain-1",
         )
@@ -372,7 +377,7 @@ class ItemDraftsTest {
                 )
             ),
             context = context.copy(defaultEventDuration = Duration.ofHours(2)),
-            defaults = defaults,
+            destination = defaults.toWireDestination(),
             captureId = "cap-1",
             chainId = "chain-1",
         )
@@ -407,7 +412,7 @@ class ItemDraftsTest {
                 DatedCandidate(date = Field(date, Confidence.HIGH), classification = Classification.TASK_WITH_DUE_DATE)
             ),
             context = context,
-            defaults = defaults,
+            destination = defaults.toWireDestination(),
             captureId = "cap-1",
             chainId = "chain-1",
         )

@@ -1,14 +1,10 @@
-package com.latch.android.capture
+package com.latch.wire
 
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
-import com.latch.data.AccountDefaults
-import com.latch.google.EventWrite
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
-import com.latch.wire.dateSpans
-import com.latch.wire.titleFor
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -27,6 +23,16 @@ import java.time.format.FormatStyle
  */
 
 /** Why a capture cannot be saved, where it cannot. Named, not phrased — NFR-402. */
+/**
+ * Where a capture is written, as far as drafting an item needs to know.
+ *
+ * Two fields, taken out of Android's `AccountDefaults` when this moved into `:wire`. The
+ * client that knows about routing modes, hidden calendars and FR-905's rules keeps all of
+ * that; what reaches the wire is a calendar id and a task list id, and asking for only those
+ * is what let this function be shared at all.
+ */
+data class WireDestination(val calendarId: String, val taskListId: String)
+
 enum class DraftBlocker {
     /**
      * FR-506 row 3: a time with no date, and no date given for it yet.
@@ -59,10 +65,10 @@ sealed interface DraftResult {
  * is what it asks.
  */
 fun draftItems(
-    captured: CapturedText,
+    captured: WireCapture,
     result: ParseResult,
     context: ParseContext,
-    defaults: AccountDefaults,
+    destination: WireDestination,
     captureId: String,
     chainId: String,
     selected: Set<Int> = result.candidates.indices.toSet(),
@@ -123,7 +129,7 @@ fun draftItems(
                 notes = pastDateNoteTemplate
                     .takeIf { it.isNotBlank() }
                     ?.format(candidate.date!!.value.format(PAST_DATE_FORMAT)),
-                taskListId = defaults.taskListId,
+                taskListId = destination.taskListId,
             )
         }
 
@@ -134,7 +140,7 @@ fun draftItems(
                 title = title,
                 location = result.location?.value,
                 context = context,
-                defaults = defaults,
+                destination = destination,
                 captureId = captureId,
                 chainId = chainId,
                 index = index,
@@ -150,7 +156,7 @@ fun draftItems(
                 // Item's own init rejects one.
                 dueDate = candidate.date?.value,
                 location = result.location?.value,
-                taskListId = defaults.taskListId,
+                taskListId = destination.taskListId,
             )
         }
     }
@@ -164,7 +170,7 @@ private fun eventItem(
     title: String,
     location: String?,
     context: ParseContext,
-    defaults: AccountDefaults,
+    destination: WireDestination,
     captureId: String,
     chainId: String,
     index: Int,
@@ -215,7 +221,7 @@ private fun eventItem(
         end = end,
         allDay = allDay,
         location = location,
-        calendarId = defaults.destinationCalendarId,
+        calendarId = destination.calendarId,
     )
 }
 

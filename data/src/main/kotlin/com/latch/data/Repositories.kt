@@ -5,6 +5,7 @@ import com.latch.core.model.RoutingMode
 import com.latch.google.FailureClass
 import com.latch.google.ItemDates
 import com.latch.wire.RemoteMetadata
+import com.latch.wire.WireDestination
 import com.latch.wire.sourceBlock
 import java.time.Instant
 
@@ -262,6 +263,16 @@ interface SecretStore {
  * calendar under Option A; FR-1002 is why switching mode later must not clear the other
  * mode's choice, and FR-908 is why a stored id must be re-validated on launch.
  */
+/**
+ * What `:wire` needs of a destination, from what this client knows about one.
+ *
+ * The routing mode, the calendar's name and colour, FR-905's rules and FR-903's hidden-calendar
+ * badge all stay here: they are how *this* client decides where a capture goes. Two ids are what
+ * reaches Google, and asking `draftItems` for only those is what let it be shared.
+ */
+fun AccountDefaults.toWireDestination(): WireDestination =
+    WireDestination(calendarId = destinationCalendarId, taskListId = taskListId)
+
 data class AccountDefaults(
     val accountId: String,
     val email: String,

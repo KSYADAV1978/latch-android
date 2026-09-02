@@ -44,7 +44,7 @@ import com.latch.android.R
 import com.latch.android.capture.CapturedText
 import com.latch.android.capture.DateSuggestion
 import com.latch.android.capture.DestinationState
-import com.latch.android.capture.DraftBlocker
+import com.latch.wire.DraftBlocker
 import com.latch.android.capture.RecipeBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
@@ -52,7 +52,7 @@ import com.latch.android.capture.SaveRoute
 import com.latch.android.capture.SaveState
 import com.latch.android.capture.TypeChangeCost
 import com.latch.android.capture.canOverrideTo
-import com.latch.android.capture.candidateBlocker
+import com.latch.wire.candidateBlocker
 import com.latch.android.capture.dateFrom
 import com.latch.android.capture.recipeBlocker
 import com.latch.android.capture.saveBlocker

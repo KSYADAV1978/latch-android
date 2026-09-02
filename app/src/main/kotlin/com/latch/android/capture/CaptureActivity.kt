@@ -22,6 +22,7 @@ import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.RuleOffer
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
+import com.latch.data.toWireDestination
 import com.latch.ocr.OcrFailure
 import com.latch.ocr.OcrResult
 import com.latch.ocr.PageProgress
@@ -29,6 +30,8 @@ import com.latch.parser.Confidence
 import com.latch.parser.DateOrder
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import com.latch.wire.DraftResult
+import com.latch.wire.draftItems
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -326,7 +329,7 @@ class CaptureActivity : ComponentActivity() {
                                 captured = text,
                                 result = parsedResult,
                                 context = parseContext,
-                                defaults = account,
+                                destination = account.toWireDestination(),
                                 captureId = "export",
                                 chainId = "export",
                                 selected = selected,

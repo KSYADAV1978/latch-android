@@ -4,9 +4,14 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.ItemType
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
+import com.latch.data.toWireDestination
 import com.latch.parser.Classification
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import com.latch.wire.DraftBlocker
+import com.latch.wire.DraftResult
+import com.latch.wire.candidateBlocker
+import com.latch.wire.draftItems
 import com.latch.wire.itemKeyTitle
 import com.latch.wire.titleFor
 import java.time.LocalDate
@@ -57,7 +62,7 @@ class SheetEditsTest {
             captured = captured(text),
             result = result,
             context = context,
-            defaults = defaults,
+            destination = defaults.toWireDestination(),
             captureId = "capture",
             chainId = "chain",
             pastDateNoteTemplate = note,
@@ -355,7 +360,7 @@ class SheetEditsTest {
             captured = captured(text),
             result = result,
             context = context,
-            defaults = defaults,
+            destination = defaults.toWireDestination(),
             captureId = "capture",
             chainId = "chain",
             selected = setOf(1),

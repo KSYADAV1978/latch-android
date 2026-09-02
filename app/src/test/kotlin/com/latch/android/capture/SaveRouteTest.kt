@@ -8,6 +8,8 @@ import com.latch.parser.Classification
 import com.latch.parser.Confidence
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
+import com.latch.wire.DraftBlocker
+import com.latch.wire.candidateBlocker
 import com.latch.wire.dateSpans
 import java.time.LocalDate
 import java.time.LocalDateTime

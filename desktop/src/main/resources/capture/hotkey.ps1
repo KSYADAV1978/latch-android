@@ -28,9 +28,30 @@ public class LatchHotkey {
     }
 
     [DllImport("user32.dll")]
-    private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max);
+    private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max, uint remove);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+
+    [DllImport("user32.dll")]
+    private static extern uint MsgWaitForMultipleObjects(
+        uint count, IntPtr[] handles, bool waitAll, uint milliseconds, uint wakeMask);
 
     private const uint WM_HOTKEY = 0x0312;
+    private const uint PM_REMOVE = 0x0001;
+    private const uint QS_ALLINPUT = 0x04FF;
+    private const uint SYNCHRONIZE = 0x00100000;
+    private const uint INFINITE = 0xFFFFFFFF;
+    private const uint WAIT_OBJECT_0 = 0;
+
+    private static IntPtr parent = IntPtr.Zero;
+
+    // Watching the parent is what stops this process outliving the application that started
+    // it. A shutdown hook covers an ordinary exit, but Task Manager's End task and a crash
+    // send nothing — and a sidecar left behind holds the user's hotkey combination until
+    // somebody notices and reaps it, which on a system-wide shortcut means the key silently
+    // does nothing in every application.
+    public static void WatchParent(int pid) { parent = OpenProcess(SYNCHRONIZE, false, pid); }
 
     public static int Register(uint modifiers, uint vk) {
         if (RegisterHotKey(IntPtr.Zero, 1, modifiers, vk)) return 0;
@@ -39,18 +60,24 @@ public class LatchHotkey {
 
     public static void Unregister() { UnregisterHotKey(IntPtr.Zero, 1); }
 
-    // Blocks until the combination is pressed. GetMessage returning 0 or -1 means the queue
-    // is finished or broken, so the caller stops rather than spinning on it.
+    // Blocks until the combination is pressed, or until the parent process exits — whichever
+    // comes first. Returning false means stop.
     public static bool WaitForPress() {
+        IntPtr[] handles = parent == IntPtr.Zero ? new IntPtr[0] : new IntPtr[] { parent };
         MSG message;
         while (true) {
-            int result = GetMessage(out message, IntPtr.Zero, 0, 0);
-            if (result <= 0) return false;
-            if (message.message == WM_HOTKEY) return true;
+            uint result = MsgWaitForMultipleObjects(
+                (uint)handles.Length, handles, false, INFINITE, QS_ALLINPUT);
+            if (handles.Length > 0 && result == WAIT_OBJECT_0) return false;   // the parent went
+            while (PeekMessage(out message, IntPtr.Zero, 0, 0, PM_REMOVE)) {
+                if (message.message == WM_HOTKEY) return true;
+            }
         }
     }
 }
 '@
+
+if ($env:LATCH_PARENT_PID) { [LatchHotkey]::WatchParent([int]$env:LATCH_PARENT_PID) }
 
 $modifiers = [uint32]$env:LATCH_HOTKEY_MODIFIERS
 $vk = [uint32]$env:LATCH_HOTKEY_VK
