@@ -40,6 +40,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -61,6 +62,21 @@ import org.junit.runner.RunWith
  * Each test writes, reads back, and asserts the value survived the **encryption** round trip as
  * well as the SQL: a record format test proves the encoding, and only a device proves that
  * `KeystoreCipher` can decrypt what it encrypted.
+ *
+ * **This suite destroys the app's local data, and must not be run on a device carrying captures
+ * anyone cares about.** It writes to the real stores under the real names — there is no test
+ * database — so [clean] empties the Inbox, the queue, the recipes, the settings and the secret
+ * store both before *and* after. Running it on a phone in real use will lose whatever was in
+ * them.
+ *
+ * **The `@After` half was missing on the first run and it mattered.** `@Before` alone leaves
+ * whatever the *last* test created, and three of the tests below enqueue a write. On 2 Sep 2026
+ * that left a fake entry — `Row 0`, calendar id `latch-cal` — sitting in a real user's queue,
+ * where FR-806's drain would eventually have tried to insert it **into their Google account**.
+ * It would have failed with a 404 and created nothing, because no calendar has that id, and it
+ * would have been marked permanently given up and shown on their home screen as a capture that
+ * could not be saved. A test suite whose residue attempts a write to a live account is a defect
+ * in the suite whatever the write does.
  */
 @RunWith(AndroidJUnit4::class)
 class StorageOnDeviceTest {
@@ -75,11 +91,17 @@ class StorageOnDeviceTest {
     private val secrets = EncryptedSecretStore(context)
     private val queue = EncryptedWriteQueueStore(context)
 
+    /**
+     * Before **and** after — see the note on this class.
+     *
+     * Before, because instrumented tests share one installed app and a suite whose tests
+     * depended on order would pass in one arrangement and fail in another. After, because
+     * whatever the last test created otherwise stays on the device, and for three of the tests
+     * here that is a queue entry the app will try to write to a real Google account.
+     */
     @Before
+    @After
     fun clean() = runBlocking {
-        // Instrumented tests share one installed app, so each starts from nothing rather than
-        // from whatever the last one left. A suite whose tests depended on order would pass in
-        // one arrangement and fail in another, which is worse than failing.
         inbox.deleteAll()
         index.clear()
         undoOffers.clear()
