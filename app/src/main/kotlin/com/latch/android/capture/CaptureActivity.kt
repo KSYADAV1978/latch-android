@@ -79,7 +79,7 @@ class CaptureActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val app = application as LatchApplication
 
-        val request = intent.toCaptureRequest(this)
+        val request = intent.toCaptureRequest(this, app.notificationCaptures::take)
 
         // A previous capture in this process may have left an outcome on screen — but a
         // *recreation* of this one has not. Keying the reset on what was captured is what
@@ -389,6 +389,7 @@ class CaptureActivity : ComponentActivity() {
                     onUpdateExisting = { app.captureSaver.updateExisting() },
                     onCreateNew = { app.captureSaver.createNewInstead() },
                     fromEmptyClipboard = (request as? CaptureRequest.Nothing)?.fromEmptyClipboard == true,
+                    fromLapsedOffer = (request as? CaptureRequest.Nothing)?.fromLapsedOffer == true,
                     // NFR-102: the screen draws these rather than waiting on them.
                     extracting = captureContent is CaptureContent.Extracting,
                     // FR-207: "Reading page N of M…" while a document is read.

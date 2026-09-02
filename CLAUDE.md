@@ -776,7 +776,37 @@ design.
 every export. It is deliberately not enumerated by NFR-205's deletion — it is a copy made to
 hand to another app, in the directory the system clears anyway.
 
-Still not built: the notification listener (FR-208).
+**The notification listener is built (FR-208 to FR-212), off by default.** Five things there
+are decisions.
+
+**`POST_NOTIFICATIONS` is the app's first runtime permission**, and it is not about reading:
+FR-211 posts an offer, and since Android 13 posting one needs it. Without it the offer would be
+created and silently dropped. Requested from the disclosure screen at the moment the layer is
+turned on, never at launch. Lint found this before a device could.
+
+**The message text lives in the process's memory and the posted notification carries a key.**
+That is how FR-210 and NFR-206 are met structurally: the obvious implementation — the message in
+the `PendingIntent`'s extras — hands it to the system's notification manager, which is not this
+app's memory. A process death loses an outstanding offer, which is correct rather than a
+limitation. The holder is bounded at twenty.
+
+**FR-212's app list is built from what the listener has seen.** A picker of installed apps needs
+`QUERY_ALL_PACKAGES`, which this app will not spend on a settings screen. A package name is not
+notification *content*, which is what NFR-206 governs. Nothing is ticked by default.
+
+**Every filter is a pure function and the listener holds none of them** — nothing inside a
+`NotificationListenerService` is JVM-reachable, which is the shape that hid the drain's FR-803
+check and `decodeBitmap` for a slice each. Latch's own notification is skipped **first**, before
+the toggle and the monitored list are even consulted: this layer posts a notification, and a
+listener reading its own would offer to capture its own offer for ever.
+
+**The disclosure screen carries two statements the SRS asks for by name** — FR-210a's webhook
+suppression and FR-805a's source-text exclusion both say they "shall be stated in the
+notification-access disclosure screen". Both are properties of `CaptureSource` in code and
+cannot be forgotten by an implementation; what could be forgotten is telling the user.
+
+AC-19 and AC-22 are reachable, and hold as properties of `CaptureSource` rather than as code in
+this layer.
 
 Sign-in works only on builds whose signing certificate is registered against the Android
 OAuth client. There is no release signing config, so that means debug builds from a machine
@@ -933,3 +963,26 @@ willingness to set Latch up again.** That is why it sits at the end of this list
 | An export before saving | Export without pressing Save: **nothing** is written to Google | any capture |
 | **NFR-205** | Settings → disconnect: everything local is gone (Inbox empty, queue empty, recipes back to the shipped eight, settings back to defaults), the next launch runs setup, and **Latch no longer appears** under `myaccount.google.com` → third-party connections. Items already in Google Calendar and Tasks are **untouched** | a throwaway account, or be ready to set up again |
 | NFR-205 offline | The same action with no network: local data still goes, and the screen says the grant could not be removed and where to remove it by hand | aeroplane mode |
+
+### Slice 7 — the notification listener, FR-208 to FR-212
+
+**This is the layer with the heaviest disclosure obligation in the product and the least
+JVM-reachable code.** Every filter is tested; nothing that actually reads a notification is.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **FR-209** — the disclosure is unavoidable | The listener cannot be enabled from the Settings layer list; the only route is the disclosure screen, and it reads in full before any switch | Settings → Ways to capture |
+| The two required statements are there | FR-805a's ("not the message") and FR-210a's ("nothing is sent to your endpoint") both appear on that screen | as above |
+| Android's own permission | The button opens Android's notification-access settings, and the screen notices when it comes back granted | Android settings |
+| **`POST_NOTIFICATIONS`** | Turning the layer on prompts for it; **declining leaves the offer invisible**, which is the failure the permission exists to prevent. Check both answers | Android 13+ device |
+| **FR-212** | An app appears in the picker only after it has notified; ticking one is what makes its messages read. An **unticked** app must produce **nothing** | WhatsApp and one other |
+| **FR-211** | A message with a date produces a **low-priority** notification — no sound, no heads-up — whose text is the derived title and **never the message** | send yourself "PTM on Friday 12 September" |
+| A message with no date produces nothing | Silence. The offer only follows a detected date | "ok see you" |
+| Latch's own offer is not re-read | One offer, not an endless chain of them. This is the loop that would be obvious on a device and catastrophic | as above |
+| An ongoing notification is ignored | Play something; no offer per progress tick | any media app |
+| **FR-210 / NFR-206** | Tap the offer, save, then inspect the item **in Google**: title and date present, the message text nowhere — not the description, not the notes, not the extended properties. That is **AC-22** | as above |
+| The offer does not survive a force-stop | Post an offer, force-stop Latch, tap the notification: it says the offer has gone rather than opening a capture. Memory that survived would be storage | `adb shell am force-stop` |
+| A second tap finds nothing | Tap the offer, save, tap the same notification again: nothing opens a second capture of the same message | as above |
+| **AC-19** | Configure a webhook, enable it, confirm a notification capture with a monitor running: **no** request to the endpoint. This is the criterion that has waited on this slice | a request-bin endpoint |
+| The Inbox is never reached | A low-confidence notification capture is **saved** with its confidence shown, not routed. That is the permanent narrowing SRS 1.43 records | a vague dated message |
+| NFR-104 | The listener is the only persistent service. Nothing else appears in `adb shell dumpsys activity services com.latch.android` | any state |

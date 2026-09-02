@@ -67,12 +67,30 @@ sealed interface CaptureRequest {
         val preferredTitle: String? = null,
     ) : CaptureRequest
 
-    /** Nothing usable arrived. [fromEmptyClipboard] separates FR-213's own failure mode. */
-    data class Nothing(val fromEmptyClipboard: Boolean = false) : CaptureRequest
+    /**
+     * Nothing usable arrived. [fromEmptyClipboard] separates FR-213's own failure mode, and
+     * [fromLapsedOffer] FR-208's: a notification offer whose text is gone because the process
+     * ended or because it was already answered. Both are ordinary and neither is an error, but
+     * they ask different things of the user, so they are told apart.
+     */
+    data class Nothing(
+        val fromEmptyClipboard: Boolean = false,
+        val fromLapsedOffer: Boolean = false,
+    ) : CaptureRequest
 }
 
 /** Marks an intent that the Quick Settings tile started, so the activity reads the clipboard. */
 const val EXTRA_READ_CLIPBOARD = "com.latch.android.extra.READ_CLIPBOARD"
+
+/**
+ * FR-208/FR-211: the key of a notification capture held in memory.
+ *
+ * **A key and never the text.** A posted notification's `PendingIntent` extras are held by the
+ * system's notification manager, which is not this app's memory — so putting the message there
+ * would be the persistent storage FR-210 and NFR-206 forbid, arrived at without anyone writing
+ * a file. `NotificationCaptureHolder` holds the text and this names it.
+ */
+const val EXTRA_NOTIFICATION_KEY = "com.latch.android.extra.NOTIFICATION_KEY"
 
 /**
  * FR-201/FR-203 (layer 1), FR-205/FR-206/FR-207 (layer 2) and FR-213 (layer 4).
@@ -82,7 +100,14 @@ const val EXTRA_READ_CLIPBOARD = "com.latch.android.extra.READ_CLIPBOARD"
  * reading its type and its extras, and reading the image itself is the caller's problem —
  * which is what keeps this function testable and the main thread free.
  */
-fun Intent.toCaptureRequest(context: Context): CaptureRequest = when (action) {
+fun Intent.toCaptureRequest(
+    context: Context,
+    /**
+     * FR-208: reads a held notification capture by its key. Passed in because the store is the
+     * application's memory and this file's whole contract is reading the intent alone.
+     */
+    notificationText: (String) -> String? = { null },
+): CaptureRequest = when (action) {
     Intent.ACTION_PROCESS_TEXT -> {
         val text = getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
         text?.takeIf { it.isNotBlank() }?.let {
@@ -98,11 +123,27 @@ fun Intent.toCaptureRequest(context: Context): CaptureRequest = when (action) {
 
     Intent.ACTION_SEND -> sharedContent()
 
-    else -> if (getBooleanExtra(EXTRA_READ_CLIPBOARD, false)) {
-        readClipboard(context)?.let(CaptureRequest::Ready)
-            ?: CaptureRequest.Nothing(fromEmptyClipboard = true)
-    } else {
-        CaptureRequest.Nothing()
+    else -> when {
+        getBooleanExtra(EXTRA_READ_CLIPBOARD, false) ->
+            readClipboard(context)?.let(CaptureRequest::Ready)
+                ?: CaptureRequest.Nothing(fromEmptyClipboard = true)
+
+        // FR-208. The text is not in this intent and never was; `notificationText` is a
+        // function of the process's own memory, which is what FR-210 requires.
+        getStringExtra(EXTRA_NOTIFICATION_KEY) != null ->
+            getStringExtra(EXTRA_NOTIFICATION_KEY)
+                ?.let(notificationText)
+                ?.takeIf { it.isNotBlank() }
+                ?.let {
+                    CaptureRequest.Ready(
+                        CapturedText(text = it, layer = CaptureLayer.NOTIFICATION)
+                    )
+                }
+                // The offer was answered already, or the process died since. Both are the same
+                // to the user and both are honestly "there is nothing here any more".
+                ?: CaptureRequest.Nothing(fromLapsedOffer = true)
+
+        else -> CaptureRequest.Nothing()
     }
 }
 

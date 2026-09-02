@@ -121,6 +121,12 @@ fun CaptureScreen(
     onCreateNew: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
+    /**
+     * FR-208: a notification offer whose text has gone — the process ended, or the offer was
+     * already answered. Ordinary, not an error, and told apart from "nothing was shared"
+     * because it asks something different of the user.
+     */
+    fromLapsedOffer: Boolean = false,
     /** FR-511: the candidates still ticked, by index. All of them to begin with. */
     selected: Set<Int> = emptySet(),
     onToggleCandidate: (Int) -> Unit = {},
@@ -246,6 +252,7 @@ fun CaptureScreen(
                         ocrFailure == OcrFailure.RECOGNITION_FAILED ->
                             stringResource(R.string.capture_ocr_failed)
                         fromEmptyClipboard -> stringResource(R.string.capture_clipboard_empty)
+                        fromLapsedOffer -> stringResource(R.string.capture_offer_lapsed)
                         else -> stringResource(R.string.capture_nothing_shared)
                     },
                     style = MaterialTheme.typography.bodyLarge,

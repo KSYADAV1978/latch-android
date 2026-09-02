@@ -28,6 +28,24 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+      POST_NOTIFICATIONS, for FR-211's capture offer and nothing else.
+
+      **This is the app's first runtime permission**, and it is worth saying what it is not: it
+      does not let Latch *read* anything. Reading notifications is the separate, system-granted
+      notification-listener access (FR-209), which the user turns on in Android's own settings
+      after the disclosure screen. This one is the ordinary permission every app needs in order
+      to *post* a notification since Android 13, and without it FR-211's offer would be created
+      and silently dropped — which is the failure this line exists to prevent and which lint
+      caught before a device could.
+
+      Asked for from the FR-209 disclosure screen, at the moment the user turns the layer on,
+      because that is the only feature in this app that posts anything. It is never requested at
+      launch: a permission prompt on first run for a feature that is off by default is exactly
+      the pattern that teaches people to refuse prompts.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       NOT DECLARED HERE, BUT PRESENT IN THE MERGED MANIFEST. Adding androidx.work for FR-806's
       write queue brings four permissions in from its own manifest, and they are named here
       because this file is the place a reviewer comes to find out what the app can do. Verify
@@ -179,6 +197,35 @@
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!--
+          FR-208 to FR-212: the notification listener.
+
+          The one component NFR-104 permits to be persistent, and that requirement says so by
+          name: "No persistent background service on Android other than the optional
+          notification listener." It is bound by the system, never started by this app, and only
+          after the user has granted notification access in Android's own settings — which they
+          reach through the FR-209 disclosure screen and nowhere else.
+
+          `BIND_NOTIFICATION_LISTENER_SERVICE` is a **signature** permission held by the system,
+          not one this app requests: declaring it here is how the platform knows only the system
+          may bind this service. FR-1104 requires the access to be justified in the Play Console
+          as core functionality with in-app prominent disclosure; that disclosure is
+          NotificationAccessScreen and the Console half is on FR-1108's release gate.
+
+          Nothing this service reads is written anywhere (FR-210, NFR-206). The message text is
+          held in the process's own memory and the notification it posts carries a key —
+          see NotificationCaptureHolder for why a PendingIntent extra would not do.
+        -->
+        <service
+            android:name=".notifications.LatchNotificationListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
 

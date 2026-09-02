@@ -85,6 +85,11 @@ fun SettingsScreen(
     onSetWebhookEnabled: (Boolean) -> Unit,
     /** NFR-205: the single action. */
     onRevokeAndDelete: () -> Unit,
+    /**
+     * FR-209: the notification listener is turned on from its **own** screen and nowhere else.
+     * A switch here would be the disclosure the requirement forbids skipping.
+     */
+    onOpenNotificationAccess: () -> Unit,
     /** NFR-205: what the last one managed, or null where none has been asked for. */
     revokeOutcome: RevokeOutcome? = null,
 ) {
@@ -232,7 +237,7 @@ fun SettingsScreen(
         // ----- FR-1003: per-layer capture toggles -----
 
         Section(R.string.settings_layers)
-        LayerToggles(settings, onUpdate)
+        LayerToggles(settings, onUpdate, onOpenNotificationAccess)
 
         // ----- FR-1004: the webhook, advanced and empty by default -----
 
@@ -515,7 +520,11 @@ private fun HolidayList(
  * the cure and is recorded as owed rather than pretended away.
  */
 @Composable
-private fun LayerToggles(settings: LatchSettings, onUpdate: ((LatchSettings) -> LatchSettings) -> Unit) {
+private fun LayerToggles(
+    settings: LatchSettings,
+    onUpdate: ((LatchSettings) -> LatchSettings) -> Unit,
+    onOpenNotificationAccess: () -> Unit,
+) {
     val layers = listOf(
         CaptureLayer.TEXT_SELECTION to R.string.settings_layer_text_selection,
         CaptureLayer.SHARE_SHEET to R.string.settings_layer_share_sheet,
@@ -542,8 +551,12 @@ private fun LayerToggles(settings: LatchSettings, onUpdate: ((LatchSettings) -> 
     }
     Note(stringResource(R.string.settings_layers_note))
     // FR-1003 and FR-209: the notification listener is off and is not turned on from here. It
-    // has its own disclosure screen, which FR-209 requires before it can be enabled at all.
+    // has its own disclosure screen, which FR-209 requires before it can be enabled at all —
+    // so this is a way *to* that screen and never a switch.
     Note(stringResource(R.string.settings_layer_notification_elsewhere))
+    TextButton(onClick = onOpenNotificationAccess) {
+        Text(stringResource(R.string.notification_access_open))
+    }
 }
 
 /**

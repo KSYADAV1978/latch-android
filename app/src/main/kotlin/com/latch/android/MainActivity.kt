@@ -1,6 +1,8 @@
 package com.latch.android
 
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,9 +33,11 @@ import com.latch.android.setup.SetupOutcome
 import com.latch.android.recipes.newRecipe
 import com.latch.android.ui.InboxScreen
 import com.latch.android.ui.RecipesScreen
+import com.latch.android.ui.NotificationAccessScreen
 import com.latch.android.ui.SettingsScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
+import com.latch.core.model.CaptureLayer
 import com.latch.data.QueueStatus
 import com.latch.data.StoredUndoOffer
 import java.time.Duration
@@ -66,6 +70,26 @@ class MainActivity : ComponentActivity() {
         latchApplication.authResolution.deliver(result.data)
     }
 
+    /**
+     * FR-211's `POST_NOTIFICATIONS`.
+     *
+     * Registered as a field for the reason the consent launcher is: `ComponentActivity` handles
+     * a field registration before STARTED and gives it a stable key, where a composition-scoped
+     * one would key itself off a composition that changes shape as the user moves between
+     * screens — and a key that moves is a result delivered to no one.
+     */
+    private val postNotificationsResult = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> canPostNotifications = granted }
+
+    private var canPostNotifications by mutableStateOf(true)
+
+    private fun refreshPostPermission() {
+        canPostNotifications = android.os.Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
     override fun onStart() {
         super.onStart()
         latchApplication.authResolution.attach(consentResult)
@@ -78,6 +102,9 @@ class MainActivity : ComponentActivity() {
         latchApplication.refreshInboxCount()
         latchApplication.refreshUndoOffer()
         latchApplication.inboxCoordinator.refresh()
+        // Asked of the platform each time rather than remembered: the user can revoke it in
+        // Android's settings and this app is not told.
+        refreshPostPermission()
     }
 
     override fun onStop() {
@@ -177,6 +204,38 @@ class MainActivity : ComponentActivity() {
                                     onSetWebhookEnabled = app.settingsCoordinator::setWebhookEnabled,
                                     onRevokeAndDelete = { app.revokeAndDeleteEverything() },
                                     revokeOutcome = app.revokeOutcome.collectAsState().value,
+                                    onOpenNotificationAccess = { screen = HomeScreen.NOTIFICATIONS },
+                                )
+
+                                // FR-209: the listener is enabled here and nowhere else, behind
+                                // the disclosure the requirement makes a precondition.
+                                HomeScreen.NOTIFICATIONS -> NotificationAccessScreen(
+                                    settings = app.settings.collectAsState().value,
+                                    accessGranted = app.notificationAccessGranted(),
+                                    canPostNotifications = canPostNotifications,
+                                    onRequestPostPermission = {
+                                        if (android.os.Build.VERSION.SDK_INT >= 33) {
+                                            postNotificationsResult.launch(
+                                                android.Manifest.permission.POST_NOTIFICATIONS
+                                            )
+                                        }
+                                    },
+                                    onBack = { screen = HomeScreen.SETTINGS },
+                                    onOpenSystemSettings = {
+                                        // Latch cannot grant this; only Android's own screen can.
+                                        runCatching {
+                                            startActivity(
+                                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                            )
+                                        }
+                                    },
+                                    onSetEnabled = { on ->
+                                        app.settingsCoordinator.setLayerEnabled(
+                                            CaptureLayer.NOTIFICATION,
+                                            on,
+                                        )
+                                    },
+                                    onToggleMonitored = { app.toggleMonitoredPackage(it) },
                                 )
 
                                 HomeScreen.HOME -> Home(
@@ -357,4 +416,4 @@ private fun StoredUndoOffer.secondsLeft(now: Instant): Int {
 }
 
 /** The three places this app can be. See the note at the `when` that switches between them. */
-private enum class HomeScreen { HOME, INBOX, RECIPES, SETTINGS }
+private enum class HomeScreen { HOME, INBOX, RECIPES, SETTINGS, NOTIFICATIONS }

@@ -216,6 +216,42 @@
     <string name="settings_revoke_partial">Everything on this phone is gone, but Latch could not tell Google to remove its access. Remove it at myaccount.google.com under "Your connections to third-party apps".</string>
     <string name="settings_revoke_failed">Could not delete everything on this phone. Try again.</string>
 
+    <!-- ===== Notification listener, FR-208 to FR-212 ===== -->
+
+    <!-- FR-211: the offer itself. Low priority, and it never names the message. -->
+    <string name="notification_channel_name">Capture offers</string>
+    <string name="notification_channel_description">A quiet notification when Latch sees a date in a message.</string>
+    <string name="notification_offer_title">A date in a message. Capture it?</string>
+    <!-- FR-208: the offer was answered already, or the app was closed since. Neither is an error. -->
+    <string name="capture_offer_lapsed">That offer has gone. Open the message again to capture it.</string>
+
+    <!--
+      FR-209 and FR-1104: the disclosure screen. Every line here is required by a requirement,
+      and two of them by name — FR-805a and FR-210a both say their exclusion "shall be stated in
+      the notification-access disclosure screen".
+    -->
+    <string name="notification_access_title">Reading notifications</string>
+    <string name="notification_access_open">Notification capture</string>
+    <string name="notification_access_what">If you turn this on, Android lets Latch see the notifications posted by the apps you choose — the same title and text you see in your notification shade.</string>
+    <string name="notification_access_why">Latch looks for a date in them. When it finds one, it offers to turn that message into a calendar event or a to-do, so a date in a chat does not have to be retyped.</string>
+    <string name="notification_access_memory">The text of a notification is read on this phone, in memory, and is never written to storage — not to Latch\'s Inbox, not to its queue, not anywhere else.</string>
+    <string name="notification_access_confirm">Latch never creates anything from a notification on its own. It offers; you decide.</string>
+    <string name="notification_access_no_source_text">An item saved this way carries its date and a title, and not the message. The text of the notification is not copied into your calendar or your to-do list.</string>
+    <string name="notification_access_no_webhook">If you have set up your own endpoint under Send captures to my own endpoint, nothing captured this way is ever sent to it.</string>
+    <string name="notification_access_system_grant">Android grants this per app, not per notification, so Latch is technically able to see notifications from apps you have not chosen. It ignores them, and you can see and change the list below at any time.</string>
+    <string name="notification_access_not_granted">Android has not granted this yet. The switch lives in Android\'s own settings.</string>
+    <string name="notification_access_open_settings">Open Android\'s notification access settings</string>
+    <string name="notification_access_enable">Let Latch read notifications</string>
+    <string name="notification_access_which_apps">Which apps</string>
+    <string name="notification_access_apps_blurb">Latch reads notifications only from the apps you tick here. Nothing is ticked to begin with.</string>
+    <!--
+      FR-211's other permission. Deliberately distinguished from reading, because the two are
+      easy to confuse and only one of them is about Latch seeing anything.
+    -->
+    <string name="notification_access_cannot_post">Latch also needs permission to show you its own notification — the one that offers to capture a date. This does not let it read anything.</string>
+    <string name="notification_access_allow_posting">Allow Latch to notify you</string>
+    <string name="notification_access_no_apps_yet">Nothing yet. Apps appear here once they have posted a notification while Android\'s permission is on.</string>
+
     <!-- ===== Settings, FR-1000 series ===== -->
 
     <string name="settings_title">Settings</string>

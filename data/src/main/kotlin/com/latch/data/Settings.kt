@@ -74,6 +74,25 @@ data class LatchSettings(
      * this is only ever an input to an offer.
      */
     val destinationOverrideCounts: Map<String, Int> = emptyMap(),
+    /**
+     * FR-212: which applications the notification listener monitors.
+     *
+     * **Empty by default, which means none**, and that is deliberate rather than an oversight:
+     * FR-209 has the layer off by default, and a layer switched on that immediately began
+     * reading every messaging app on the phone would be a second decision the user never made.
+     * They pick.
+     */
+    val monitoredPackages: Set<String> = emptySet(),
+    /**
+     * The applications the listener has seen a notification from, so FR-212's picker has
+     * something to offer.
+     *
+     * **A package name is not notification content**, which is what NFR-206 governs, and this is
+     * the only way to populate that list without `QUERY_ALL_PACKAGES` — a restricted permission
+     * this app will not request in order to fill a settings screen. Recorded as a reading in the
+     * SRS rather than left as an inference from what is stored here.
+     */
+    val seenNotificationPackages: Set<String> = emptySet(),
 ) {
     /** FR-605's list as the calculator wants it: bundled, plus additions, minus removals. */
     fun holidays(bundled: List<Holiday>): List<Holiday> =
@@ -162,6 +181,8 @@ internal fun encodeSettings(settings: LatchSettings): String {
         .put("layers", JSONArray(settings.enabledLayers.map { it.name }))
         .put("webhook_enabled", settings.webhookEnabled)
         .put("override_counts", JSONObject(settings.destinationOverrideCounts as Map<*, *>))
+        .put("monitored_packages", JSONArray(settings.monitoredPackages.toList()))
+        .put("seen_packages", JSONArray(settings.seenNotificationPackages.toList()))
 
     val additions = JSONArray()
     settings.holidayAdditions.forEach {
@@ -257,6 +278,8 @@ internal fun decodeSettings(record: String): LatchSettings? = try {
             destinationOverrideCounts = json.optJSONObject("override_counts")?.let { counts ->
                 counts.keys().asSequence().associateWith { counts.optInt(it) }
             }.orEmpty(),
+            monitoredPackages = json.stringsAt("monitored_packages").toSet(),
+            seenNotificationPackages = json.stringsAt("seen_packages").toSet(),
         )
     }
 } catch (malformed: JSONException) {

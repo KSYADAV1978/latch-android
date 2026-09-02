@@ -15,6 +15,7 @@ import com.latch.android.capture.removeCreated
 import com.latch.android.capture.ruleFromOverride
 import com.latch.android.capture.shouldDrainNow
 import com.latch.android.inbox.InboxCoordinator
+import com.latch.android.notifications.NotificationCaptureHolder
 import com.latch.android.recipes.RecipeCoordinator
 import com.latch.android.settings.DestinationCheck
 import com.latch.android.settings.SettingsCoordinator
@@ -477,6 +478,51 @@ class LatchApplication : Application() {
         )
     }
 
+    /**
+     * FR-208/FR-210: the text of a notification offer, in this process's memory and nowhere
+     * else. See [NotificationCaptureHolder] for why the posted notification carries a key.
+     */
+    val notificationCaptures = NotificationCaptureHolder()
+
+    /**
+     * FR-212's picker needs something to offer, and the only way to fill it without
+     * `QUERY_ALL_PACKAGES` — a restricted permission this app will not request for a settings
+     * screen — is to remember which applications have notified.
+     *
+     * A package name is not notification **content**, which is what NFR-206 governs. The
+     * reading is recorded in the SRS rather than left as an inference from what is stored.
+     */
+    /**
+     * Whether Android has actually granted notification access.
+     *
+     * Asked of the platform rather than remembered, because it is the platform's answer: the
+     * user can revoke it in Android's settings at any time and this app is not told. A
+     * disclosure screen that showed its own stale belief would offer a switch that does nothing.
+     */
+    fun notificationAccessGranted(): Boolean = runCatching {
+        android.provider.Settings.Secure
+            .getString(contentResolver, "enabled_notification_listeners")
+            .orEmpty()
+            .contains(packageName)
+    }.getOrDefault(false)
+
+    /** FR-212: the user ticked or unticked an application. */
+    fun toggleMonitoredPackage(packageName: String) {
+        updateSettings {
+            it.copy(
+                monitoredPackages =
+                    if (packageName in it.monitoredPackages) it.monitoredPackages - packageName
+                    else it.monitoredPackages + packageName,
+            )
+        }
+    }
+
+    fun rememberNotifyingPackage(packageName: String) {
+        if (packageName == getPackageName()) return
+        if (packageName in _settings.value.seenNotificationPackages) return
+        updateSettings { it.copy(seenNotificationPackages = it.seenNotificationPackages + packageName) }
+    }
+
     private val _destinationFellBack = MutableStateFlow<String?>(null)
 
     /**
@@ -566,6 +612,8 @@ class LatchApplication : Application() {
                 queue = writeQueue,
             )
 
+            // FR-210's memory is data too, and NFR-205 says "all local data".
+            notificationCaptures.clear()
             _revokeOutcome.value = RevokeOutcome(revoked, deleted)
             // Everything on screen is now describing data that is gone. FR-101 takes over from
             // here: with no configured account, the next launch runs setup.
