@@ -915,6 +915,85 @@ fixtures from `targetContext`, which is the *app's* assets, while `src/androidTe
 packaged into the **test** APK and reached through `getInstrumentation().context`. SRS 1.50 had
 recorded the suite as "never executed, so its fixtures may not be reachable"; they were not.
 
+## The Windows client (FR-300 series)
+
+Built in the session of 2 Sep 2026, on the same terms as everything else here: **JVM-verified
+and HUMAN-OWED.** It has never been used by a person, and no capture it made has ever reached a
+Google account, because FR-001's Desktop OAuth client does not exist yet.
+
+**It is Kotlin on the JVM, not C#, and that decision is SRS 1.52.** Three requirements name
+Windows machinery — FR-302's `RegisterHotKey`, FR-303's `Windows.Media.Ocr`, FR-305's MSIX —
+and the obvious reading of those three is a C# application. §7.2 outranks them: its `item_key`
+clause "is the one part of §7.2 that depends on parser behaviour... where three independently
+written clients are most likely to drift", and its own remedy is conformance vectors, which
+detect drift rather than prevent it. Sharing the compiled parser removes the failure. That was
+only possible because `:parser`, `:recipes` and `:core-model` were kept free of Android from the
+first commit for an unrelated reason.
+
+**All three Windows primitives were probed before the decision, not after**, and all three work
+through what Windows already ships — no SDK, no dependency:
+
+| Primitive | How | Measured |
+|---|---|---|
+| FR-303's recogniser | `Windows.Media.Ocr` via the PowerShell WinRT projection | **109 ms** on `three-dates-v4.png`, against ML Kit's 878 ms on the phone. Whole bridge including process startup, **~570 ms** |
+| FR-302's hotkey | `RegisterHotKey` P/Invoke, compiled by the `csc.exe` inside Windows | Registers; a second registration correctly returns 1409 |
+| NFR-203 at rest | DPAPI through `System.Security` | ~700–900 ms per call, paid at sign-in and startup, never by a capture |
+
+**What works, with tests that ran against the real thing.** Recognition of the Android OCR
+fixtures including the EXIF-rotated photograph; DPAPI round trips including a tampered
+ciphertext; a real loopback HTTP server answering a real request and refusing a forged `state`;
+`RegisterHotKey` succeeding and reporting an already-held combination. The application starts,
+installs a tray icon, registers the hotkey, opens a popup and composes a write.
+
+**What is owed and is not pretended at.** FR-806's queue, so an offline save is *reported*
+rather than held. FR-804's reschedule offer. FR-807's undo. FR-1005's export. The FR-900
+destination picker — setup takes the Option B default and says which calendar it chose. FR-306's
+share target. FR-305's MSIX, which needs the Windows SDK. And **nobody has pressed the hotkey**:
+`RegisterHotKey` is verified, the keystroke reaching a capture is not.
+
+Two asymmetries with Android are permanent rather than gaps.
+
+**The desktop stores a refresh token; Android stores nothing at rest.** Play services holds the
+grant on the phone, and re-authorizing a granted scope set returns a token with no UI, so NFR-203
+is satisfied there by absence. There is no Play services here, so the alternative to keeping a
+refresh token is a sign-in on every launch. It goes under DPAPI. Same requirement, opposite
+mechanism, and a machine transfer loses it exactly as a device transfer loses a Keystore key.
+
+**Recognition is a property of the machine, not of the application.** Android bundles ML Kit's
+Latin and Devanagari models and pays 12.83 MB. `Windows.Media.Ocr` reads only installed language
+packs — the development machine offers `en-GB`, `en-US`, `ko` and two Chinese variants and **no
+Devanagari at all**. NFR-404's Hinglish is romanised and unaffected; a Devanagari image will
+capture on the phone and not on the desktop, and `EmptyCapture.NO_RECOGNISER` exists so the user
+is told which and where Windows adds packs.
+
+**One defect was found by running it, and no test would have reached it.** `RegisterHotKey` is
+system-wide and the registration lives in the sidecar process. A shutdown hook releases it on an
+ordinary exit — but Task Manager's End task and a crash send no signal, so a killed application
+left a sidecar holding Ctrl+Shift+K. What a user notices then is a shortcut that silently does
+nothing in *every* application on the machine, with no error and nothing to blame. The sidecar
+now waits on the parent's process handle alongside its message queue. Verified by hard-killing
+the application and re-registering the combination afterwards.
+
+### Human pass backlog — Windows
+
+Nothing below has been done by a person. Read each row as *the condition that would make it
+fail*, then *the fixture*.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **The hotkey actually captures** | Press Ctrl+Shift+K over selected text in another application: a popup appears with the date. Failure is nothing happening, or the popup showing the *previous* clipboard — the copy is asynchronous and the 180 ms wait is a guess that has never been watched | any dated sentence in Notepad |
+| The synthesised copy is a copy | The foreground application receives Ctrl+C and not Ctrl+Shift+C. In a browser the failure is loud: the developer tools open | a browser, text selected |
+| **FR-303 from the clipboard** | Snip a region with Win+Shift+S, press the hotkey: the dates in the image are found. This path has only ever run from a file | any dated screenshot |
+| A machine with no language pack | Says which, and where Windows adds one. Not "that image could not be read" | a machine with the pack removed |
+| **FR-304 keyboard operation** | Tab reaches every control, Enter saves, Esc dismisses — without touching the mouse. NFR-401 also wants a screen reader to name each row | Narrator, and the keyboard alone |
+| The popup near a screen edge | Whole popup on screen with the pointer in the bottom-right corner. Clamping is unit-tested; the real screen insets are not | pointer in the corner |
+| A second monitor, mixed DPI | The popup appears on the monitor the pointer is on, and the tray icon is sharp | two monitors at different scaling |
+| **Sign-in, end to end** | Needs FR-001's Desktop client. Browser opens, consent granted, tray says which calendar. Failure: no refresh token, which looks like working software until the hour is up | a real account |
+| **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
+| The Latch calendar is reused | The desktop writes into the calendar the phone already made, not a second one with the same name. Verified in the account, not on screen | an account set up on the phone |
+| Launch at sign-in (FR-301) | Not built. See `docs/RELEASE-WINDOWS.md` | |
+| **NFR-103** | The runtime half is unmeasured, and estimating it is what `docs/RELEASE.md` forbids for the Android bundle for the same reason | a full JDK with `jmods` |
+
 ## Device pass backlog
 
 **Everything in this section is JVM-verified and DEVICE-OWED.** It was built in the autonomous
