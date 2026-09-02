@@ -14,6 +14,9 @@ import com.latch.desktop.capture.buildCapture
 import com.latch.desktop.capture.parseHotkey
 import com.latch.desktop.capture.writeForRecognition
 import com.latch.desktop.ocr.WindowsOcr
+import com.latch.desktop.queue.DrainTrigger
+import com.latch.desktop.queue.QueueRunner
+import com.latch.desktop.queue.WriteQueue
 import com.latch.desktop.save.DesktopSaver
 import com.latch.desktop.save.IcsFile
 import com.latch.desktop.save.DesktopSetup
@@ -64,6 +67,24 @@ object Latch {
     private val secrets by lazy { SecretFile(File(latchDataDirectory(), "secrets.dat")) }
     private val auth by lazy { DesktopAuth(secrets, ClientConfig.load()) }
     private val defaultsStore by lazy { DefaultsStore(secrets) }
+    private val queue by lazy { WriteQueue(File(latchDataDirectory(), "queue.dat")) }
+
+    /**
+     * FR-806's drain.
+     *
+     * The APIs are passed as functions rather than values because they cannot be built
+     * before there is a sign-in, and the queue outlives not having one: a capture made
+     * while signed out is still a capture, and the runner simply finds nothing to write
+     * with until there is.
+     */
+    private val runner by lazy {
+        QueueRunner(
+            queue = queue,
+            calendar = { if (auth.isSignedIn) calendarApi else null },
+            tasks = { if (auth.isSignedIn) tasksApi else null },
+            onChanged = { SwingUtilities.invokeLater { tray?.update(model()) } },
+        )
+    }
 
     /**
      * The bridge from this client's sign-in to the shared Google client.
@@ -118,16 +139,21 @@ object Latch {
             }
         }
         hotkey = listener
+        runner.start()
 
         Runtime.getRuntime().addShutdownHook(Thread { shutDown() })
     }
 
-    private fun model() = TrayModel(
-        hotkeyLabel = spec.display,
-        signedInAs = if (auth.isSignedIn) defaultsStore.read()?.email ?: "your Google account" else null,
-        configured = auth.isConfigured,
-        pending = 0,
-    )
+    private fun model(): TrayModel {
+        val status = runCatching { queue.status() }.getOrNull()
+        return TrayModel(
+            hotkeyLabel = spec.display,
+            signedInAs = if (auth.isSignedIn) defaultsStore.read()?.email ?: "your Google account" else null,
+            configured = auth.isConfigured,
+            pending = status?.waiting ?: 0,
+            givenUp = status?.givenUp ?: 0,
+        )
+    }
 
     private fun onTrayAction(action: TrayAction) = when (action) {
         TrayAction.CAPTURE -> SwingUtilities.invokeLater(::capture)
@@ -138,7 +164,14 @@ object Latch {
             // grant is a different action and is owed.
             auth.forget()
             defaultsStore.clear()
+            // The queue is deliberately **not** cleared. Its entries are captures that
+            // exist nowhere else, and signing out of an account is not a request to throw
+            // away work — NFR-205's disconnect is, and that is a different action.
             tray?.update(model())
+        }
+        TrayAction.RETRY -> {
+            runner.nudge(DrainTrigger.USER_ASKED)
+            tray?.say("Latch", "Trying again now.") ?: Unit
         }
         TrayAction.SETTINGS -> tray?.say("Latch", "Settings are not built yet.") ?: Unit
         TrayAction.QUIT -> {
@@ -242,7 +275,7 @@ object Latch {
                     if (draft !is DraftResult.Ready) {
                         return@runBlocking SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
                     }
-                    DesktopSaver(calendarApi, tasksApi, context.zone.id)
+                    DesktopSaver(calendarApi, tasksApi, context.zone.id, queue)
                         .save(captured, result, draft.items, defaults, chainId)
                 }
             }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
@@ -253,13 +286,30 @@ object Latch {
                         "Latch", "No calendar is chosen yet. Sign in again to set one up.",
                         TrayIcon.MessageType.WARNING,
                     )
-                    is SaveResult.Written -> tray?.say(
-                        "Latch",
-                        if (outcome.count == 1) "Saved to Latch."
-                        else outcome.count.toString() + " items saved to Latch.",
-                    )
+                    is SaveResult.Written -> {
+                        // FR-806: a request that just succeeded says the network is back
+                        // more reliably than any interface check, so anything held gets a
+                        // chance immediately rather than at its next scheduled attempt.
+                        runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
+                        tray?.say(
+                            "Latch",
+                            if (outcome.count == 1) "Saved to Latch."
+                            else outcome.count.toString() + " items saved to Latch.",
+                        )
+                    }
                     SaveResult.AlreadySaved ->
                         tray?.say("Latch", "Already saved. Nothing was written again.")
+                    is SaveResult.Queued -> {
+                        // AC-10's distinction, and the reason it is not "Saved": nothing is
+                        // in the account yet, and saying otherwise is the lie the Queued
+                        // state exists to avoid.
+                        tray?.update(model())
+                        tray?.say(
+                            "Latch",
+                            "No connection. Held on this machine, and it will be written when " +
+                                "there is one.",
+                        )
+                    }
                     is SaveResult.Failed -> tray?.say(
                         "Latch", saveMessage(outcome.reason), TrayIcon.MessageType.WARNING,
                     )
@@ -307,9 +357,9 @@ object Latch {
     private fun saveMessage(reason: SaveFailure) = when (reason) {
         SaveFailure.NOT_SIGNED_IN -> DesktopStrings.NOT_SIGNED_IN
         SaveFailure.NO_DESTINATION -> "No calendar is chosen yet."
-        // FR-806's queue is owed on this client, so offline is reported rather than held —
-        // and it says why, because a failure with no reason is what NFR-303 forbids.
-        SaveFailure.OFFLINE -> "No connection, and this build cannot hold a capture until there is one."
+        // Reached only where there is no queue to hold it, which in this build means the
+        // store itself refused — a failure worth naming rather than swallowing.
+        SaveFailure.OFFLINE -> "No connection, and this capture could not be held. Try again."
         SaveFailure.REFUSED -> "Google refused the write."
         SaveFailure.NOTHING_TO_WRITE -> DesktopStrings.NOTHING_TICKED
     }
@@ -389,6 +439,7 @@ object Latch {
     private fun shutDown() {
         // The hotkey registration lives as long as its child process, so this is what gives
         // the combination back to the rest of the desktop.
+        runCatching { runner.close() }
         hotkey?.close()
         window?.close()
         tray?.close()

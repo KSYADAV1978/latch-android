@@ -1,0 +1,109 @@
+package com.latch.desktop
+
+import com.latch.google.CalendarApi
+import com.latch.google.DuplicateSearch
+import com.latch.google.EventWrite
+import com.latch.google.ItemDates
+import com.latch.google.RescheduleSearch
+import com.latch.google.TaskList
+import com.latch.google.TaskWrite
+import com.latch.google.TasksApi
+import com.latch.google.WritableCalendar
+import java.time.LocalDate
+
+/*
+ * The doubles both suites share.
+ *
+ * One file rather than one per suite, so the save path and the drain are asserted against the
+ * same recorded surface. `:app` keeps `CaptureFakes.kt` for the same reason: a fake that
+ * counted inserts one way for the saver and another for the drain would let the two disagree
+ * about what actually reached Google, which is the thing these tests exist to pin.
+ */
+
+/**
+ * A calendar that answers by the hash it was actually given.
+ *
+ * `CLAUDE.md` records why that sentence is in this file: the Android fake's
+ * `findEventBySourceHash` ignored its argument and returned a preset id, so it agreed with a
+ * broken implementation for as long as the implementation was broken. A fake that answers by
+ * fixture rather than by matching cannot catch a matching bug.
+ */
+internal class FakeCalendar : CalendarApi {
+    val events = mutableMapOf<String, EventWrite>()
+    val indexed = mutableMapOf<String, String>()
+    var created: String? = null
+    var calendars: List<WritableCalendar> = emptyList()
+    var failInsert: Exception? = null
+    var failList: Exception? = null
+    var failFind: Exception? = null
+
+    override suspend fun listWritableCalendars(): List<WritableCalendar> {
+        failList?.let { throw it }
+        return calendars
+    }
+
+    override suspend fun createLatchCalendar(summary: String, description: String): String {
+        created = summary
+        return "made-" + summary
+    }
+
+    override suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean): String? = null
+
+    override suspend fun makeVisible(calendarId: String) = Unit
+
+    override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
+        failInsert?.let { throw it }
+        val id = "ev" + (events.size + 1)
+        events[id] = event
+        indexed[event.metadata.sourceHash] = id
+        return id
+    }
+
+    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {
+        failFind?.let { throw it }
+        return DuplicateSearch(existingId = indexed[sourceHash])
+    }
+
+    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch =
+        RescheduleSearch()
+
+    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) = Unit
+
+    override suspend fun deleteEvent(calendarId: String, eventId: String) = Unit
+}
+
+internal class FakeTasks : TasksApi {
+    val tasks = mutableMapOf<String, TaskWrite>()
+    val indexed = mutableMapOf<String, String>()
+    var lists: List<TaskList> = listOf(TaskList("list-1", "My Tasks", isDefault = true))
+    var failInsert: Exception? = null
+    var cappedScan: Boolean = false
+    var lastScanWasCapped: Boolean = false
+
+    override suspend fun listTaskLists(): List<TaskList> = lists
+
+    override suspend fun insertTask(taskListId: String, task: TaskWrite): String {
+        failInsert?.let { throw it }
+        val id = "tk" + (tasks.size + 1)
+        tasks[id] = task
+        indexed[task.metadata.sourceHash] = id
+        return id
+    }
+
+    override suspend fun findTaskBySourceHash(
+        taskListId: String,
+        sourceHash: String,
+        due: LocalDate?,
+    ): DuplicateSearch {
+        lastScanWasCapped = cappedScan
+        return DuplicateSearch(existingId = indexed[sourceHash], scanCapped = cappedScan)
+    }
+
+    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch =
+        RescheduleSearch()
+
+    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) = Unit
+
+    override suspend fun deleteTask(taskListId: String, taskId: String) = Unit
+}
+

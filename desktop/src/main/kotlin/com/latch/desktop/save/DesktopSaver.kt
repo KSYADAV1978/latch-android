@@ -11,7 +11,11 @@ import com.latch.google.GoogleFailure
 import com.latch.google.GoogleRejected
 import com.latch.google.GoogleUnreachable
 import com.latch.google.TaskWrite
+import com.latch.desktop.queue.QueuedItem
+import com.latch.desktop.queue.QueuedWrite
+import com.latch.desktop.queue.WriteQueue
 import com.latch.google.TasksApi
+import com.latch.google.isWorthRetrying
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.WireCapture
 import com.latch.wire.WireDestination
@@ -30,6 +34,15 @@ sealed interface SaveResult {
     /** FR-803: this message is already in the account, and nothing was written again. */
     data object AlreadySaved : SaveResult
 
+    /**
+     * FR-806: held locally, and it will be written when it can be.
+     *
+     * Told apart from [Written] on screen, and that distinction is AC-10's whole point:
+     * saying "Saved" for something that is not in the account yet is the lie the Queued
+     * state exists to avoid.
+     */
+    data class Queued(val count: Int, val alsoWritten: Int = 0) : SaveResult
+
     data class Failed(val reason: SaveFailure, val detail: String = "") : SaveResult
 }
 
@@ -45,16 +58,25 @@ enum class SaveFailure { NOT_SIGNED_IN, NO_DESTINATION, OFFLINE, REFUSED, NOTHIN
  * what AC-07 needs of two clients and what §7.2's conformance vectors could only have checked
  * after the fact.
  *
- * **What is deliberately not here yet**, so nothing pretends otherwise: FR-806's queue, so an
- * offline save is reported rather than held; FR-804's reschedule offer, which needs a surface
- * to ask on; and FR-807's undo. Each is owed and each is named in its own failure or in the
- * backlog rather than silently absent.
+ * **What is deliberately not here yet**, so nothing pretends otherwise: FR-804's reschedule
+ * offer, which needs a surface to ask on, and FR-807's undo. Both are owed and both are named
+ * in the backlog rather than silently absent.
  */
 class DesktopSaver(
     private val calendar: CalendarApi,
     private val tasks: TasksApi,
     /** The zone an event's wall-clock times are read in. The machine's, unless told otherwise. */
     private val zone: String = java.time.ZoneId.systemDefault().id,
+    /**
+     * FR-806's queue, where there is one.
+     *
+     * **The queue is a fallback, not the path.** A save writes directly first and enqueues
+     * only on a failure that waiting can fix. Routing everything through the queue would be
+     * simpler and would cost FR-803 its immediate answer — "Already saved. Nothing was
+     * written again." is a synchronous reply today, and AC-07 depends on the user seeing it.
+     */
+    private val queue: WriteQueue? = null,
+    private val clock: () -> Instant = Instant::now,
 ) {
     suspend fun save(
         captured: WireCapture,
@@ -103,20 +125,64 @@ class DesktopSaver(
 
         // FR-803, once per capture and before anything is written. The chain shares one hash,
         // so one question covers every item in it.
-        val existing = runCatching { findExisting(sourceHash, defaults) }
-            .getOrElse { return failureFor(it) }
+        val existing = runCatching { findExisting(sourceHash, defaults) }.getOrElse { failure ->
+            // The probe itself could not run — almost always no network. Queueing is right:
+            // the drain asks FR-803 again before it writes, so nothing is duplicated by
+            // having been unable to ask now.
+            if (isWorthRetrying(failure) && queue != null) {
+                queue.add(
+                    QueuedWrite(
+                        id = java.util.UUID.randomUUID().toString(),
+                        metadata = metadata,
+                        body = body,
+                        calendarId = defaults.calendarId,
+                        taskListId = defaults.taskListId,
+                        timeZone = zone,
+                        items = items.map { QueuedItem(it) },
+                        queuedAt = clock(),
+                    )
+                )
+                return SaveResult.Queued(items.size)
+            }
+            return failureFor(failure)
+        }
         if (existing) return SaveResult.AlreadySaved
 
         val written = mutableListOf<Pair<ItemType, String>>()
+        val writtenIds = mutableMapOf<String, String>()
+
         items.forEach { item ->
-            val written_id = runCatching { write(item, metadata, body, defaults) }
-                .getOrElse {
-                    // SRS 1.24's shape: what was written stays written and is reported, rather
-                    // than a partial chain reported as a total failure.
-                    return if (written.isEmpty()) failureFor(it)
-                    else SaveResult.Written(written.size, written)
+            val id = runCatching { write(item, metadata, body, defaults) }.getOrElse { failure ->
+                // FR-806. A failure waiting can fix is held; one it cannot is reported. A 403
+                // for a scope never granted would sit in the queue for ever with nothing said
+                // about why, which is what `isWorthRetrying` is there to prevent.
+                if (isWorthRetrying(failure) && queue != null) {
+                    // SRS 1.24: what has already been written is recorded on the entry, so the
+                    // drain resumes the chain rather than writing its first item twice.
+                    queue.add(
+                        QueuedWrite(
+                            id = java.util.UUID.randomUUID().toString(),
+                            metadata = metadata,
+                            body = body,
+                            calendarId = defaults.calendarId,
+                            taskListId = defaults.taskListId,
+                            timeZone = zone,
+                            items = items.map { QueuedItem(it, writtenIds[it.id]) },
+                            queuedAt = clock(),
+                        )
+                    )
+                    return SaveResult.Queued(
+                        count = items.size - written.size,
+                        alsoWritten = written.size,
+                    )
                 }
-            written += item.type to written_id
+                // Nothing waiting will fix. What was written stays written and is reported,
+                // rather than a partial chain reported as a total failure.
+                return if (written.isEmpty()) failureFor(failure)
+                else SaveResult.Written(written.size, written)
+            }
+            written += item.type to id
+            writtenIds[item.id] = id
         }
         return SaveResult.Written(written.size, written)
     }

@@ -1,6 +1,7 @@
 package com.latch.android.capture
 
 import com.latch.google.FailureClass
+import com.latch.google.RetryPolicy
 import com.latch.data.QueuedWrite
 import java.time.Duration
 import java.time.Instant
@@ -86,7 +87,7 @@ fun shouldDrainNow(
  * a burst of `REPLACE`d work requests would be the hammering `KEEP` was there to prevent,
  * arrived at from the other direction.
  */
-val IMMEDIATE_DRAIN_RATE_LIMIT: Duration = Duration.ofMinutes(1)
+val IMMEDIATE_DRAIN_RATE_LIMIT: Duration = RetryPolicy.IMMEDIATE_DRAIN_RATE_LIMIT
 
 /**
  * What the worker should do after a failure that is worth retrying.
@@ -122,9 +123,12 @@ fun retryPlan(
 ): RetryPlan {
     // Doubling in millis overflows nothing here, but the attempt count comes from WorkManager
     // and a very long-lived entry should not be able to turn the shift into nonsense.
-    val exponent = runAttemptCount.coerceIn(0, 30)
-    val next = floor.toMillis() shl exponent
-    return if (next > ceiling.toMillis()) RetryPlan.Reschedule(ceiling) else RetryPlan.Backoff
+    // The arithmetic is `RetryPolicy`'s, so the two clients cannot end up with different
+    // ceilings. What stays here is the *shape* of the answer, which is WorkManager's: this
+    // client can only choose between accepting the framework's own timer and replacing the
+    // request, where the desktop owns its timer and computes an instant.
+    val next = RetryPolicy.backoffDelay(runAttemptCount, floor, ceiling)
+    return if (next >= ceiling) RetryPlan.Reschedule(ceiling) else RetryPlan.Backoff
 }
 
 /**
@@ -132,7 +136,7 @@ fun retryPlan(
  * It is also [UNDO_WINDOW], which is not a coincidence to rely on but does mean the retry after
  * a skipped young entry lands about when that entry becomes eligible.
  */
-val BACKOFF_FLOOR: Duration = Duration.ofSeconds(10)
+val BACKOFF_FLOOR: Duration = RetryPolicy.FLOOR
 
 /**
  * The ceiling FR-806 was recorded as lacking. Half an hour is chosen against what the wait
@@ -140,4 +144,4 @@ val BACKOFF_FLOOR: Duration = Duration.ofSeconds(10)
  * phone and not in their calendar, and thirty minutes is the longest that is tolerable for
  * something they believe they have saved.
  */
-val BACKOFF_CEILING: Duration = Duration.ofMinutes(30)
+val BACKOFF_CEILING: Duration = RetryPolicy.CEILING

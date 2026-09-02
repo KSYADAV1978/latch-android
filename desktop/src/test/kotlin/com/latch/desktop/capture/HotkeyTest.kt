@@ -180,13 +180,57 @@ class HotkeyLiveTest {
     }
 }
 
-/** A process that only reads back a script, so the listener is testable off Windows. */
+/**
+ * A process that reads back a script and then **stays open**, so the listener is testable off
+ * Windows.
+ *
+ * The staying open is the part that matters. The first version ended its stream after the last
+ * line, and the listener correctly reported that the sidecar had stopped — which is right for a
+ * real one, whose stream ending means the registration is gone, and wrong for a fake standing
+ * in for a process that sits waiting for the next keypress. A fake that behaves in a way the
+ * real thing never does produces failures that are about the fake.
+ */
 private class FakeProcess(script: String) : Process() {
-    private val stream = script.byteInputStream()
+    private val stream = ScriptThenBlock(script.toByteArray())
     override fun getOutputStream() = java.io.OutputStream.nullOutputStream()
-    override fun getInputStream() = stream
+    override fun getInputStream(): java.io.InputStream = stream
     override fun getErrorStream() = java.io.InputStream.nullInputStream()
     override fun waitFor() = 0
     override fun exitValue() = 0
-    override fun destroy() {}
+    override fun destroy() { stream.release() }
+    override fun destroyForcibly(): Process { stream.release(); return this }
+}
+
+/** Hands back [bytes], then blocks until released — as a live sidecar's pipe does. */
+private class ScriptThenBlock(private val bytes: ByteArray) : java.io.InputStream() {
+    private var at = 0
+    private val gate = java.util.concurrent.CountDownLatch(1)
+
+    override fun read(): Int {
+        if (at < bytes.size) return bytes[at++].toInt() and 0xFF
+        gate.await()
+        return -1
+    }
+
+    /**
+     * Returns only what is there rather than waiting for a full buffer.
+     *
+     * `BufferedReader` fills greedily through `InputStream`'s default array read, which loops
+     * on single bytes and would block at the gate before handing back the first line — so a
+     * stream that is deliberately open-ended has to answer this itself.
+     */
+    override fun read(destination: ByteArray, offset: Int, length: Int): Int {
+        if (at >= bytes.size) {
+            gate.await()
+            return -1
+        }
+        val count = minOf(length, bytes.size - at)
+        System.arraycopy(bytes, at, destination, offset, count)
+        at += count
+        return count
+    }
+
+    override fun available(): Int = bytes.size - at
+
+    fun release() = gate.countDown()
 }

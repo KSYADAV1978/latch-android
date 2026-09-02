@@ -14,13 +14,16 @@ data class TrayModel(
     val hotkeyLabel: String,
     val signedInAs: String?,
     val configured: Boolean,
+    /** FR-806: captures held locally and not yet in the account. */
     val pending: Int,
+    /** FR-806: entries retries have stopped for. They stay, and a tap revives them. */
+    val givenUp: Int = 0,
 )
 
 /** One entry of the tray menu. */
 data class TrayEntry(val label: String, val id: TrayAction, val enabled: Boolean = true)
 
-enum class TrayAction { CAPTURE, SIGN_IN, SIGN_OUT, SETTINGS, QUIT }
+enum class TrayAction { CAPTURE, SIGN_IN, SIGN_OUT, RETRY, SETTINGS, QUIT }
 
 /**
  * The menu, as a pure function.
@@ -39,10 +42,21 @@ fun trayMenu(model: TrayModel): List<TrayEntry> = buildList {
         model.signedInAs == null -> add(TrayEntry("Sign in to Google…", TrayAction.SIGN_IN))
         else -> add(TrayEntry("Signed in as " + model.signedInAs, TrayAction.SIGN_OUT))
     }
-    if (model.pending > 0) {
-        // FR-806's count, where the Android home screen shows one. A queue that is working
-        // through items silently is indistinguishable from one that has stopped.
-        add(TrayEntry(model.pending.toString() + " waiting to be written", TrayAction.SETTINGS, enabled = false))
+    if (model.pending > 0 || model.givenUp > 0) {
+        // FR-806's count, where the Android home screen shows one. A queue working through
+        // items silently is indistinguishable from one that has stopped, so it says which.
+        //
+        // A given-up entry is counted separately and named, because it is the one state the
+        // user has to do something about: it has stopped retrying and will stay stopped
+        // until they ask. It is never deleted — the entry holds a capture that exists
+        // nowhere else.
+        val label = when {
+            model.givenUp > 0 && model.pending > 0 ->
+                model.pending.toString() + " waiting, " + model.givenUp + " stuck — retry now"
+            model.givenUp > 0 -> model.givenUp.toString() + " stuck — retry now"
+            else -> model.pending.toString() + " waiting to be written — retry now"
+        }
+        add(TrayEntry(label, TrayAction.RETRY))
     }
     add(TrayEntry("Settings…", TrayAction.SETTINGS))
     add(TrayEntry("Quit Latch", TrayAction.QUIT))

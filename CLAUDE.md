@@ -945,11 +945,25 @@ ciphertext; a real loopback HTTP server answering a real request and refusing a 
 `RegisterHotKey` succeeding and reporting an already-held combination. The application starts,
 installs a tray icon, registers the hotkey, opens a popup and composes a write.
 
-**What is owed and is not pretended at.** FR-806's queue, so an offline save is *reported*
-rather than held. FR-804's reschedule offer. FR-807's undo. FR-1005's export. The FR-900
-destination picker — setup takes the Option B default and says which calendar it chose. FR-306's
-share target. FR-305's MSIX, which needs the Windows SDK. And **nobody has pressed the hotkey**:
-`RegisterHotKey` is verified, the keystroke reaching a capture is not.
+**FR-806's queue is built.** An offline save is held under DPAPI and drained by a thread of
+the application's own. Two narrowings are real and are not gaps to be closed by tidying:
+there is no WorkManager, so **the queue drains only while Latch is running** — a capture
+survives termination and restart, as NFR-302 asks, but is not written until the application
+runs again; and connectivity is a **weak proxy**, a non-loopback interface being up, because
+no OS callback is reachable from a JVM. Being wrong costs one early attempt that backs off
+again.
+
+**One inversion of this project's own record discipline is deliberate.** Every other store
+here drops an unreadable record; the queue **keeps** one, because dropping a queue entry
+loses a capture. It is carried through every rewrite and counted, so the tray can say how
+many lines this build could not read.
+
+**What is owed and is not pretended at.** FR-804's reschedule offer. FR-807's undo — the
+queue already refuses to drain an entry inside its ten-second window, so the rule the undo
+needs is in place before the undo is. The FR-900 destination picker: setup takes the Option B
+default and says which calendar it chose. FR-306's share target. FR-305's MSIX, which needs
+the Windows SDK. And **nobody has pressed the hotkey**: `RegisterHotKey` is verified, the
+keystroke reaching a capture is not.
 
 Two asymmetries with Android are permanent rather than gaps.
 
@@ -992,6 +1006,10 @@ fail*, then *the fixture*.
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
 | The Latch calendar is reused | The desktop writes into the calendar the phone already made, not a second one with the same name. Verified in the account, not on screen | an account set up on the phone |
 | Launch at sign-in (FR-301) | Not built. See `docs/RELEASE-WINDOWS.md` | |
+| **AC-10 on Windows** | Disconnect, capture, save: the tray says *held*, never *saved* — nothing is in the account yet, and that distinction is the whole point of the Queued state. Reconnect: it is written, exactly once | aeroplane mode, or the network off |
+| **The queue survives a restart** | Queue something offline, quit Latch, reopen: the count is still there and it drains. This is the limb of NFR-302 the JVM tests cannot reach — they write and read in one process | as above, plus a quit |
+| **A half-written chain resumes** | Hard to arrange by hand; the JVM tests pin the logic. The device check is that an ordinary multi-date capture queued offline writes each item exactly once on reconnection | a two-date capture, offline |
+| FR-806's Retry now | With something stuck, the tray offers it and a tap drains. A given-up entry is revived rather than left | pull the network for a long stretch |
 | **NFR-103** | The runtime half is unmeasured, and estimating it is what `docs/RELEASE.md` forbids for the Android bundle for the same reason | a full JDK with `jmods` |
 
 ## Device pass backlog

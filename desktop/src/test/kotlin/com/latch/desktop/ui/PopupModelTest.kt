@@ -223,6 +223,21 @@ class TrayMenuTest {
 
         val busy = trayMenu(TrayModel("Ctrl+Shift+K", "a@example.com", configured = true, pending = 3))
         assertTrue(busy.any { it.label.contains("3 waiting") }, busy.joinToString { it.label })
+        assertTrue(busy.single { it.id == TrayAction.RETRY }.enabled, "the count must be tappable")
+    }
+
+    @Test
+    fun `a stuck entry is named apart from one that is merely waiting`() {
+        // The one queue state the user has to act on. An entry retries have stopped for is
+        // never deleted — it holds a capture that exists nowhere else — so the only way it
+        // ever moves is if they are told it is there.
+        val stuck = trayMenu(TrayModel("Ctrl+Shift+K", "a@e.com", true, pending = 0, givenUp = 2))
+        assertTrue(stuck.any { it.label.contains("2 stuck") }, stuck.joinToString { it.label })
+        assertTrue(stuck.any { it.id == TrayAction.RETRY })
+
+        val both = trayMenu(TrayModel("Ctrl+Shift+K", "a@e.com", true, pending = 1, givenUp = 2))
+        assertTrue(both.single { it.id == TrayAction.RETRY }.label.contains("1 waiting"))
+        assertTrue(both.single { it.id == TrayAction.RETRY }.label.contains("2 stuck"))
     }
 
     @Test

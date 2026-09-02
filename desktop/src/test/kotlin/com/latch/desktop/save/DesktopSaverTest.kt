@@ -1,9 +1,17 @@
 package com.latch.desktop.save
 
 import com.latch.core.model.Item
+import com.latch.desktop.FakeCalendar
+import com.latch.desktop.FakeTasks
 import com.latch.core.model.ItemType
 import com.latch.desktop.capture.DesktopCapture
+import com.latch.desktop.queue.WriteQueue
+import com.latch.desktop.store.BridgeReply
 import com.latch.desktop.store.DesktopDefaults
+import com.latch.desktop.store.WindowsSecrets
+import com.latch.desktop.store.base64
+import com.latch.desktop.store.unbase64
+import java.io.File
 import com.latch.google.CalendarApi
 import com.latch.google.DuplicateSearch
 import com.latch.google.EventWrite
@@ -28,85 +36,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-
-/**
- * A calendar that answers by the hash it was actually given.
- *
- * `CLAUDE.md` records why that sentence is in this file: the Android fake's
- * `findEventBySourceHash` ignored its argument and returned a preset id, so it agreed with a
- * broken implementation for as long as the implementation was broken. A fake that answers by
- * fixture rather than by matching cannot catch a matching bug.
- */
-private class FakeCalendar : CalendarApi {
-    val events = mutableMapOf<String, EventWrite>()
-    val indexed = mutableMapOf<String, String>()
-    var created: String? = null
-    var calendars: List<WritableCalendar> = emptyList()
-    var failInsert: Exception? = null
-    var failList: Exception? = null
-
-    override suspend fun listWritableCalendars(): List<WritableCalendar> {
-        failList?.let { throw it }
-        return calendars
-    }
-
-    override suspend fun createLatchCalendar(summary: String, description: String): String {
-        created = summary
-        return "made-" + summary
-    }
-
-    override suspend fun setColourAndVisibility(calendarId: String, colorId: String, visible: Boolean): String? = null
-
-    override suspend fun makeVisible(calendarId: String) = Unit
-
-    override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
-        failInsert?.let { throw it }
-        val id = "ev" + (events.size + 1)
-        events[id] = event
-        indexed[event.metadata.sourceHash] = id
-        return id
-    }
-
-    override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch =
-        DuplicateSearch(existingId = indexed[sourceHash])
-
-    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch =
-        RescheduleSearch()
-
-    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) = Unit
-
-    override suspend fun deleteEvent(calendarId: String, eventId: String) = Unit
-}
-
-private class FakeTasks : TasksApi {
-    val tasks = mutableMapOf<String, TaskWrite>()
-    val indexed = mutableMapOf<String, String>()
-    var lists: List<TaskList> = listOf(TaskList("list-1", "My Tasks", isDefault = true))
-    var failInsert: Exception? = null
-
-    override suspend fun listTaskLists(): List<TaskList> = lists
-
-    override suspend fun insertTask(taskListId: String, task: TaskWrite): String {
-        failInsert?.let { throw it }
-        val id = "tk" + (tasks.size + 1)
-        tasks[id] = task
-        indexed[task.metadata.sourceHash] = id
-        return id
-    }
-
-    override suspend fun findTaskBySourceHash(
-        taskListId: String,
-        sourceHash: String,
-        due: LocalDate?,
-    ): DuplicateSearch = DuplicateSearch(existingId = indexed[sourceHash], scanCapped = false)
-
-    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch =
-        RescheduleSearch()
-
-    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) = Unit
-
-    override suspend fun deleteTask(taskListId: String, taskId: String) = Unit
-}
 
 class DesktopSaverTest {
 
@@ -214,6 +143,109 @@ class DesktopSaverTest {
             SaveFailure.REFUSED,
             (DesktopSaver(refused, FakeTasks()).save(DesktopCapture(text), result, items, defaults, "c") as SaveResult.Failed).reason,
         )
+    }
+
+    // ---- FR-806: the queue is a fallback, not the path -----------------------------------
+
+    @Test
+    fun `an offline save is held rather than lost`() = runTest {
+        // AC-10, and design principle 1's central case. Before the queue existed this
+        // reported a failure and the capture was gone.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val calendar = FakeCalendar().apply { failInsert = GoogleUnreachable("no network") }
+        val text = "Kickoff 8 September 2027 at 9am"
+        val (result, items) = itemsFor(text)
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata", queue)
+            .save(DesktopCapture(text), result, items, defaults, "chain-1")
+
+        assertEquals(SaveResult.Queued(count = 1, alsoWritten = 0), outcome)
+        val held = queue.entries().single()
+        assertEquals(sourceHashOf(text), held.metadata.sourceHash)
+        assertEquals("cal-1", held.calendarId)
+        assertEquals("Asia/Kolkata", held.timeZone)
+        assertTrue(text in held.body, "FR-805's description must be composed before queueing")
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `a failure waiting cannot fix is reported rather than queued for ever`() = runTest {
+        // A 403 for a scope never granted would sit in the count with nothing said about
+        // why, which is what `isWorthRetrying` exists to prevent.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val calendar = FakeCalendar().apply {
+            failInsert = GoogleRejected(403, "insufficientPermissions", "no")
+        }
+        val (result, items) = itemsFor("Kickoff 8 September 2027 at 9am")
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "UTC", queue)
+            .save(DesktopCapture("x"), result, items, defaults, "c")
+
+        assertEquals(SaveFailure.REFUSED, (outcome as SaveResult.Failed).reason)
+        assertTrue(queue.entries().isEmpty(), "an unretryable failure must not be queued")
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `a chain that fails halfway queues only what is still owed`() = runTest {
+        // SRS 1.24. The queue entry records what was written, so the drain resumes rather
+        // than writing the first item a second time — a duplicate FR-803 could not catch,
+        // because the entry's own hash is what put it there.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val tasks = FakeTasks().apply { failInsert = GoogleUnreachable("no network") }
+        val text = "PTM on 14 September 2027. Fees due 20 September 2027."
+        val (result, items) = itemsFor(text)
+        assertTrue(items.size >= 2, "this fixture needs a chain")
+
+        val outcome = DesktopSaver(FakeCalendar(), tasks, "UTC", queue)
+            .save(DesktopCapture(text), result, items, defaults, "c")
+
+        assertIs<SaveResult.Queued>(outcome)
+        val held = queue.entries().single()
+        assertEquals(items.size, held.items.size, "the whole chain must be carried")
+        assertEquals(
+            outcome.alsoWritten,
+            held.items.count { it.writtenId != null },
+            "what was already written must be marked so the drain does not repeat it",
+        )
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `a probe that cannot run queues rather than reporting`() = runTest {
+        // FR-803 could not be asked — almost always no network. The drain asks again before
+        // it writes, so nothing is duplicated by having been unable to ask now.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val calendar = FakeCalendar().apply { failFind = GoogleUnreachable("no network") }
+        val (result, items) = itemsFor("Kickoff 8 September 2027 at 9am")
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "UTC", queue)
+            .save(DesktopCapture("x"), result, items, defaults, "c")
+
+        assertIs<SaveResult.Queued>(outcome)
+        assertEquals(1, queue.entries().size)
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `with no queue at all an offline save still reports rather than pretending`() = runTest {
+        val calendar = FakeCalendar().apply { failInsert = GoogleUnreachable("no network") }
+        val (result, items) = itemsFor("Kickoff 8 September 2027 at 9am")
+        val outcome = DesktopSaver(calendar, FakeTasks())
+            .save(DesktopCapture("x"), result, items, defaults, "c")
+        assertEquals(SaveFailure.OFFLINE, (outcome as SaveResult.Failed).reason)
+    }
+
+    private fun tempDirectory(): File = File.createTempFile("latch-saver", "").let {
+        it.delete(); it.mkdirs(); it
+    }
+
+    private fun reversingCipher() = WindowsSecrets { _, payload ->
+        BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
     }
 
     @Test
