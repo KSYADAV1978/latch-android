@@ -43,7 +43,21 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class OcrOnDeviceTest {
 
+    /** The app under test, which is the context the reader would really have. */
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+    /**
+     * **The instrumentation's own context, which is where the fixtures live.**
+     *
+     * `targetContext.assets` is the *app's* assets; `src/androidTest/assets` is packaged into
+     * the **test** APK and reached through `getInstrumentation().context`. Reading them from the
+     * target gave `FileNotFoundException: latin-chat.png` and failed all five OCR tests at once
+     * on the suite's first run — which is exactly what that first run was for, and is recorded
+     * here rather than quietly corrected: a suite that has never executed is one whose fixtures
+     * may not be reachable.
+     */
+    private val fixtures = InstrumentationRegistry.getInstrumentation().context
+
     private val reader = MlKitOcrReader(context)
 
     @After
@@ -181,7 +195,7 @@ class OcrOnDeviceTest {
     private fun assetUri(name: String): Uri {
         val directory = File(context.cacheDir, FIXTURES).apply { mkdirs() }
         val file = File(directory, name)
-        context.assets.open(name).use { input ->
+        fixtures.assets.open(name).use { input ->
             file.outputStream().use { output -> input.copyTo(output) }
         }
         return Uri.fromFile(file)

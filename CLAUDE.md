@@ -862,20 +862,37 @@ padded with invented ones would satisfy the number while weakening the thing the
 proxy for. §3.1's users are the source — school circulars, bills, courier notifications — and
 dogfooding is where they come from.
 
-### Verified on the device, 2 Sep 2026 — and this is the whole of it
+### Verified on the device, 2 Sep 2026 — the instrumented suite, 21/21
 
-Pixel 6 Pro, Android 17 (API 37), debug build at `e70353d`. Two facts, scoped narrowly, because
-a device pass that overclaims is worse than none.
+Pixel 6 Pro, Android 17 (API 37), debug build at `5886e0c` plus the fixture fix. **21 tests,
+13.3 seconds, no failures.** Scoped narrowly below, because a device pass that overclaims is
+worse than none — and note that **nothing here touched the developer's Google account**: every
+API in the suite is a fake, and the OCR half reads two bundled assets.
 
 | Check | Result |
 |---|---|
-| The app installs over the previous build and **starts** | **Pass.** `adb install -r` succeeded, account defaults survived the update, and the launch canary reached RESUMED. That is the gap the canary exists for and nothing more: it says the app gets off the ground, not that anything in it works. |
-| The three new manifest components are registered | **Pass.** `LatchNotificationListener` with `BIND_NOTIFICATION_LISTENER_SERVICE`, the `FileProvider`, and `CaptureTileService` all appear in `dumpsys package`. |
-| `connectedAndroidTest` **leaves the app installed** | **Pass.** `android.injected.androidTest.leaveApksInstalledAfterRun=true` works: both APKs are still there afterwards. This is the standing annoyance recorded since 27 Aug, closed. |
+| The app installs over the previous build and **starts** | **Pass.** `adb install -r`, account defaults survived the update, launch canary reached RESUMED. That is the gap the canary exists for and nothing more. |
+| The three new manifest components are registered | **Pass.** `LatchNotificationListener` with `BIND_NOTIFICATION_LISTENER_SERVICE`, the `FileProvider`, and `CaptureTileService`, all in `dumpsys package`. |
+| `connectedAndroidTest` **leaves the app installed** | **Pass.** The AGP-injected property works; both APKs survive. The annoyance recorded since 27 Aug is closed. |
+| **`:data`'s SQLite works at all** | **Pass, and this was the session's largest unknown.** The database is created on first use and every store round-trips through SQL *and* `KeystoreCipher`: the Inbox row with its captured instant and zone, the FR-803 index by hash and by key, FR-807's stored offer including the prior dates an undo must write back, a user recipe with its steps, FR-1001's settings, and NFR-203's secret with its mask. Fifteen tests, all green. |
+| FR-806's queue on the real store | **Pass.** A four-item chain is **one** entry carrying all four (SRS §7.1 at v1.23); SRS 1.24's per-item marker survives to disk; a given-up entry stays and is revived by "Retry now"; and a drain that finds the message already saved **retires without writing** — the 31 Aug defect's own shape, against the storage that had never been exercised. |
+| **FR-215: the image path is alive** | **Pass.** A real PNG decodes and recognises rather than returning `UNREADABLE_SOURCE`. That is the elvis-binding defect that shipped through three commits with 328 tests green, now covered by a test that would go red for it. |
+| **Both ML Kit artifacts are present and merging** | **Pass.** No codepoint in `U+0980–U+09FF` anywhere in a Latin screenshot's recognised text. This is the only check that the +8,082-byte Latin artifact is still in the APK; one line in a build file undoes it. |
+| **FR-805b's extract is strictly shorter** | **Pass**, on a real recognition — and the half a length check would miss: neither the sender's name nor the amount paid survives into it. SRS 1.32's stated test of any implementation, met. |
+| FR-207: a PDF renders, reads, and reports its coverage | **Pass.** `letter.pdf` → 2 of 2 pages, and correctly **not** reported as capped. |
+| **Slice 1's page progress** | **Pass.** The callback fires `1 of 2` then `2 of 2`, before each page rather than after. The sequence is verified; **the line reaching the screen is not** — that is still owed. |
 
-**Nothing else in this session has been verified.** In particular the instrumented suite itself
-has not been run, so it remains a suite whose fixtures may not be reachable, and every row of
-the backlog below still stands.
+**What this does not say.** Nothing above involves Google: no write, no read, no account. Every
+acceptance criterion in §10 is still owed, as is every screen — the confirmation sheet, the
+Inbox, Recipes, Settings, the disclosure screen — the notification listener, the FR-1004
+webhook, the `.ics` share, FR-908 and NFR-205. The storage tests also write and read within one
+process, so **survival across a force-stop is still unverified**; that row stays in the backlog.
+
+**One defect was found by running it, which is what running it was for.** All five OCR tests
+failed on the first attempt with `FileNotFoundException: latin-chat.png` — the test read its
+fixtures from `targetContext`, which is the *app's* assets, while `src/androidTest/assets` is
+packaged into the **test** APK and reached through `getInstrumentation().context`. SRS 1.50 had
+recorded the suite as "never executed, so its fixtures may not be reachable"; they were not.
 
 ## Device pass backlog
 
@@ -894,7 +911,7 @@ that has not been watched yet.
 
 | Check | What failure looks like | Fixture |
 |---|---|---|
-| "Reading page N of M…" counts up while a PDF is read | The line never appears, or it appears once and sticks at 1 — a progress callback that fires on a thread the flow does not publish from, or one page's recognition so fast the state is overwritten before a frame draws | `testdata/fr215/long.pdf` (14 pages). It must show **M = 10**, not 14, and must count 1→10 |
+| "Reading page N of M…" counts up while a PDF is read | **The callback half is verified** (1 of 2, then 2 of 2, on `letter.pdf`). What is still owed is the **line on screen**: it never appears, or it appears once and sticks at 1, because the flow publishes from a thread the screen does not collect on | `testdata/fr215/long.pdf` (14 pages). It must show **M = 10**, not 14, and must count 1→10 |
 | The cap line still follows | "First 10 of 14 pages read." after the sheet fills. The progress line and the cap line are different sentences about different numbers, and showing 10 in both places is correct | the same file |
 | A short PDF still says the same thing | `letter.pdf` (2 pages) counts 1→2 and shows **no** cap line | `testdata/fr215/letter.pdf` |
 | An **image** capture is unchanged | The spinner says "Reading the text…", never "Reading page…". An image has nothing to count, and a progress line on one would be a number invented from nothing | any `testdata/fr215/*.png` |
@@ -910,8 +927,8 @@ gap in this slice and the first thing to watch.
 | Check | What failure looks like | Fixture |
 |---|---|---|
 | **AC-03** — text with no date | An undated row appears in the Inbox and **nothing** is created in Google Calendar or Tasks. Failure: an item appears in the account, or the sheet reports "Saved" | "Ask about the uniform order" |
-| The database is actually created | The first capture routed to the Inbox does not crash. Failure looks like a `SQLiteException` on `onCreate`, which no JVM test can reach | any undated capture, on a **fresh install** |
-| A row survives a process death | Route a capture to the Inbox, force-stop the app, reopen: the row is still there with its reason. Failure: an empty Inbox, meaning `commit`/encryption never landed | as above, plus `adb shell am force-stop com.latch.android` |
+| ~~The database is actually created~~ | **Verified 2 Sep by the instrumented suite.** The database is created on first use and every store round-trips through SQL and the Keystore. |
+| A row survives a **process death** | Still owed: the instrumented tests write and read within one process, so they prove the SQL and the cipher and not the restart. Route a capture to the Inbox, force-stop, reopen: the row is still there with its reason | `adb shell am force-stop com.latch.android` |
 | The Inbox re-parses at the **captured** instant | Capture "kal 4 baje meeting" (routes on confidence), leave it a day, reopen the Inbox: the date must still read the day after the **capture**, not the day after today. Failure is a date that walks forward every time the list is opened | "kal 4 baje meeting", checked on two different days |
 | FR-702's five actions | Assign a date, edit the title, snooze, discard, save. Each must persist across a back-and-return, and Save must produce exactly one item in Google | any Inbox row |
 | FR-702's assigned date reaches Google | A row with no date, given 20 Sep 2027, saves as a **TASK due 20 Sep 2027** — not an event, not undated | undated capture + date picker |
