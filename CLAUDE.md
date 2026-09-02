@@ -881,6 +881,20 @@ API in the suite is a fake, and the OCR half reads two bundled assets.
 | **FR-805b's extract is strictly shorter** | **Pass**, on a real recognition — and the half a length check would miss: neither the sender's name nor the amount paid survives into it. SRS 1.32's stated test of any implementation, met. |
 | FR-207: a PDF renders, reads, and reports its coverage | **Pass.** `letter.pdf` → 2 of 2 pages, and correctly **not** reported as capped. |
 | **Slice 1's page progress** | **Pass.** The callback fires `1 of 2` then `2 of 2`, before each page rather than after. The sequence is verified; **the line reaching the screen is not** — that is still owed. |
+| **FR-509b — the title, corrected before it is written** | **Pass, end to end, on a real capture.** A photographed schedule table drafted as `Location Notes`; the user tapped Edit, typed `MTG to review PMGATI`, saved, and that is the event's title in Google Calendar. The local index shows one EVENT written 28 seconds after the sheet opened, nothing queued. |
+| **FR-507 is discoverable** | **Pass.** "Tap the badge above to switch between event and to-do." is on the sheet, and the Edit control beside the title is legible and in reach. |
+| **The sheet fits** | **Pass**, on a device at a large font scale, with the hint line and the title control both present: Close, Export .ics and Save are all visible without scrolling. This is the layout that had put Save below the glass an hour earlier. |
+
+**What the same session did *not* establish, though I said it would.** The FR-803 stale-index
+case — an event deleted by hand in Google, whose local index row survives — was *not* tested,
+because the instrumented suite had run in between and its `index.clear()` wiped the row. The
+reading stands unverified: capture, delete the event in Google, capture again, and it should
+save rather than answering "Already saved".
+
+**And the suite interfered with a live device twice in one session**, which is the lesson worth
+more than either fix. It left a fake write in a real queue (fixed with `@After`), and it cleared
+an index row that was about to be the fixture for a test. The second is inherent to a suite that
+owns the real stores under their real names, and is why its KDoc now says so out loud.
 
 **What this does not say.** Nothing above involves Google: no write, no read, no account. Every
 acceptance criterion in §10 is still owed, as is every screen — the confirmation sheet, the
