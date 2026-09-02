@@ -43,6 +43,8 @@ import javax.swing.SwingUtilities
  */
 class CaptureWindow(
     private val onSave: (Set<Int>, Map<Int, String>) -> Unit,
+    /** FR-1005. Nothing is written to Google by this, which is the point of offering it. */
+    private val onExport: (Set<Int>, Map<Int, String>) -> Unit,
     private val onClose: () -> Unit,
 ) {
     private val dialog = JDialog(null as java.awt.Frame?, "Latch", false)
@@ -91,6 +93,16 @@ class CaptureWindow(
 
         val actions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
             add(blocker)
+            add(
+                JButton(DesktopStrings.EXPORT).apply {
+                    addActionListener {
+                        onExport(
+                            checkboxes.filterValues { it.isSelected }.keys.toSet(),
+                            titleOverride(),
+                        )
+                    }
+                }
+            )
             add(JButton(DesktopStrings.CLOSE).apply { addActionListener { dismiss() } })
             add(save)
         }

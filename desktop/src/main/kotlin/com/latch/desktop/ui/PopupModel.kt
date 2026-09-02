@@ -146,6 +146,9 @@ object DesktopStrings {
 
     const val SAVE = "Save"
     const val CLOSE = "Close"
+    const val EXPORT = "Export .ics"
+    const val EXPORTED = "Saved a calendar file to your Downloads folder."
+    const val EXPORT_FAILED = "Latch could not write the calendar file."
     const val EDIT_TITLE = "Edit"
     const val OVERRIDE_HINT = "Press Space on a badge to switch between event and to-do."
     const val NOT_SIGNED_IN = "Sign in to Google from the Latch tray icon first."

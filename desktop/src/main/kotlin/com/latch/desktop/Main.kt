@@ -15,6 +15,7 @@ import com.latch.desktop.capture.parseHotkey
 import com.latch.desktop.capture.writeForRecognition
 import com.latch.desktop.ocr.WindowsOcr
 import com.latch.desktop.save.DesktopSaver
+import com.latch.desktop.save.IcsFile
 import com.latch.desktop.save.DesktopSetup
 import com.latch.desktop.save.SaveFailure
 import com.latch.desktop.save.SaveResult
@@ -186,6 +187,9 @@ object Latch {
                     onSave = { ticked, titles ->
                         save(outcome.capture, result, context, ticked, titles)
                     },
+                    onExport = { ticked, titles ->
+                        export(outcome.capture, result, context, ticked, titles)
+                    },
                     onClose = { window = null },
                 )
                 window = opened
@@ -262,6 +266,42 @@ object Latch {
                 }
             }
         }, "latch-save").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-1005, and it writes nothing to Google — which is the point of offering it beside Save
+     * rather than after it. A user who wants the dates in their own calendar program, or who
+     * has not signed in, still gets something out of a capture.
+     */
+    private fun export(
+        captured: com.latch.desktop.capture.DesktopCapture,
+        result: ParseResult,
+        context: ParseContext,
+        selected: Set<Int>,
+        titleOverrides: Map<Int, String>,
+    ) {
+        window?.close()
+        val chainId = java.util.UUID.randomUUID().toString()
+        val draft = draftItems(
+            captured = captured,
+            result = result,
+            context = context,
+            // FR-1005 exports what was captured, not where it would have been filed, so the
+            // ids here are placeholders and `exportItems` replaces them anyway.
+            destination = com.latch.wire.WireDestination("export", "export"),
+            captureId = chainId,
+            chainId = chainId,
+            selected = selected,
+            titleOverrides = titleOverrides,
+        )
+        val file = (draft as? DraftResult.Ready)
+            ?.let { IcsFile.write(it.items, chainId, context.zone.id) }
+
+        if (file == null) {
+            tray?.say("Latch", DesktopStrings.EXPORT_FAILED, TrayIcon.MessageType.WARNING)
+            return
+        }
+        tray?.say("Latch", DesktopStrings.EXPORTED + " " + file.name)
     }
 
     private fun saveMessage(reason: SaveFailure) = when (reason) {
