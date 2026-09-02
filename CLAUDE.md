@@ -136,7 +136,8 @@ Subject line in the present tense, imperative, one line. The body carries the re
 which requirements the change serves, and any decision the code cannot state for itself.
 
 ## State of the build
-Skeleton only. Working: the six-module structure, the parser (87-case corpus, all passing),
+Skeleton only. Working: the six-module structure, the parser (102-case corpus, all passing —
+see the NFR-502 note below),
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
 confirmation screen, first-run setup (FR-100 series) end to end, on-device OCR of
 images and PDFs (FR-215, FR-207) verified on a device, and the FR-700 Capture Inbox with the
@@ -848,6 +849,18 @@ FR-105 is load-bearing and structural, not a matter of care: `com.latch.android.
 pure Kotlin, `SetupEffect.Commit` is the only effect that can reach `calendars.insert`, and
 `SetupEvent.FinishRequested` is the only event that produces one. AC-15 and AC-16 are JVM
 unit tests over that reducer. Keep it that way.
+
+**NFR-502 is not met, and this is the first place it is written down.** The requirement asks for
+a corpus of "no fewer than **300** real-world input strings and expected outputs". There are
+**102**. Every one of them earns its place — each was added against a rule or a defect, and the
+v1.21 voice-typing row that FR-511's slice was told to activate is active — but 102 is a third of
+what the requirement names, and the gap has been carried silently since the corpus was started.
+
+It is recorded rather than closed because closing it is its own slice: two hundred more rows is
+not a matter of typing, it is a matter of finding two hundred *real* messages, and a corpus
+padded with invented ones would satisfy the number while weakening the thing the number is a
+proxy for. §3.1's users are the source — school circulars, bills, courier notifications — and
+dogfooding is where they come from.
 
 ## Device pass backlog
 

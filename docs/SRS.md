@@ -885,6 +885,20 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 **NFR-502 [MUST]** The parsing engine shall be a separately testable module with a test corpus of no fewer than 300 real-world input strings and expected outputs.
 
+> **Not met, and recorded as of v1.50 rather than left to be noticed.** There are **102** cases.
+> The module half is met — `:parser` is pure Kotlin with no Android and no third-party
+> dependency, which is what makes the corpus runnable in seconds without a device — and every
+> row present earns its place, each having been added against a rule or a defect. The count does
+> not.
+>
+> **It is not closed by writing rows.** Two hundred more is not a matter of typing but of finding
+> two hundred *real* messages: a corpus padded with invented input would satisfy the number while
+> weakening exactly what the number is a proxy for, which is that the parser has met the way
+> people actually write. §3.1 names the source — school circulars, bills, courier and appointment
+> notifications from Indian consumers — and real use is where they come from. `docs/DOGFOODING.md`
+> asks for captured text verbatim in every defect report for this reason among others: a reported
+> capture is a corpus row that has already happened to someone.
+
 **NFR-503 [MUST]** The build shall be reproducible from a clean checkout with documented steps.
 
 ---
