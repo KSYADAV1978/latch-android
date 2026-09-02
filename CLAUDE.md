@@ -862,6 +862,21 @@ padded with invented ones would satisfy the number while weakening the thing the
 proxy for. §3.1's users are the source — school circulars, bills, courier notifications — and
 dogfooding is where they come from.
 
+### Verified on the device, 2 Sep 2026 — and this is the whole of it
+
+Pixel 6 Pro, Android 17 (API 37), debug build at `e70353d`. Two facts, scoped narrowly, because
+a device pass that overclaims is worse than none.
+
+| Check | Result |
+|---|---|
+| The app installs over the previous build and **starts** | **Pass.** `adb install -r` succeeded, account defaults survived the update, and the launch canary reached RESUMED. That is the gap the canary exists for and nothing more: it says the app gets off the ground, not that anything in it works. |
+| The three new manifest components are registered | **Pass.** `LatchNotificationListener` with `BIND_NOTIFICATION_LISTENER_SERVICE`, the `FileProvider`, and `CaptureTileService` all appear in `dumpsys package`. |
+| `connectedAndroidTest` **leaves the app installed** | **Pass.** `android.injected.androidTest.leaveApksInstalledAfterRun=true` works: both APKs are still there afterwards. This is the standing annoyance recorded since 27 Aug, closed. |
+
+**Nothing else in this session has been verified.** In particular the instrumented suite itself
+has not been run, so it remains a suite whose fixtures may not be reachable, and every row of
+the backlog below still stands.
+
 ## Device pass backlog
 
 **Everything in this section is JVM-verified and DEVICE-OWED.** It was built in the autonomous
