@@ -3,10 +3,7 @@ package com.latch.android.capture
 import com.latch.core.model.CaptureSource
 import com.latch.data.InboxReason
 import com.latch.parser.Confidence
-import com.latch.parser.Field
 import com.latch.parser.ParseResult
-import com.latch.parser.Classifier
-import java.time.LocalDate
 
 /**
  * Where a confirmed capture goes: to Google, or to the Capture Inbox.
@@ -66,44 +63,3 @@ fun saveRoute(
 
     return SaveRoute.Google
 }
-
-/**
- * FR-702: the date the user assigned during triage, applied to the parse rather than to the
- * text.
- *
- * **The parser is not asked to find it, because the user supplied it.** A candidate that had no
- * date gets one at [Confidence.CERTAIN] and marked explicit — it is not an inference at all,
- * and design principle 1's objection is to the app inventing a date, not to the user giving
- * one. A candidate that already had a date is left alone: the assignment answers the rows that
- * were blocked, and overwriting a date the writer did write would be a different feature.
- *
- * The new [Field] carries **no span**, which matters more than it looks: §7.2 derives
- * `latch.item_key` by blanking every matched span out of the captured text, and a date that was
- * never in that text has nothing to blank. Giving it a span would blank characters that mean
- * something else.
- */
-fun withAssignedDate(result: ParseResult, date: LocalDate, today: LocalDate): ParseResult =
-    result.copy(
-        candidates = result.candidates.map { candidate ->
-            if (candidate.date != null) {
-                candidate
-            } else {
-                candidate.copy(
-                    date = Field(date, Confidence.CERTAIN, span = null),
-                    isExplicit = true,
-                    // FR-506 is re-applied rather than patched: a row that was TASK_UNDATED
-                    // becomes a task with a due date, and one that was EVENT_INCOMPLETE for
-                    // want of a day becomes an ordinary event. Reclassifying through the same
-                    // table is what stops the two drifting.
-                    classification = Classifier.classify(
-                        hasDate = true,
-                        hasTime = candidate.time != null,
-                        isRange = candidate.endDate != null,
-                    ),
-                    // The user answered the question this flag exists to ask.
-                    ambiguousRelative = false,
-                    isPast = date.isBefore(today),
-                )
-            }
-        },
-    )

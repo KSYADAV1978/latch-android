@@ -3,7 +3,9 @@ package com.latch.android.inbox
 import com.latch.android.capture.CapturedText
 import com.latch.android.capture.CaptureSaver
 import com.latch.android.capture.withAssignedDate
+import com.latch.android.capture.withTypeOverrides
 import com.latch.data.CaptureInbox
+import com.latch.core.model.ItemType
 import com.latch.data.InboxCapture
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
@@ -47,6 +49,15 @@ class InboxCoordinator(
     /** FR-702: edit. The edited title wins over FR-509 and FR-509a, as FR-206's subject does. */
     fun editTitle(id: String, title: String) =
         edit(id) { it.copy(editedTitle = title.trim().takeIf(String::isNotEmpty)) }
+
+    /**
+     * FR-507, here as well as on the confirmation sheet.
+     *
+     * The requirement says the override is available "before saving", and a row is saved from
+     * this list — so a control that existed only on the capture sheet would leave every routed
+     * capture with the parser's classification and no way to change it.
+     */
+    fun overrideType(id: String, type: ItemType) = edit(id) { it.copy(typeOverride = type) }
 
     /**
      * FR-702: snooze. Out of the list and out of FR-704's count until it comes back.
@@ -129,7 +140,12 @@ fun parseOf(
     today: LocalDate = LocalDate.now(),
 ): ParseResult {
     val parsed = DateParser.parse(capture.rawText, context)
-    return capture.assignedDate?.let { withAssignedDate(parsed, it, today) } ?: parsed
+    // The same order the confirmation sheet applies them in, and for the same reason: FR-507's
+    // override reclassifies against whether a date is present, so a row that has just been
+    // given one is a different row.
+    val dated = capture.assignedDate?.let { withAssignedDate(parsed, it, today) } ?: parsed
+    val override = capture.typeOverride ?: return dated
+    return withTypeOverrides(dated, dated.candidates.indices.associateWith { override })
 }
 
 /** The row as the save path sees it. The edited title wins, exactly as FR-206's subject does. */

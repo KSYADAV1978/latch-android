@@ -42,6 +42,22 @@ fun sourceBlock(
     }.joinToString("\n\n")
 
 /**
+ * FR-510: the past date, recorded above the FR-805 body.
+ *
+ * A separate function rather than a parameter of [sourceBlock] because the two have different
+ * scopes and always will: FR-805's body is composed once per capture, and this note belongs to
+ * **one item** — the follow-up — while the rest of a chain may be perfectly ordinary future
+ * items sharing the same body. Composing it here keeps the FR-805a and FR-805b rules exactly
+ * where they were, which is what makes them structural.
+ *
+ * The note leads. It is the reason this item exists and is not a date it carries, so a reader
+ * who sees only the first line of a task's notes has still been told the thing that matters.
+ */
+fun bodyWithNote(note: String?, body: String): String =
+    listOfNotNull(note?.trim()?.takeIf(String::isNotEmpty), body.takeIf(String::isNotEmpty))
+        .joinToString("\n\n")
+
+/**
  * FR-805b's extract: the **rows** of [text] that carry a date, plus one either side.
  *
  * **The unit is a row of the image, not a distance in characters**, and that is the whole of

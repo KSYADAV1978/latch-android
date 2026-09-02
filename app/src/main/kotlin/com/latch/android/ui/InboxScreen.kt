@@ -1,6 +1,7 @@
 package com.latch.android.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -32,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.SaveFailure
+import com.latch.android.capture.canOverrideTo
 import com.latch.android.capture.SaveState
 import com.latch.android.inbox.parseOf
 import com.latch.data.InboxCapture
@@ -65,6 +67,8 @@ fun InboxScreen(
     onBack: () -> Unit,
     onAssignDate: (String, LocalDate) -> Unit,
     onEditTitle: (String, String) -> Unit,
+    /** FR-507: the override is available wherever a save is, and one is available here. */
+    onOverrideType: (String, ItemType) -> Unit,
     onSave: (String) -> Unit,
     onSnooze: (String) -> Unit,
     onDiscard: (String) -> Unit,
@@ -122,6 +126,7 @@ fun InboxScreen(
                     now = now,
                     onAssignDate = onAssignDate,
                     onEditTitle = onEditTitle,
+                    onOverrideType = onOverrideType,
                     onSave = onSave,
                     onSnooze = onSnooze,
                     onDiscard = onDiscard,
@@ -139,6 +144,7 @@ private fun InboxRow(
     now: Instant,
     onAssignDate: (String, LocalDate) -> Unit,
     onEditTitle: (String, String) -> Unit,
+    onOverrideType: (String, ItemType) -> Unit,
     onSave: (String) -> Unit,
     onSnooze: (String) -> Unit,
     onDiscard: (String) -> Unit,
@@ -146,13 +152,13 @@ private fun InboxRow(
     // Re-parsed against the capture's own instant and zone, never today's — see
     // `parseContextOf`. Remembered on the row so the FR-807 countdown elsewhere on screen does
     // not re-parse the whole list every 250 ms.
-    val parsed = remember(capture.id, capture.assignedDate) { parseOf(capture) }
+    val parsed = remember(capture.id, capture.assignedDate, capture.typeOverride) { parseOf(capture) }
     var editing by remember(capture.id) { mutableStateOf(capture.editedTitle ?: "") }
     var pickingDate by remember(capture.id) { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TypeBadge(parsed)
+            TypeBadge(parsed) { onOverrideType(capture.id, it) }
             Text(
                 modifier = Modifier.padding(start = 8.dp),
                 text = whenLineOf(parsed, capture.assignedDate),
@@ -267,10 +273,16 @@ private fun AssignDateDialog(
     }
 }
 
-/** FR-508: the badge is visible at all times, here as much as on the confirmation sheet. */
+/**
+ * FR-508: the badge is visible at all times, here as much as on the confirmation sheet — and
+ * FR-507: it is the control, for the same reason it is there.
+ */
 @Composable
-private fun TypeBadge(parsed: ParseResult) {
-    val label = when (parsed.primary.classification.itemType) {
+private fun TypeBadge(parsed: ParseResult, onOverride: (ItemType) -> Unit) {
+    val current = parsed.primary.classification.itemType
+    val other = if (current == ItemType.EVENT) ItemType.TASK else ItemType.EVENT
+    val changeable = canOverrideTo(parsed.primary, other)
+    val label = when (current) {
         ItemType.EVENT -> R.string.badge_event
         ItemType.TASK -> R.string.badge_task
     }
@@ -283,6 +295,7 @@ private fun TypeBadge(parsed: ParseResult) {
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = MaterialTheme.shapes.small,
             )
+            .let { if (changeable) it.clickable { onOverride(other) } else it }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
 }

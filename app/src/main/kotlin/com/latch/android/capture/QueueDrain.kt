@@ -12,6 +12,7 @@ import com.latch.data.TaskWrite
 import com.latch.data.TasksApi
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
+import com.latch.data.bodyWithNote
 import java.time.LocalDate
 
 /**
@@ -143,7 +144,9 @@ suspend fun drainEntry(
                 calendarId = requireNotNull(item.calendarId) { "A queued event has no calendar" },
                 event = EventWrite(
                     summary = item.title,
-                    description = write.body,
+                    // FR-510's note, composed exactly as the saver composes it — one function,
+                    // so a queued follow-up cannot reach Google differently from a direct one.
+                    description = bodyWithNote(item.notes, write.body),
                     location = item.location,
                     start = requireNotNull(item.start),
                     end = requireNotNull(item.end),
@@ -157,7 +160,7 @@ suspend fun drainEntry(
                 taskListId = requireNotNull(item.taskListId) { "A queued task has no list" },
                 task = TaskWrite(
                     title = item.title,
-                    notes = write.body,
+                    notes = bodyWithNote(item.notes, write.body),
                     due = item.dueDate,
                     metadata = write.metadata,
                 ),

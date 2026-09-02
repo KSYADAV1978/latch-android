@@ -307,6 +307,7 @@ class LatchApplication : Application() {
             onGoogleReached = { drainNow(DrainTrigger.FOREGROUND_REQUEST_SUCCEEDED) },
             scope = appScope,
             sourceLinkTemplate = getString(R.string.capture_source_link),
+            pastDateNoteTemplate = getString(R.string.capture_past_date_note),
         )
     }
 

@@ -3,6 +3,7 @@ package com.latch.data
 import android.content.Context
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureState
+import com.latch.core.model.ItemType
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -86,6 +87,15 @@ data class InboxCapture(
     val assignedDate: LocalDate? = null,
     /** FR-702: edited title, where the user gave one. Wins over FR-509 and FR-509a. */
     val editedTitle: String? = null,
+    /**
+     * FR-507: the Event/Task override, where the user took one here.
+     *
+     * FR-507 says "before saving", and an Inbox row is saved from the Inbox — so the control
+     * has to exist on both surfaces. Stored rather than applied, for the reason the assigned
+     * date is: the row holds the text and the parse is redone from it, so an edit that was
+     * applied to the parse would not survive the next read.
+     */
+    val typeOverride: ItemType? = null,
     /** FR-702's snooze: out of the count and the list until this instant. */
     val snoozedUntil: Instant? = null,
     val state: CaptureState = CaptureState.INBOX,
@@ -290,6 +300,9 @@ internal fun encodeInboxCapture(capture: InboxCapture): String = JSONObject()
     .put("reason", capture.reason.name)
     .putOpt("assigned_date", capture.assignedDate?.toString())
     .putOpt("edited_title", capture.editedTitle)
+    // Optional and additive, so the record version does not move: an older row simply has no
+    // override, which is exactly what its absence means.
+    .putOpt("type_override", capture.typeOverride?.name)
     .putOpt("snoozed_until", capture.snoozedUntil?.toString())
     .put("state", capture.state.name)
     .toString()
@@ -319,6 +332,8 @@ internal fun decodeInboxCapture(record: String): InboxCapture? = try {
             reason = reason,
             assignedDate = json.optString("assigned_date").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
             editedTitle = json.optString("edited_title").takeIf { it.isNotBlank() },
+            typeOverride = ItemType.entries
+                .firstOrNull { it.name == json.optString("type_override") },
             snoozedUntil = json.optString("snoozed_until").takeIf { it.isNotBlank() }?.let(Instant::parse),
             state = state,
         )

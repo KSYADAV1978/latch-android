@@ -221,6 +221,9 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  *  - **v4** adds SRS 1.24's per-item written marker and the failure class FR-806's immediate
  *    drain reads. An older record has written nothing yet, and is presumed to have stopped on
  *    the transport — which is why the queue exists, and is the reading that retries soonest.
+ *  - **v5** adds FR-510's per-item note, which carries the past date a follow-up was created
+ *    for. Absent on every earlier record, and correctly so: no earlier record could have held a
+ *    follow-up, because the requirement was not built.
  *
  * **The queue deliberately did not move into FR-701's SQLite database.** SRS 1.24 named the
  * marker as needing that storage, and it does not: this record can carry it. What the move
@@ -229,7 +232,7 @@ class EncryptedWriteQueueStore(context: Context) : WriteQueue {
  * went into the database instead, because that is a new index and loses nothing if it starts
  * empty.
  */
-internal const val QUEUE_RECORD_VERSION = 4
+internal const val QUEUE_RECORD_VERSION = 5
 
 /** The oldest record layout still readable. See [QUEUE_RECORD_VERSION]. */
 internal const val QUEUE_RECORD_MIN_VERSION = 1
@@ -245,6 +248,7 @@ internal fun encodeItem(item: Item): JSONObject = JSONObject()
     .put("all_day", item.allDay)
     .putOpt("due_date", item.dueDate?.toString())
     .putOpt("location", item.location)
+    .putOpt("notes", item.notes)
     .putOpt("calendar_id", item.calendarId)
     .putOpt("task_list_id", item.taskListId)
 
@@ -263,6 +267,9 @@ internal fun decodeItem(itemJson: JSONObject): Item? {
         allDay = itemJson.optBoolean("all_day"),
         dueDate = itemJson.optString("due_date").takeIf { it.isNotBlank() }?.let(LocalDate::parse),
         location = itemJson.optString("location").takeIf { it.isNotBlank() },
+        // FR-510's past-date note, added at record version 5. Absent on every earlier record,
+        // which is correct: no earlier record could have carried a follow-up.
+        notes = itemJson.optString("notes").takeIf { it.isNotBlank() },
         calendarId = itemJson.optString("calendar_id").takeIf { it.isNotBlank() },
         taskListId = itemJson.optString("task_list_id").takeIf { it.isNotBlank() },
         // Read back as queued, not as the draft it was: this record exists because the

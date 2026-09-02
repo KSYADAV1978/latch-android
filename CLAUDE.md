@@ -622,11 +622,43 @@ as an FR-804 reschedule (accepting one would patch a single item and discard the
 FR-803 runs **once per capture** before the chain is written, at the saver and at the drain
 alike. The queue holds a chain as one entry for the same reason.
 
-Also not built, and user-visible: FR-506 row 3's own date picker on the confirmation sheet —
-such a capture now goes to the Inbox, where a date *can* be assigned, so it is no longer lost,
-but the requirement asks for the picker to open there and then; FR-507's type override; and
-FR-510's past-date follow-up. Each is recorded against its requirement in the SRS. Further out:
-Settings (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
+**The three confirmation-screen requirements FR-807's note listed as unmet since SRS 1.12 are
+built.** FR-506 row 3's date picker is on the sheet, FR-507's Event/Task override is the badge
+itself, and FR-510's past-date follow-up is offered. Four things there are readings rather than
+mechanics, all recorded in SRS 1.44.
+
+**The picker is inline and already unfolded, not a modal.** FR-506 row 3 says it "opens
+automatically with suggestion chips", so the chips — Today, Tomorrow, In a week — are on screen
+without a tap and the full calendar is one tap behind them. A modal calendar appearing unbidden
+over a floating capture sheet would cover the very text the user is confirming. Nothing is
+pre-selected: design principle 1 forbids the *app* choosing a date, and a chip the user taps is
+the user choosing one.
+
+**FR-507's single control is the badge.** FR-508 already requires the EVENT/TASK badge to be
+visible at all times and, in a chain, on every item, so putting the override on it satisfies "a
+single control" literally and puts it where the classification is shown. It is on the Inbox's
+badge too, because FR-507 says "before saving" and a row is saved from there.
+
+**What an override to a Task costs is disclosed before the tap, not after.** §8.1: a time is
+discarded, and a range loses its closing day. This is the one place in the app where a user
+action deliberately loses something they wrote. It also supplies a second way out of FR-506
+row 3 — a time with no day, made a to-do, is an undated to-do — which is a consequence rather
+than a design and is written down so a later reader does not take it for an accident.
+
+**FR-510 is applied per candidate, and outranks FR-507.** Its "where the *only* date found is
+in the past" was written when a capture produced one item; with FR-511 a capture can hold a past
+date beside a future one. The follow-up is an **undated** task carrying the past date in its
+notes — undated because a follow-up needs a date only if the app picks one. There is no opt-out
+and that is the requirement rather than a narrowing: "shall not create a dated item" admits
+none, so the offer is take-it-or-leave-it and leaving it is unticking the row. A past row
+therefore cannot be overridden into an Event. **AC-04 is reachable for the first time.**
+
+`SheetEdits`, `withAssignedDates`, `withTypeOverrides`, `typeChangeCost` and `canOverrideTo` are
+pure and applied in exactly one place, so the badge, the checkbox, the blocker and the write all
+read the same rows — a screen that applied them itself would eventually show one thing and save
+another.
+
+Still not built: Settings (FR-1000 series) and the notification listener (FR-208). FR-908 is not built either —
 the calendar list is not refreshed on launch and a stored destination that has been deleted or
 has lost write access is not yet detected; the `TODO` in `LatchApplication.onCreate` marks where
 it goes. NFR-205's revoke is unbuilt, which is why `AuthClient.signOut` is still a no-op —
@@ -693,3 +725,28 @@ gap in this slice and the first thing to watch.
 | FR-806's Retry now | With something queued, the button appears and a tap drains. With a given-up entry, the tap revives it and it is attempted again | a 403 or an entry given up on |
 | **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms. The Inbox route adds a decision to the save path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
 | **AC-17 still holds** | A network monitor over a cycle including an Inbox save shows only Google hosts. The Inbox adds no network path, but it adds a save path | any capture cycle |
+
+### Slice 3 — FR-506 row 3, FR-507, FR-510
+
+Everything these three requirements *decide* is a pure function and is tested. What a device
+pass has to establish is that the controls are reachable, legible and not in each other's way on
+a narrow floating dialog — which is exactly the class of defect the FR-804 offer's clipped
+"Up…" label was, and which no JVM test can see.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **FR-506 row 3's chips are on screen without a tap** | The row shows "No day for this time yet" and nothing else, or the chips are below the fold of the sheet | "call at 4pm" |
+| A chip completes the row | Tapping *Tomorrow* fills the date line, **ticks the checkbox**, and Save becomes enabled. Failure: the row stays unticked, which makes the picker feel inert | "call at 4pm" |
+| `Other date…` opens the calendar over the sheet | The dialog appears and is dismissible; confirming is **disabled until a day is picked**, because a confirm that meant "today" would be the app choosing a date | "call at 4pm" |
+| The calendar's date is the one that lands | Pick 20 Sep; the item must be 20 Sep, not the 19th or 21st. The M3 picker's millis are UTC midnight and converting them through the device zone is the off-by-one this is here to catch | "call at 4pm", IST device |
+| **FR-507: the badge is tappable and flips** | EVENT → TASK → EVENT on a single row, and the date line and the note update with it | "Kickoff 8 September 2027 at 9am" |
+| The cost is shown **before** the tap | "…keeps the day but not the time" is visible while the badge still reads EVENT | as above |
+| An override reaches Google | Overridden to TASK, the save produces a **task due 8 Sep 2027** and no event | as above |
+| A range overridden to a task | The note names the lost end date, and the saved task is due on the **first** day | "Trip from 20 September to 24 September 2027" |
+| Per-row override in a chain | Two rows, one flipped: the save writes one event and one task | a two-date capture |
+| The override is on the Inbox too | The badge in the Inbox list flips and the saved item follows it | any Inbox row |
+| **AC-04** — a past date | "the order dated 12 March" → **no dated item**; one undated to-do whose notes begin "Originally dated 12 March 2026." Verified in Google Tasks, not on screen | "the order dated 12 March" |
+| A past row's badge is fixed | It reads TASK and does not flip, with "A past date cannot be an event." beside it | as above |
+| FR-510 per candidate | "Invoice dated 12 March, payment due 20 September 2027" → **two** items: an undated follow-up and a task due 20 Sep | as quoted |
+| A queued follow-up keeps its note | Aeroplane mode, capture a past date, reconnect: the note survives the queue (record v5) and is in the item Google receives | as above, offline |
+| **The action row still fits** | With chips, a badge, a cost note and Save on one sheet, nothing clips and nothing wraps mid-word. This is the defect class the FR-804 offer already produced once | a past-dated multi-row capture |

@@ -11,15 +11,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,8 +42,13 @@ import com.latch.android.capture.DestinationState
 import com.latch.android.capture.DraftBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
+import com.latch.android.capture.DateSuggestion
 import com.latch.android.capture.SaveRoute
 import com.latch.android.capture.SaveState
+import com.latch.android.capture.TypeChangeCost
+import com.latch.android.capture.canOverrideTo
+import com.latch.android.capture.dateFrom
+import com.latch.android.capture.typeChangeCost
 import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.candidateBlocker
 import com.latch.android.capture.titleFor
@@ -49,6 +63,8 @@ import com.latch.ocr.PageProgress
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import kotlinx.coroutines.delay
@@ -101,6 +117,18 @@ fun CaptureScreen(
     /** FR-511: the candidates still ticked, by index. All of them to begin with. */
     selected: Set<Int> = emptySet(),
     onToggleCandidate: (Int) -> Unit = {},
+    /**
+     * FR-506 row 3: the user gave this row a day. The index is into `result.candidates`.
+     */
+    onAssignDate: (Int, LocalDate) -> Unit = { _, _ -> },
+    /** FR-507: the user tapped the badge. The index is into `result.candidates`. */
+    onOverrideType: (Int, ItemType) -> Unit = { _, _ -> },
+    /**
+     * Today, for FR-506 row 3's suggestion chips. Passed in rather than read here so the sheet
+     * stays a function of its inputs and the chips are testable — the same reason
+     * `ParseContext` takes `now` rather than reading a clock (FR-515).
+     */
+    today: LocalDate = LocalDate.now(),
     /** NFR-102: an image or PDF is still being recognised, and this screen draws anyway. */
     extracting: Boolean = false,
     /**
@@ -176,7 +204,7 @@ fun CaptureScreen(
                     style = MaterialTheme.typography.bodyLarge,
                 )
             } else {
-                CaptureBody(captured, result, selected, onToggleCandidate)
+                CaptureBody(captured, result, selected, onToggleCandidate, onAssignDate, onOverrideType, today)
 
                 // FR-207: the cap is reported, never applied silently. Only where it bit —
                 // "first 10 of 10 pages read" is a message about nothing, and a user who
@@ -275,6 +303,9 @@ private fun CaptureBody(
     result: ParseResult,
     selected: Set<Int>,
     onToggleCandidate: (Int) -> Unit,
+    onAssignDate: (Int, LocalDate) -> Unit,
+    onOverrideType: (Int, ItemType) -> Unit,
+    today: LocalDate,
 ) {
     val candidate = result.primary
 
@@ -287,7 +318,10 @@ private fun CaptureBody(
     val single = result.candidates.size == 1
 
     if (single) {
-        ItemTypeBadge(candidate)
+        // FR-507: the badge is the control. FR-508 already requires it to be visible at all
+        // times, and putting the override on it satisfies "a single control" literally — the
+        // classification and the way to change it are the same thing on screen.
+        ItemTypeBadge(candidate, onOverride = { onOverrideType(0, it) })
     }
 
     // FR-509a moved the title of an OCR capture onto the row carrying each date, so the
@@ -308,11 +342,13 @@ private fun CaptureBody(
             style = MaterialTheme.typography.bodyLarge,
         )
 
-        // FR-510: a past date never becomes a dated item; the user is offered a follow-up.
+        // FR-510: a past date never becomes a dated item; a follow-up is written instead.
         // Per row otherwise — CandidateRow shows it for whichever rows are actually past.
-        if (candidate.isPast) {
-            Note(stringResource(R.string.capture_past_date))
-        }
+        PastDateNote(candidate)
+
+        // FR-507's disclosure, and FR-506 row 3's picker, for the single-candidate case.
+        OverrideCost(candidate)
+        DayPicker(candidate, today) { onAssignDate(0, it) }
     }
 
     // FR-504: the resolved interpretation is shown before saving, never assumed. Header-level
@@ -339,6 +375,9 @@ private fun CaptureBody(
                 title = if (perRowTitles) titleFor(captured, result, each) else null,
                 checked = index in selected,
                 onToggle = { onToggleCandidate(index) },
+                onAssignDate = { onAssignDate(index, it) },
+                onOverrideType = { onOverrideType(index, it) },
+                today = today,
             )
         }
     }
@@ -364,6 +403,9 @@ private fun CandidateRow(
     title: String?,
     checked: Boolean,
     onToggle: () -> Unit,
+    onAssignDate: (LocalDate) -> Unit,
+    onOverrideType: (ItemType) -> Unit,
+    today: LocalDate,
 ) {
     val blocker = candidateBlocker(candidate)
 
@@ -375,7 +417,9 @@ private fun CandidateRow(
         )
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ItemTypeBadge(candidate)
+                // FR-507, per row. FR-508 requires a badge on every item in a chain, so the
+                // override follows it there rather than being a separate control somewhere else.
+                ItemTypeBadge(candidate, onOverride = onOverrideType)
                 Spacer(Modifier.width(8.dp))
                 Text(text = whenLine(candidate), style = MaterialTheme.typography.bodyMedium)
             }
@@ -392,11 +436,13 @@ private fun CandidateRow(
             if (blocker == DraftBlocker.NEEDS_A_DATE) {
                 Note(stringResource(R.string.capture_row_needs_date))
             }
-            // FR-510, per row now rather than per capture: a past date is still saved as
-            // read, and the follow-up that requirement describes is not built.
-            if (candidate.isPast) {
-                Note(stringResource(R.string.capture_past_date))
-            }
+            // FR-506 row 3: the picker, on the row that needs it, already unfolded.
+            DayPicker(candidate, today, onAssignDate)
+            // FR-510, per row: a past date is written as an undated follow-up, never as a
+            // dated item, and the note says which.
+            PastDateNote(candidate)
+            // FR-507's cost, said before the tap rather than after it.
+            OverrideCost(candidate)
             // FR-504, likewise per row. These used to be shown for the primary alone, which
             // in a multi-date capture meant an ambiguous date that was *not* the primary got
             // no interpretation shown at all — "Invoice dated 05/09 and review on 12
@@ -504,8 +550,19 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
  * user always knows whether this is going to Calendar or to Tasks.
  */
 @Composable
-private fun ItemTypeBadge(candidate: DatedCandidate) {
-    val label = when (candidate.classification.itemType) {
+private fun ItemTypeBadge(
+    candidate: DatedCandidate,
+    /**
+     * FR-507: the badge is the override. Null where there is nothing to change — a past row,
+     * which FR-510 forbids being an event.
+     */
+    onOverride: ((ItemType) -> Unit)? = null,
+) {
+    val current = candidate.classification.itemType
+    val other = if (current == ItemType.EVENT) ItemType.TASK else ItemType.EVENT
+    val changeable = onOverride != null && canOverrideTo(candidate, other)
+
+    val label = when (current) {
         ItemType.EVENT -> R.string.badge_event
         ItemType.TASK -> R.string.badge_task
     }
@@ -518,8 +575,129 @@ private fun ItemTypeBadge(candidate: DatedCandidate) {
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = MaterialTheme.shapes.small,
             )
+            .let { if (changeable) it.clickable { onOverride?.invoke(other) } else it }
             .padding(horizontal = 8.dp, vertical = 4.dp),
     )
+}
+
+/**
+ * FR-510, on the row it applies to.
+ *
+ * It says what **will** happen rather than warning about what will not: the row still saves, as
+ * an undated follow-up carrying the past date in its notes, so a sentence beginning "cannot"
+ * would be simply false. It also says why the badge on this row is fixed.
+ */
+@Composable
+private fun PastDateNote(candidate: DatedCandidate) {
+    val date = candidate.date?.value ?: return
+    if (!candidate.isPast) return
+    Note(stringResource(R.string.capture_past_date, date.format(DATE_FORMAT)))
+    if (candidate.classification.itemType == ItemType.TASK) {
+        Note(stringResource(R.string.capture_past_no_event))
+    }
+}
+
+/**
+ * FR-507's cost, disclosed **before** the tap.
+ *
+ * §8.1 is the reason there is one: the Tasks API records only a date, so an event with a time
+ * loses it and a range loses its closing day. This is the one place in the app where a user
+ * action deliberately discards something they wrote, and doing that quietly would be the
+ * silent behaviour NFR-303 forbids of a failure, applied to a choice.
+ */
+@Composable
+private fun OverrideCost(candidate: DatedCandidate) {
+    if (candidate.classification.itemType != ItemType.EVENT) return
+    if (candidate.isPast) return
+    val cost = typeChangeCost(candidate, ItemType.TASK) ?: return
+    Note(
+        stringResource(
+            when (cost) {
+                TypeChangeCost.LOSES_TIME -> R.string.capture_override_loses_time
+                TypeChangeCost.LOSES_END_DATE -> R.string.capture_override_loses_end
+                TypeChangeCost.LOSES_TIME_AND_END_DATE -> R.string.capture_override_loses_time_and_end
+            }
+        )
+    )
+}
+
+/**
+ * FR-506 row 3: "Date picker opens automatically with suggestion chips".
+ *
+ * **Inline and already unfolded, not a modal.** The chips are on screen the moment the row is —
+ * no tap to reach them, which is what "opens automatically" asks for — and the full calendar is
+ * one tap behind `Other date…`. A modal calendar appearing unbidden over a floating capture
+ * sheet would cover the very text the user is being asked to confirm, which is the opposite of
+ * what a confirmation screen is for.
+ *
+ * Nothing is pre-selected. Design principle 1 forbids the *app* choosing a date; a chip the
+ * user taps is the user choosing one, and the row stays unticked until they do.
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun DayPicker(
+    candidate: DatedCandidate,
+    today: LocalDate,
+    onAssignDate: (LocalDate) -> Unit,
+) {
+    if (candidate.date != null) return
+    if (candidate.classification.itemType != ItemType.EVENT) return
+
+    var pickingDate by remember { mutableStateOf(false) }
+
+    Note(stringResource(R.string.capture_pick_a_day))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        DateSuggestion.entries.forEach { suggestion ->
+            AssistChip(
+                onClick = { onAssignDate(suggestion.dateFrom(today)) },
+                label = {
+                    Text(
+                        stringResource(
+                            when (suggestion) {
+                                DateSuggestion.TODAY -> R.string.capture_chip_today
+                                DateSuggestion.TOMORROW -> R.string.capture_chip_tomorrow
+                                DateSuggestion.IN_A_WEEK -> R.string.capture_chip_in_a_week
+                            }
+                        )
+                    )
+                },
+            )
+        }
+        AssistChip(
+            onClick = { pickingDate = true },
+            label = { Text(stringResource(R.string.capture_chip_other)) },
+        )
+    }
+
+    if (pickingDate) {
+        val state = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { pickingDate = false },
+            confirmButton = {
+                TextButton(
+                    // Disabled rather than defaulting to today: a confirm button that quietly
+                    // meant "today" would be the app choosing a date with a tap in front of it.
+                    enabled = state.selectedDateMillis != null,
+                    onClick = {
+                        state.selectedDateMillis?.let {
+                            pickingDate = false
+                            // The component's millis are UTC midnight by contract, not a zone
+                            // the user is in. Converting through the device zone here is the
+                            // off-by-one-day bug this comment exists to prevent.
+                            onAssignDate(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate())
+                        }
+                    },
+                ) { Text(stringResource(R.string.capture_date_picker_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickingDate = false }) {
+                    Text(stringResource(R.string.capture_date_picker_cancel))
+                }
+            },
+        ) {
+            DatePicker(state = state)
+        }
+    }
 }
 
 @Composable

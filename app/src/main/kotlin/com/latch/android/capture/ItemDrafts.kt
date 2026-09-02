@@ -9,6 +9,8 @@ import com.latch.parser.ParseResult
 import com.latch.parser.TitleExtractor
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 /**
  * Turns what the parser read into the items a save will create.
@@ -25,8 +27,11 @@ import java.time.LocalDateTime
 /** Why a capture cannot be saved, where it cannot. Named, not phrased — NFR-402. */
 enum class DraftBlocker {
     /**
-     * FR-506 row 3: a time with no date. The requirement's answer is a date picker with
-     * suggestions, which is not built, and there is no start to be had without one.
+     * FR-506 row 3: a time with no date, and no date given for it yet.
+     *
+     * The requirement's answer is a date picker with suggestion chips, and the confirmation
+     * sheet has one — so this is now a state the user can leave rather than a wall. It is also
+     * left by FR-507's override (a task needs no day) and by the Inbox.
      */
     NEEDS_A_DATE,
 }
@@ -59,6 +64,12 @@ fun draftItems(
     captureId: String,
     chainId: String,
     selected: Set<Int> = result.candidates.indices.toSet(),
+    /**
+     * FR-510: how the past date is worded in the follow-up's notes, as a format string taking
+     * the date. Passed in because it is user-facing text and NFR-402 keeps that in
+     * `strings.xml` — the same arrangement as `CaptureSaver`'s source-link template.
+     */
+    pastDateNoteTemplate: String = "",
 ): DraftResult {
     val drafted = result.candidates
         .withIndex()
@@ -79,6 +90,35 @@ fun draftItems(
 
     val items = drafted.mapIndexed { index, candidate ->
         val title = titleFor(captured, result, candidate)
+
+        // FR-510, and it outranks the classification rather than sitting beside it: "where the
+        // only date found is in the past, the app shall **not** create a dated item. It shall
+        // offer instead to create a follow-up, with the past date recorded in the notes."
+        //
+        // Applied per candidate rather than per capture (SRS 1.44). The requirement's "the only
+        // date found" was written when a capture produced one item; with FR-511 a capture can
+        // hold a past date beside a future one, and writing the past one as a dated item because
+        // it was not the *only* date would be the outcome this exists to prevent.
+        //
+        // The follow-up is undated, because a follow-up needs a date only if the app picks one
+        // and picking one is what design principle 1 forbids. It also outranks FR-507's
+        // override: an Event is a dated item, so a past row cannot be made one.
+        if (candidate.isPast && candidate.date != null) {
+            return@mapIndexed Item(
+                id = itemId(chainId, index),
+                captureId = captureId,
+                chainId = chainId,
+                type = ItemType.TASK,
+                title = title,
+                dueDate = null,
+                location = result.location?.value,
+                notes = pastDateNoteTemplate
+                    .takeIf { it.isNotBlank() }
+                    ?.format(candidate.date!!.value.format(PAST_DATE_FORMAT)),
+                taskListId = defaults.taskListId,
+            )
+        }
+
         when (candidate.classification.itemType) {
             ItemType.EVENT -> eventItem(
                 candidate = candidate,
@@ -171,6 +211,15 @@ private fun eventItem(
     )
 }
 
+/**
+ * FR-510's date, written the way a person reads one.
+ *
+ * ISO would be unambiguous and is the wrong choice here: this string goes into a note the user
+ * reads in Google Tasks, not into a wire format, and §4.1's other clients never parse it back.
+ */
+private val PAST_DATE_FORMAT: DateTimeFormatter =
+    DateTimeFormatter.ofLocalizedDate(FormatStyle.LONG)
+
 /** Derived from the chain id so a redraft of the same save produces the same ids. */
 private fun itemId(chainId: String, index: Int) = "$chainId#$index"
 
@@ -255,11 +304,15 @@ fun draftBlocker(result: ParseResult): DraftBlocker? =
 /**
  * Why this one candidate cannot be written, or null where it can.
  *
- * Per candidate rather than per capture since SRS 1.23. FR-506 row 3 — a time with no day —
- * needs the date picker that requirement describes, which is not built; until it is, such a
- * row is shown with its reason and left untickable while the rest of the capture saves.
+ * Per candidate rather than per capture since SRS 1.23: such a row is shown with its reason and
+ * left untickable while the rest of the capture saves. Since v1.44 the sheet also offers the
+ * date picker FR-506 row 3 describes, so the row can be completed in place rather than only
+ * explained.
  */
 fun candidateBlocker(candidate: DatedCandidate): DraftBlocker? {
+    // FR-510: a past row is written as an undated follow-up whatever its classification says,
+    // so it is never waiting on a date and must not be reported as blocked.
+    if (candidate.isPast && candidate.date != null) return null
     val needsDate = candidate.classification.itemType == ItemType.EVENT && candidate.date == null
     return if (needsDate) DraftBlocker.NEEDS_A_DATE else null
 }

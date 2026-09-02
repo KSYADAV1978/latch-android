@@ -85,6 +85,9 @@ class CaptureActivity : ComponentActivity() {
 
         val openedAt = SystemClock.elapsedRealtime()
         val parseContext = ParseContext(now = LocalDateTime.now(), zone = ZoneId.systemDefault())
+        // FR-506 row 3's chips and FR-510's past test both need today. Read once, here, so the
+        // sheet does not disagree with itself across a recomposition at midnight.
+        val today = parseContext.now.toLocalDate()
         val referrer = referrerPackage()
 
         // Text is resolved before the first frame, as it always was. Only an OCR capture
@@ -115,8 +118,22 @@ class CaptureActivity : ComponentActivity() {
                 // parser by exactly one route. `remember` keyed on the text keeps a
                 // recomposition from re-parsing; it is cheap, but it is not free and the
                 // FR-807 countdown recomposes this screen every 200 ms.
-                val result = remember(captured?.text) {
+                val parsed = remember(captured?.text) {
                     captured?.let { DateParser.parse(it.text, parseContext) }
+                }
+
+                // FR-506 row 3 and FR-507: what the user has changed on this sheet. Held here
+                // rather than by the screen because the saver has to write exactly what the
+                // screen showed, and the way to guarantee that is for both to read one value.
+                // Keyed on the parse so a capture arriving over this one starts clean.
+                var edits by remember(parsed) { mutableStateOf(SheetEdits()) }
+
+                // Applied in one place, so the badge, the checkbox, the blocker and the write
+                // all see the same rows. A screen that applied them itself would eventually
+                // show one thing and save another — the divergence a confirmation screen
+                // exists to make impossible.
+                val result = remember(parsed, edits) {
+                    parsed?.withEdits(edits, today)
                 }
 
                 // FR-511: every date starts ticked, and the choice belongs to this screen
@@ -165,6 +182,18 @@ class CaptureActivity : ComponentActivity() {
                     onToggleCandidate = { index ->
                         selected = if (index in selected) selected - index else selected + index
                     },
+                    // FR-506 row 3. The row becomes tickable the moment it has a day, and is
+                    // ticked here rather than waiting for a second tap: the user has just
+                    // finished it, and leaving it unticked would make the picker feel inert.
+                    onAssignDate = { index, date ->
+                        edits = edits.copy(assignedDates = edits.assignedDates + (index to date))
+                        selected = selected + index
+                    },
+                    // FR-507.
+                    onOverrideType = { index, type ->
+                        edits = edits.copy(typeOverrides = edits.typeOverrides + (index to type))
+                    },
+                    today = today,
                     onSave = {
                         if (captured != null && result != null) {
                             app.captureSaver.save(captured, result, parseContext, selected)

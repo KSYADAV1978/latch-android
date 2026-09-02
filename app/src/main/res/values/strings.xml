@@ -15,7 +15,37 @@
 
     <string name="capture_no_date">No date found</string>
     <string name="capture_undated_explanation">This will be saved without a date. Latch never guesses one.</string>
-    <string name="capture_past_date">That date has already passed. Latch will offer a follow-up instead of a dated item.</string>
+    <!--
+      FR-510: a past date never becomes a dated item. The row still saves — as an undated
+      follow-up — so the sentence says what will happen rather than warning about what will not.
+    -->
+    <string name="capture_past_date">%1$s has passed. Latch will save a follow-up to-do instead of a dated item.</string>
+    <!-- FR-510: "with the past date recorded in the notes". This is that note. -->
+    <string name="capture_past_date_note">Originally dated %1$s.</string>
+    <!-- FR-510 outranks FR-507: an Event is a dated item, and a past date may not become one. -->
+    <string name="capture_past_no_event">A past date cannot be an event.</string>
+
+    <!--
+      FR-506 row 3: "Date picker opens automatically with suggestion chips". The chips are on
+      screen without a tap and the full calendar is one tap behind them — a modal calendar
+      opening unbidden over the capture sheet would cover the text being confirmed.
+    -->
+    <string name="capture_pick_a_day">Pick a day for this one:</string>
+    <string name="capture_chip_today">Today</string>
+    <string name="capture_chip_tomorrow">Tomorrow</string>
+    <string name="capture_chip_in_a_week">In a week</string>
+    <string name="capture_chip_other">Other date…</string>
+    <string name="capture_date_picker_confirm">Use this date</string>
+    <string name="capture_date_picker_cancel">Cancel</string>
+
+    <!--
+      FR-507: the override is the badge itself — "a single control" taken literally, and put
+      where FR-508 already requires the classification to be shown.
+    -->
+    <string name="capture_override_hint">Tap the badge to switch between event and to-do.</string>
+    <string name="capture_override_loses_time">As a to-do this keeps the day but not the time — Google Tasks has no time of day.</string>
+    <string name="capture_override_loses_end">As a to-do this keeps the first day but not the last — a to-do has one date, not a span.</string>
+    <string name="capture_override_loses_time_and_end">As a to-do this keeps the first day only — no time, and no closing date.</string>
     <string name="capture_ambiguous_order">Read as %1$s. Change the date order in Settings.</string>
     <string name="capture_ambiguous_relative">Pick a day to finish this one.</string>
     <!-- FR-511: more than one date in a single capture, each with its own checkbox. -->

@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
                                     onBack = { showingInbox = false },
                                     onAssignDate = app.inboxCoordinator::assignDate,
                                     onEditTitle = app.inboxCoordinator::editTitle,
+                                    onOverrideType = app.inboxCoordinator::overrideType,
                                     onSave = app.inboxCoordinator::save,
                                     onSnooze = { app.inboxCoordinator.snooze(it) },
                                     onDiscard = app.inboxCoordinator::discard,

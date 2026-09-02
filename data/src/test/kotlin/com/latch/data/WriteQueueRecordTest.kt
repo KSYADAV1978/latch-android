@@ -381,4 +381,26 @@ class WriteQueueRecordTest {
         assertTrue(restored.needsSignIn)
         assertFalse(restored.givenUp, "a held entry must not be recorded as given up on")
     }
+
+    @Test
+    fun `FR-510's past-date note survives the record`() {
+        // The note is the whole of what FR-510 requires be kept — "with the past date recorded
+        // in the notes" — so a queued follow-up that lost it on the way to disk would satisfy
+        // the requirement on screen and not in the user's account.
+        val withNote = entry().let { queued ->
+            queued.copy(
+                write = queued.write.copy(
+                    items = listOf(queued.write.item.copy(notes = "Originally dated 12 March 2026.")),
+                ),
+            )
+        }
+        val decoded = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(withNote)))
+        assertEquals("Originally dated 12 March 2026.", decoded.write.item.notes)
+    }
+
+    @Test
+    fun `an item with no note decodes to none rather than to an empty string`() {
+        val decoded = assertNotNull(decodeQueuedWrite(encodeQueuedWrite(entry())))
+        assertNull(decoded.write.item.notes)
+    }
 }

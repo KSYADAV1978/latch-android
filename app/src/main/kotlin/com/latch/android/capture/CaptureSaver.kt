@@ -24,6 +24,7 @@ import com.latch.data.UndoOfferStore
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.WrittenItem
+import com.latch.data.bodyWithNote
 import com.latch.data.isWorthRetrying
 import com.latch.data.itemKeyOf
 import com.latch.data.sourceBlock
@@ -46,7 +47,13 @@ enum class SaveFailure {
     /** Setup has not run, or its defaults were unreadable. */
     NO_DESTINATION,
 
-    /** FR-506 row 3: a time with no date, and no picker to finish it with. */
+    /**
+     * FR-506 row 3: a time with no day, and the row has not been given one.
+     *
+     * Reachable only where **every** ticked row is in that state; SRS 1.23 makes such a
+     * candidate block itself and not its neighbours. The sheet's own picker (FR-506 row 3) and
+     * FR-507's override are both ways out of it, and the Inbox is the third.
+     */
     NEEDS_A_DATE,
 
     /** The write did not reach Google. NFR-303: this must be said, never swallowed. */
@@ -75,7 +82,7 @@ enum class SaveBlocker {
     /** Setup has not run, or its defaults were dropped. FR-906: there is nowhere safe to route. */
     NO_DESTINATION,
 
-    /** FR-506 row 3: a time with no day, and no picker to finish it with. */
+    /** FR-506 row 3: a time with no day, and no row has been given one. */
     NEEDS_A_DATE,
 
     /** A save is already in flight, or has finished. */
@@ -306,6 +313,12 @@ class CaptureSaver(
      * the same arrangement as the Latch calendar's name in `SetupCoordinator`.
      */
     private val sourceLinkTemplate: String,
+    /**
+     * FR-510's note, as a format string taking the past date. Here for the same reason
+     * [sourceLinkTemplate] is: it is text the user reads, and NFR-402 keeps that in
+     * `strings.xml` rather than in a module that has no access to resources.
+     */
+    private val pastDateNoteTemplate: String = "",
 ) {
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
@@ -466,7 +479,16 @@ class CaptureSaver(
         val chainId = UUID.randomUUID().toString()
         val capturedAt = Instant.now()
 
-        val draft = draftItems(captured, result, context, defaults, captureId, chainId, selected)
+        val draft = draftItems(
+            captured = captured,
+            result = result,
+            context = context,
+            defaults = defaults,
+            captureId = captureId,
+            chainId = chainId,
+            selected = selected,
+            pastDateNoteTemplate = pastDateNoteTemplate,
+        )
         if (draft is DraftResult.Blocked) {
             _state.value = SaveState.Failed(SaveFailure.NEEDS_A_DATE)
             return
@@ -992,7 +1014,10 @@ class CaptureSaver(
                     calendarId = defaults.destinationCalendarId,
                     event = EventWrite(
                         summary = item.title,
-                        description = body,
+                        // FR-510's past date leads the FR-805 body where there is one. An event
+                        // never carries it today — a follow-up is a task — but the composition
+                        // is the same on both transports so it cannot drift.
+                        description = bodyWithNote(item.notes, body),
                         location = item.location,
                         start = requireNotNull(item.start),
                         end = requireNotNull(item.end),
@@ -1010,7 +1035,8 @@ class CaptureSaver(
                     taskListId = defaults.taskListId,
                     task = TaskWrite(
                         title = item.title,
-                        notes = body,
+                        // FR-510: "with the past date recorded in the notes".
+                        notes = bodyWithNote(item.notes, body),
                         due = item.dueDate,
                         metadata = metadata,
                     ),
