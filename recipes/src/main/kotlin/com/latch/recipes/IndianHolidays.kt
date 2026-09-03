@@ -26,4 +26,17 @@ object IndianHolidays {
 
     fun calendarFor(years: IntRange): HolidayCalendar =
         HolidayCalendar(years.flatMap(::fixedDateHolidays))
+
+    /**
+     * The bundled list a client hands to FR-605's arithmetic, over the years it can reach.
+     *
+     * **The window is a shared decision and not each client's**, which is why it moved here: a
+     * recipe step can look a few days either side of a capture, an Inbox row can be replayed
+     * against the instant it was captured at (FR-515), and a client with a narrower window would
+     * step over a holiday its neighbour honoured — the same chain, two answers, from one
+     * account. Three years back covers a replayed capture; five forward covers a renewal
+     * captured well ahead of its date.
+     */
+    fun around(today: LocalDate): List<Holiday> =
+        ((today.year - 3)..(today.year + 5)).flatMap(::fixedDateHolidays)
 }

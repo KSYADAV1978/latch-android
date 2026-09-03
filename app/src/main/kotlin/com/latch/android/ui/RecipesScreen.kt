@@ -30,8 +30,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
-import com.latch.android.recipes.isShippedUnedited
-import com.latch.android.recipes.withOffset
+import com.latch.recipes.isShippedUnedited
+import com.latch.recipes.withOffset
 import com.latch.core.model.Direction
 import com.latch.core.model.ItemType
 import com.latch.core.model.OffsetUnit

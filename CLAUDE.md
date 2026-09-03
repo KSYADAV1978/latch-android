@@ -16,7 +16,7 @@ requirement ID in your summary so work can be traced back.
 | `:app` | Android application | Capture entry points, first-run setup, Compose confirmation UI |
 | `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1, including FR-701's `InboxCapture` and `InboxReason` — §7.1's `Capture` carries `state (inbox / saved / discarded)`, so which client holds a row is a storage question and what a row *is* is not — and FR-1001's `LatchSettings`, because three of its fields reach `ParseContext` and a parse two clients read differently is the drift `:wire` exists against |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
-| `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
+| `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series), FR-603's edit rules and FR-602's shadowing — a client that minted a new id when editing a built-in would show nine entries where the other showed eight |
 | `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
 | `:google` | pure Kotlin (JVM) | **Every request either client makes to Google.** The API contracts and their REST implementations, FR-803/FR-804's duplicate and reschedule queries, AC-17's `ALLOWED_HOSTS` guard, and a hand-written JSON — because `org.json` ships inside `android.jar` and nowhere else |
 | `:webhook` | pure Kotlin (JVM) | **FR-1004, and it is not `:google` on purpose.** AC-17 rests on every request this project composes going through `ALLOWED_HOSTS`; the webhook is the single documented exception (NFR-201, AC-18), so it is sent by a different client with narrower rules. Keeping it out of `:google` is what keeps that module's description true, and what makes FR-1004b's exclusion from the write queue structural rather than remembered |
@@ -29,6 +29,8 @@ Dependencies point one way: `:app` and `:desktop` → `:data`/`:google`/`:webhoo
 hand-written JSON and nothing else; a test asserts it imports nothing else from there. `:desktop` never touches `:data`,
 which is Android storage; it has its own.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
+`:wire` depends on both: FR-600's chain is part of what Google receives, so `RecipeChain` sits
+beside `ItemDrafts` rather than in a client.
 `:ocr` depends on neither — it returns text, and what that text means is the parser's business.
 
 ## How to build and test
@@ -1103,7 +1105,7 @@ pressed by a person** — the model is tested, the Swing is not.
 | ~~**FR-1000 Settings**~~ | **Built 3 Sep 2026 (SRS 1.67), JVM-verified and HUMAN-OWED.** FR-302's hotkey, FR-504's date order, the default duration and reminders, FR-512's threshold, FR-605's working week and the time zone. `LatchSettings` moved to `:core-model` and `parseContextFor` to `:wire`, so a preference now actually reaches the parse — until this slice the desktop built a bare `ParseContext(now = LocalDateTime.now())` and **every FR-1001 preference was inert here**. Still absent and **named on the screen** with their requirement numbers: FR-900's picker and with it FR-1002's Option A/B switch, FR-1003's layer toggles, FR-600's recipes. **Nobody has opened the window or changed the hotkey.** |
 | **FR-900 destination** | `DesktopSetup` takes the Option B default and says which calendar it chose. No picker (FR-901/902/904), no hidden-calendar badge (FR-903), no routing rules (FR-905), no override-three-times offer (FR-907), and **no FR-908 refresh** — a Latch calendar deleted in Google would not be noticed. |
 | ~~**FR-700 Capture Inbox**~~ | **Built 3 Sep 2026 (SRS 1.66), JVM-verified and HUMAN-OWED.** `saveRoute` moved into `:wire`, so both clients route on one compiled decision; the store is `inbox.dat` under DPAPI, one row per line. FR-701 to FR-705 all reach a screen. **Nobody has opened the window.** |
-| **FR-600 recipes** | Nothing. `:recipes` is on the classpath and unused. |
+| ~~**FR-600 recipes**~~ | **Built 3 Sep 2026 (SRS 1.69), JVM-verified and HUMAN-OWED.** A chooser on the capture popup, FR-606's skipped-days line on each step, FR-608's per-step ticks, and FR-603's editor behind the tray. `RecipeChain` moved into `:wire` and FR-603's rules into `:recipes`, so both clients expand one recipe the same way. **Nobody has applied one, and no chain has ever been written from this client.** |
 | ~~**FR-1004 webhook**~~ | **Built 3 Sep 2026 (SRS 1.68), JVM-verified and HUMAN-OWED.** The payload, endpoint rules, masking and sender moved into a new `:webhook` module — separate from `:google` so that module's own description stays true, which is what AC-17 rests on. Endpoint under DPAPI, masked on screen, FR-1004's warning above the field, FR-1004b's offline consequence stated. **No delivery has ever reached a real endpoint from either client.** |
 | **NFR-205 disconnect** | Nothing. Signing out forgets the local sign-in and the destination; it does **not** revoke the grant at Google, and there is no "delete everything" action. `oauth2.googleapis.com` is already in `ALLOWED_HOSTS` for it. |
 | **FR-305 MSIX** | Publisher work; needs the Windows SDK. `docs/RELEASE-WINDOWS.md`. |
@@ -1115,9 +1117,14 @@ pressed by a person** — the model is tested, the Swing is not.
 **Deliberately narrowed rather than missing**, so they are not counted above: no notification capture (FR-208 to FR-212 are Android layers), and the queue drains only while Latch runs.
 
 **What is built and working** — for completeness, since the list above is long: FR-301, FR-302,
-FR-303, FR-304, FR-002's grant, FR-701 to FR-705, FR-801, FR-802, FR-803, FR-804, FR-806,
-FR-807, FR-1001 (for what this client has), FR-1004/1004a/1004b, FR-1005, and
+FR-303, FR-304, FR-002's grant, FR-601 to FR-608, FR-701 to FR-705, FR-801, FR-802, FR-803,
+FR-804, FR-806, FR-807, FR-1001 (for what this client has), FR-1004/1004a/1004b, FR-1005, and
 FR-502/509/509a/509b/510/511 through the shared modules.
+
+**What the Windows client still lacks, after 3 Sep 2026**: FR-900's destination picker and with
+it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's multiple accounts,
+NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
+is built and awaiting a person.
 
 ### Human pass backlog — Windows
 
@@ -1136,6 +1143,17 @@ fail*, then *the fixture*.
 | **Sign-in, end to end** | Needs FR-001's Desktop client. Browser opens, consent granted, tray says which calendar. Failure: no refresh token, which looks like working software until the hour is up | a real account |
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
 | **AC-03 on Windows** | Capture text with no date. The popup must say **"Held in the Latch Inbox on this PC"** and **nothing** must appear in Google Calendar or Tasks. Failure is the old behaviour: an undated to-do written to the account, which is what this client did until SRS 1.66 | "Ask about the uniform order" |
+| **AC-06 on this client** | Capture "Project sync on 8 September 2026 at 11:00", pick **Meeting + prep** from the chooser: three rows, the prep step on **Thu 3 Sep**, and a line saying the weekend was skipped. 8 Sep 2026 is a Tuesday, which is what makes the step cross a weekend at all | as quoted |
+| **A chain reaches Google intact** | Save it and inspect the **items in Google**, not the screen: one event and two tasks, all in the Latch calendar and the chosen list, sharing one `latch.chain_id`, with `latch.recipe` reading `builtin.meeting_prep`. This is the first chain this client has ever written | as above |
+| **A reminder actually fires** | The event in Google Calendar carries a 30-minute popup reminder rather than the calendar's default. `RecipeStep.reminderOffsets` reached nothing on either client until the Android slice, and nothing at all here until now | as above |
+| **FR-608** | Untick the prep step before saving: **two** items are written and nothing lands on 3 Sep | as above |
+| **"Just this one" puts the capture back** | Pick a recipe, then press it: the ordinary rows return and Save writes one item. Failure is a popup stuck in a chain the user did not want, on a window a stray click closes | as above |
+| **The chooser is absent for good reason** | A four-date capture shows the **reason** and no chooser. A capture with no date says so. Failure is silence, which reads as a missing feature | any multi-date capture |
+| **FR-605 from Settings** | Set a six-day working week; the same AC-06 capture must put prep on **Fri 4 Sep** instead of Thursday. This is the first check that Settings and recipes are wired to one another | Settings, then AC-06's capture |
+| **FR-603, all four verbs** | Create, edit, duplicate, delete — each surviving a close and reopen of the window, and a restart of Latch. **Editing a built-in must not change the others**, and deleting the edit must restore the shipped one rather than removing the row | the Recipes window |
+| **The editor is usable** | Several steps, each with a type, an offset, a unit, a direction, a title template and reminders. Tab must reach all of it | a recipe with three steps |
+| **A queued chain keeps its reminders** | Wi-Fi off, apply a recipe, save, reconnect: the drained event still carries the reminder | AC-06's capture, offline |
+| **FR-803 over a chain** | Re-capturing the same text with the same recipe answers "Already saved" — the chain shares one `source_hash`, so one check covers it | AC-06's capture, twice |
 | **AC-18 — exactly one webhook request** | Configure a `https://` request-bin endpoint, tick the box, Save, then capture and save something with a network monitor running. **Exactly one** request to that endpoint and no other non-Google traffic. This is the criterion, and **no delivery has ever reached a real endpoint from either client** | a request-bin style endpoint |
 | **The accepted path at all** | The JVM tests reach every refusal and no acceptance: the sender refuses anything that is not HTTPS and there is no way to mint a certificate for a test listener. A 200 from a real endpoint is the whole of what is owed here | as above |
 | **AC-20 — an unreachable endpoint costs nothing** | Point it at `https://127.0.0.1:9/hook` and save: the item still reaches Google, the capture window says "Saved" with no error, and Undo still works. Settings then says it could not be reached | `https://127.0.0.1:9/hook` |

@@ -1,10 +1,10 @@
-package com.latch.android.capture
+package com.latch.wire
 
-import com.latch.android.recipes.duplicateOf
-import com.latch.android.recipes.editableCopyOf
-import com.latch.android.recipes.isShippedUnedited
-import com.latch.android.recipes.newRecipe
-import com.latch.android.recipes.withOffset
+import com.latch.recipes.duplicateOf
+import com.latch.recipes.editableCopyOf
+import com.latch.recipes.isShippedUnedited
+import com.latch.recipes.newRecipe
+import com.latch.recipes.withOffset
 import com.latch.core.model.Direction
 import com.latch.core.model.Holiday
 import com.latch.core.model.HolidaySource
@@ -12,10 +12,8 @@ import com.latch.core.model.ItemType
 import com.latch.core.model.OffsetUnit
 import com.latch.core.model.Recipe
 import com.latch.core.model.RecipeStep
-import com.latch.core.model.RoutingMode
-import com.latch.data.AccountDefaults
 import com.latch.core.model.LatchSettings
-import com.latch.data.recipesFor
+import com.latch.recipes.recipesFor
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.recipes.BuiltInRecipes
@@ -35,9 +33,12 @@ import kotlin.test.assertTrue
 /**
  * FR-601 to FR-608, and AC-06.
  *
- * The arithmetic is `:recipes`' and is tested there; what this covers is the wiring `:app`
- * owns — which date anchors a chain, where its items go (FR-607), what a deselection does
- * (FR-608), and what FR-606 has to be told in order to say "weekend skipped".
+ * The arithmetic is `:recipes`' and is tested there; what this covers is the wiring that turns
+ * it into items — which date anchors a chain, where its items go (FR-607), what a deselection
+ * does (FR-608), and what FR-606 has to be told in order to say "weekend skipped".
+ *
+ * It moved here with `RecipeChain` itself: both clients expand recipes now, and a chain is part
+ * of what Google receives.
  */
 class RecipeChainTest {
 
@@ -46,15 +47,7 @@ class RecipeChainTest {
         zone = ZoneId.of("Asia/Kolkata"),
     )
 
-    private val defaults = AccountDefaults(
-        accountId = "acct",
-        email = "you@example.com",
-        routingMode = RoutingMode.LATCH_CALENDAR,
-        destinationCalendarId = "latch-cal",
-        destinationCalendarName = "Latch",
-        destinationCalendarColour = "#d50000",
-        taskListId = "list-1",
-    )
+    private val defaults = WireDestination(calendarId = "latch-cal", taskListId = "list-1")
 
     private val settings = LatchSettings()
 
@@ -224,7 +217,7 @@ class RecipeChainTest {
             selected = planned.indices.toSet(),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = context,
         )
         assertEquals(3, items.size)
@@ -245,7 +238,7 @@ class RecipeChainTest {
             selected = setOf(0, 2),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = context,
         )
         assertEquals(2, items.size)
@@ -267,7 +260,7 @@ class RecipeChainTest {
             selected = setOf(0),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = context,
         )
         val event = items.single()
@@ -283,7 +276,7 @@ class RecipeChainTest {
             selected = setOf(0),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = context,
         )
         val event = items.single()
@@ -299,7 +292,7 @@ class RecipeChainTest {
             selected = setOf(0, 1),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = context,
             defaultReminderMinutes = listOf(15),
         )
@@ -438,7 +431,7 @@ class RecipeChainTest {
             selected = setOf(0),
             captureId = "capture",
             chainId = "chain",
-            defaults = defaults,
+            destination = defaults,
             context = twoHours,
         )
         assertEquals(LocalDateTime.parse("2026-09-08T13:00"), items.single().end)

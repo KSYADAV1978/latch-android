@@ -49,7 +49,7 @@ import com.latch.data.WriteQueue
 import com.latch.data.deleteAllLocalData
 import com.latch.google.googleCalendarApi
 import com.latch.google.googleTasksApi
-import com.latch.data.recipesFor
+import com.latch.recipes.recipesFor
 import com.latch.data.revokeGrant
 import com.latch.ocr.MlKitOcrReader
 import com.latch.ocr.OcrReader
@@ -266,7 +266,9 @@ class LatchApplication : Application() {
      * app actually sees.
      */
     fun bundledHolidays(today: java.time.LocalDate = java.time.LocalDate.now()): List<Holiday> =
-        ((today.year - 3)..(today.year + 5)).flatMap(IndianHolidays::fixedDateHolidays)
+        // The window is `:recipes`' decision, so this client and the desktop step over the
+        // same holidays for the same chain.
+        IndianHolidays.around(today)
 
     /**
      * FR-215, FR-207. Held here rather than by `CaptureActivity` because loading ML Kit's

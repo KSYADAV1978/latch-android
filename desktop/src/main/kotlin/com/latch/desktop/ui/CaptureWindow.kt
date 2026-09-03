@@ -53,6 +53,15 @@ class CaptureWindow(
     private val onSave: (Set<Int>, SheetEdits) -> Unit,
     /** FR-1005. Nothing is written to Google by this, which is the point of offering it. */
     private val onExport: (Set<Int>, SheetEdits) -> Unit,
+    /**
+     * FR-601: the user picked a recipe, or picked none.
+     *
+     * The expansion is not done here — it needs the settings and the holiday list — so this
+     * asks for a chain and `renderChain` puts one back.
+     */
+    private val onChooseRecipe: (com.latch.core.model.Recipe?) -> Unit = {},
+    /** FR-601 and FR-608: save the expanded chain rather than the candidate rows. */
+    private val onSaveChain: (Set<Int>) -> Unit = {},
     private val onClose: () -> Unit,
 ) {
     private val dialog = JDialog(null as java.awt.Frame?, "Latch", false)
@@ -70,6 +79,11 @@ class CaptureWindow(
     private val actions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0))
     private var countdown: javax.swing.Timer? = null
     private val checkboxes = mutableMapOf<Int, JCheckBox>()
+
+    /** FR-600. Null until a recipe is chosen; the chain then replaces the candidate rows. */
+    private var chooser: RecipeChooser? = null
+    private var chain: RecipeChainModel? = null
+    private var chainSelected: MutableSet<Int> = mutableSetOf()
 
     /**
      * FR-506 row 3, FR-507 and FR-509b's answers, held here and applied in **one** place.
@@ -132,7 +146,10 @@ class CaptureWindow(
         content.add(south, BorderLayout.SOUTH)
         showConfirmActions()
 
-        save.addActionListener { onSave(ticked(), withTypedTitle()) }
+        save.addActionListener {
+            // FR-601: an applied chain is what gets written, and FR-608's ticks are its own.
+            if (chain != null) onSaveChain(chainSelected.toSet()) else onSave(ticked(), withTypedTitle())
+        }
         // FR-304: Enter saves and Escape dismisses, from anywhere in the window.
         dialog.rootPane.defaultButton = save
         dialog.rootPane.registerKeyboardAction(
@@ -172,9 +189,20 @@ class CaptureWindow(
 
         rowsPanel.removeAll()
         checkboxes.clear()
-        model.rows.forEach { row ->
-            rowsPanel.add(rowPanel(row))
-            rowsPanel.add(Box.createVerticalStrut(4))
+        // FR-601: once a recipe is applied the chain **replaces** the candidate rows rather
+        // than sitting beside them. Two lists of things to tick, only one of which would be
+        // written, is the shape a confirmation screen exists to avoid.
+        val applied = chain
+        if (applied != null) {
+            rowsPanel.add(chainPanel(applied))
+            save.isEnabled = applied.canSave
+            blocker.text = if (applied.canSave) "" else DesktopStrings.RECIPE_NOTHING_TICKED
+        } else {
+            model.rows.forEach { row ->
+                rowsPanel.add(rowPanel(row))
+                rowsPanel.add(Box.createVerticalStrut(4))
+            }
+            chooser?.let { rowsPanel.add(chooserPanel(it)) }
         }
         rowsPanel.revalidate()
         rowsPanel.repaint()
@@ -184,6 +212,8 @@ class CaptureWindow(
     fun show(initiallyTicked: Set<Int>, render: (SheetEdits, Set<Int>) -> PopupModel) {
         renderer = render
         edits = SheetEdits()
+        chain = null
+        chainSelected = mutableSetOf()
         selected = initiallyTicked.toMutableSet()
         // FR-511: every row starts ticked, which is what the requirement asks the checkboxes to
         // begin as.
@@ -206,6 +236,112 @@ class CaptureWindow(
         SwingUtilities.invokeLater {
             titleField.requestFocusInWindow()
             titleField.selectAll()
+        }
+    }
+
+    /** FR-601's chooser, and the reason where there is none. */
+    fun offerRecipes(offer: RecipeChooser) {
+        chooser = offer
+        redraw()
+    }
+
+    /**
+     * FR-601, FR-606 and FR-608: the expanded chain.
+     *
+     * Null puts the candidate rows back, which is how "just this one" is expressed — a chooser
+     * with no way back would make applying a recipe a one-way gesture on a floating window the
+     * user may be about to dismiss.
+     */
+    fun renderChain(applied: RecipeChainModel?) {
+        chain = applied
+        chainSelected = applied?.rows?.filter { it.checked }?.map { it.index }?.toMutableSet()
+            ?: mutableSetOf()
+        redraw()
+    }
+
+    private fun chooserPanel(offer: RecipeChooser): JPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = JComponent.LEFT_ALIGNMENT
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, java.awt.Color(0xDD, 0xDD, 0xDD)),
+            BorderFactory.createEmptyBorder(8, 0, 0, 0),
+        )
+        // FR-601's narrowing is stated rather than expressed as a missing control: a chooser
+        // that simply vanished for a four-date capture would read as a feature that is absent.
+        if (offer.blocked != null) {
+            add(smallNote(offer.blocked))
+            return@apply
+        }
+        add(JLabel(DesktopStrings.RECIPE_CHOOSE).apply { alignmentX = JComponent.LEFT_ALIGNMENT })
+        add(
+            JPanel(java.awt.GridLayout(0, 3, 4, 2)).apply {
+                alignmentX = JComponent.LEFT_ALIGNMENT
+                offer.recipes.forEach { recipe ->
+                    add(
+                        JButton(recipe.name).apply {
+                            font = font.deriveFont(Font.PLAIN, 11f)
+                            margin = java.awt.Insets(1, 6, 1, 6)
+                            addActionListener { onChooseRecipe(recipe) }
+                        }
+                    )
+                }
+            }
+        )
+    }
+
+    private fun chainPanel(applied: RecipeChainModel): JPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = JComponent.LEFT_ALIGNMENT
+
+        add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                alignmentX = JComponent.LEFT_ALIGNMENT
+                add(JLabel(applied.recipeName).apply { font = font.deriveFont(Font.BOLD, 12f) })
+                add(
+                    JButton(DesktopStrings.RECIPE_NONE).apply {
+                        font = font.deriveFont(Font.PLAIN, 11f)
+                        margin = java.awt.Insets(1, 6, 1, 6)
+                        // Back to the capture as it was. Applying a recipe must not be a
+                        // one-way gesture on a window a stray click can close.
+                        addActionListener { onChooseRecipe(null) }
+                    }
+                )
+            }
+        )
+        add(smallNote(applied.summary))
+
+        applied.rows.forEach { row ->
+            add(
+                JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                    alignmentX = JComponent.LEFT_ALIGNMENT
+                    add(
+                        JLabel(row.badge).apply {
+                            font = font.deriveFont(Font.BOLD, 11f)
+                        }
+                    )
+                    // FR-608: each step of the chain is tickable before saving.
+                    add(
+                        JCheckBox(row.whenLine, row.checked).apply {
+                            getAccessibleContext().accessibleName =
+                                row.badge + ", " + row.whenLine + ", " + row.title
+                            addItemListener {
+                                if (isSelected) chainSelected += row.index else chainSelected -= row.index
+                                redraw()
+                            }
+                        }
+                    )
+                }
+            )
+            add(
+                JLabel(row.title).apply {
+                    alignmentX = JComponent.LEFT_ALIGNMENT
+                    border = BorderFactory.createEmptyBorder(0, 26, 0, 0)
+                    font = font.deriveFont(Font.PLAIN, 12f)
+                }
+            )
+            // FR-606: "the UI shall say so explicitly".
+            row.skipped?.let { add(smallNote(it)) }
+            add(Box.createVerticalStrut(4))
         }
     }
 

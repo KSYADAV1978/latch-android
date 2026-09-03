@@ -353,6 +353,46 @@ object DesktopStrings {
         "The address must not carry a user name and password. Put the token in the path or " +
             "in a query string if your endpoint needs one."
 
+    // ---- FR-600, recipes ---------------------------------------------------------------------
+
+    const val RECIPE_CHOOSE = "Expand this into a chain:"
+    const val RECIPE_NONE = "Just this one"
+    const val RECIPE_SEVERAL_DATES =
+        "A recipe expands one date, and this capture holds several. Untick all but one to use it."
+    const val RECIPE_NO_DATE = "A recipe expands a date, and none was found here."
+    const val RECIPE_SUMMARY = "%d items in this chain."
+    const val RECIPE_SKIPPED = "Skipped %s."
+    const val RECIPE_SKIPPED_ONE = "1 non-working day"
+    const val RECIPE_SKIPPED_MANY = "%d non-working days"
+    const val RECIPE_NOTHING_TICKED = "Tick at least one step to save."
+
+    const val RECIPES_TITLE = "Latch Recipes"
+    const val RECIPE_SHIPPED = "Shipped with Latch"
+    const val RECIPE_EDITED = "Shipped with Latch, edited by you"
+    const val RECIPE_YOURS = "Yours"
+    const val RECIPE_NEW = "New recipe"
+    const val RECIPE_DUPLICATE = "Duplicate"
+    const val RECIPE_EDIT = "Edit"
+    const val RECIPE_DELETE = "Delete"
+    // Deleting a shadowed built-in restores the shipped version rather than removing the row,
+    // which is a different action behind one button — so the button says which.
+    const val RECIPE_RESTORE = "Restore the shipped version"
+    const val RECIPE_COPY_SUFFIX = " (copy)"
+    const val RECIPE_NEW_NAME = "New recipe"
+    const val RECIPE_NEW_STEP = "{title}"
+    const val RECIPE_SAVED = "Saved."
+    const val RECIPE_WRITE_FAILED = "Latch could not store that recipe on this PC."
+    const val RECIPE_NAME = "Name"
+    const val RECIPE_STEP_OFFSET = "Days"
+    const val RECIPE_STEP_TITLE = "Title, with {title} for what was captured"
+    const val RECIPE_STEP_REMINDERS = "Reminders, minutes before"
+    const val RECIPE_ADD_STEP = "Add a step"
+    const val RECIPE_REMOVE_STEP = "Remove"
+    const val RECIPE_BEFORE = "before"
+    const val RECIPE_AFTER = "after"
+    const val RECIPE_CALENDAR_DAYS = "days"
+    const val RECIPE_WORKING_DAYS = "working days"
+
     const val SETTINGS_NOT_YET = "Not on this PC yet"
     const val SETTINGS_GAP_DESTINATION =
         "Choosing a calendar, and the Option A / Option B switch (FR-900, FR-1002). " +

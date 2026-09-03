@@ -30,7 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
-import com.latch.android.recipes.newRecipe
+import com.latch.recipes.newRecipe
 import com.latch.android.ui.InboxScreen
 import com.latch.android.ui.RecipesScreen
 import com.latch.android.ui.NotificationAccessScreen

@@ -33,6 +33,7 @@ import com.latch.desktop.save.toWireDestination
 import com.latch.desktop.store.DefaultsStore
 import com.latch.desktop.store.DesktopSettings
 import com.latch.desktop.store.DesktopSettingsStore
+import com.latch.desktop.store.RecipeFile
 import com.latch.desktop.store.WebhookSecrets
 import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.latchDataDirectory
@@ -40,7 +41,14 @@ import com.latch.desktop.ui.CaptureWindow
 import com.latch.desktop.ui.DesktopStrings
 import com.latch.desktop.ui.InboxWindow
 import com.latch.desktop.ui.SettingsForm
+import com.latch.desktop.ui.RecipeForm
+import com.latch.desktop.ui.RecipesWindow
 import com.latch.desktop.ui.SettingsWindow
+import com.latch.desktop.ui.applyRecipe
+import com.latch.desktop.ui.applyRecipeForm
+import com.latch.desktop.ui.recipeChainModel
+import com.latch.desktop.ui.recipeChooser
+import com.latch.desktop.ui.recipeProblemText
 import com.latch.desktop.ui.applyForm
 import com.latch.desktop.ui.deliveryText
 import com.latch.desktop.ui.endpointLine
@@ -74,6 +82,14 @@ import com.latch.wire.DraftResult
 import com.latch.wire.SaveRoute
 import com.latch.wire.parseContextOf
 import com.latch.wire.parseOf
+import com.latch.core.model.Recipe
+import com.latch.recipes.BuiltInRecipes
+import com.latch.recipes.duplicateOf
+import com.latch.recipes.editableCopyOf
+import com.latch.recipes.newRecipe
+import com.latch.recipes.recipesFor
+import com.latch.wire.RecipeApplication
+import com.latch.wire.recipeItems
 import com.latch.wire.parseContextFor
 import com.latch.wire.saveRoute
 import com.latch.wire.titleOverridesOf
@@ -119,6 +135,9 @@ object Latch {
 
     /** FR-701. Local only (FR-703); nothing in it has reached the user's Google account. */
     private val inbox by lazy { DesktopInbox(File(latchDataDirectory(), "inbox.dat")) }
+
+    /** FR-603. Only the user's own; FR-602's eight ship as code and are shadowed, never stored. */
+    private val recipeStore by lazy { RecipeFile(File(latchDataDirectory(), "recipes.dat")) }
 
     /**
      * FR-806's drain.
@@ -167,9 +186,16 @@ object Latch {
      * save result carries the write rather than what it came from. Cleared with the window.
      */
     private var lastCaptured: com.latch.desktop.capture.DesktopCapture? = null
+
+    /** The parse the open window is showing, for FR-601's chooser to ask about. */
+    private var lastParsed: ParseResult? = null
     private var window: CaptureWindow? = null
     private var inboxWindow: InboxWindow? = null
     private var settingsWindow: SettingsWindow? = null
+    private var recipesWindow: RecipesWindow? = null
+
+    /** FR-601: the chain the open capture window is showing, and what it came from. */
+    private var applied: Pair<Recipe, RecipeApplication>? = null
 
     /**
      * FR-302's combination, from FR-1001's record.
@@ -256,6 +282,7 @@ object Latch {
     private fun onTrayAction(action: TrayAction) = when (action) {
         TrayAction.CAPTURE -> SwingUtilities.invokeLater(::capture)
         TrayAction.INBOX -> SwingUtilities.invokeLater(::openInbox)
+        TrayAction.RECIPES -> SwingUtilities.invokeLater(::openRecipes)
         TrayAction.SIGN_IN -> signIn()
         TrayAction.SIGN_OUT -> {
             // NFR-205's local half only: this forgets the sign-in on this machine and
@@ -326,6 +353,8 @@ object Latch {
 
                 window?.close()
                 lastCaptured = outcome.capture
+                lastParsed = result
+                applied = null
                 val today = LocalDate.now()
                 val opened = CaptureWindow(
                     onSave = { ticked, edits ->
@@ -334,11 +363,15 @@ object Latch {
                     onExport = { ticked, edits ->
                         export(outcome.capture, result, context, ticked, edits, today)
                     },
+                    onChooseRecipe = { recipe -> chooseRecipe(recipe, result, today) },
+                    onSaveChain = { ticked -> saveChain(outcome.capture, result, context, ticked) },
                     onClose = {
                         window = null
                         // Cleared with the window, so a later save cannot ask FR-210a's
                         // question about a capture that is no longer on screen.
                         lastCaptured = null
+                        lastParsed = null
+                        applied = null
                     },
                 )
                 window = opened
@@ -352,6 +385,10 @@ object Latch {
                         edits.titleOverrides, edits.typeOverrides,
                     )
                 }
+                // FR-601's chooser arrives a moment after the sheet does. The recipe list
+                // crosses the DPAPI bridge and NFR-101 budgets a capture 800 ms; the dates the
+                // user came for are on screen first, and the chooser follows.
+                offerRecipes(opened)
             }
         }
     }
@@ -523,6 +560,168 @@ object Latch {
             },
             onLapse = { tray?.update(model()) },
         )
+    }
+
+    // ---------------------------------------------------------------- FR-600, recipes
+
+    /** FR-602's eight with any the user has shadowed replaced, and their own appended. */
+    private fun allRecipes(): List<Recipe> =
+        recipesFor(BuiltInRecipes.all, runCatching { recipeStore.all() }.getOrDefault(emptyList()))
+
+    private fun offerRecipes(open: CaptureWindow) {
+        Thread({
+            val offer = recipeChooser(lastParsed ?: return@Thread, allRecipes())
+            SwingUtilities.invokeLater { if (window === open) open.offerRecipes(offer) }
+        }, "latch-recipes-offer").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-601: the chosen recipe expanded into a chain, or the capture put back as it was.
+     *
+     * Null is "just this one", and it exists because applying a recipe must not be a one-way
+     * gesture on a floating window: the user is looking at a popup they may be about to dismiss,
+     * and a chooser with no way back would make a mis-click cost them the capture.
+     */
+    private fun chooseRecipe(recipe: Recipe?, result: ParseResult, today: LocalDate) {
+        val open = window ?: return
+        if (recipe == null) {
+            applied = null
+            open.renderChain(null)
+            return
+        }
+        Thread({
+            val settings = runCatching { settingsStore.read().shared }.getOrElse { LatchSettings() }
+            val chainId = java.util.UUID.randomUUID().toString()
+            val chain = applyRecipe(recipe, result, settings, chainId, today)
+            SwingUtilities.invokeLater {
+                if (window !== open) return@invokeLater
+                if (chain == null) {
+                    open.showOutcome(DesktopStrings.RECIPE_NO_DATE)
+                    return@invokeLater
+                }
+                applied = recipe to chain
+                open.renderChain(recipeChainModel(recipe, chain.planned, chain.selected))
+            }
+        }, "latch-recipe-expand").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-601, FR-607, FR-608: the chain, written.
+     *
+     * **`recipeItems` is the one place a chain's destination is chosen**, which is what makes
+     * FR-607 structural rather than a rule a call site could forget. And FR-512's threshold is
+     * deliberately not consulted: picking a template against a date the user can see is a
+     * stronger confirmation than the threshold is testing for, and routing it to the Inbox would
+     * discard the chain they chose along the way. That is the phone's reading, followed.
+     */
+    private fun saveChain(
+        captured: com.latch.desktop.capture.DesktopCapture,
+        result: ParseResult,
+        context: ParseContext,
+        ticked: Set<Int>,
+    ) {
+        val (recipe, chain) = applied ?: return
+        if (!auth.isConfigured) {
+            window?.showOutcome(DesktopStrings.NOT_CONFIGURED)
+            return
+        }
+        if (!auth.isSignedIn) {
+            window?.showOutcome(DesktopStrings.NOT_SIGNED_IN)
+            return
+        }
+
+        Thread({
+            val outcome = runCatching {
+                runBlocking {
+                    val defaults = defaultsStore.read() ?: return@runBlocking null
+                    val settings = runCatching { settingsStore.read().shared }.getOrElse { LatchSettings() }
+                    val chainId = java.util.UUID.randomUUID().toString()
+                    val items = recipeItems(
+                        planned = chain.planned,
+                        selected = ticked,
+                        captureId = chainId,
+                        chainId = chainId,
+                        destination = defaults.toWireDestination(),
+                        context = context,
+                        // FR-1001's default lead time, applied only where a step names none of
+                        // its own — a step's reminders are a property of the recipe.
+                        defaultReminderMinutes = settings.defaultReminderMinutes,
+                    )
+                    if (items.isEmpty()) {
+                        return@runBlocking SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
+                    }
+                    saver(context.zone.id)
+                        .save(captured, result, items, defaults, chainId, recipeId = recipe.id)
+                }
+            }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
+            SwingUtilities.invokeLater { present(outcome, context) }
+        }, "latch-recipe-save").apply { isDaemon = true }.start()
+    }
+
+    /** FR-603's four verbs, on one window. */
+    private fun openRecipes() {
+        val opened = recipesWindow ?: RecipesWindow(
+            onSave = ::saveRecipe,
+            onDuplicate = { recipe ->
+                storeRecipe(duplicateOf(recipe, DesktopStrings.RECIPE_COPY_SUFFIX))
+            },
+            onDelete = { recipe -> deleteRecipe(recipe.id) },
+            onNew = {
+                val fresh = newRecipe(DesktopStrings.RECIPE_NEW_NAME, DesktopStrings.RECIPE_NEW_STEP)
+                storeRecipe(fresh) { recipesWindow?.edit(fresh) }
+            },
+            onClose = { recipesWindow = null },
+        ).also { recipesWindow = it }
+        refreshRecipes(opened) { all, own -> opened.show(all, own) }
+    }
+
+    private fun refreshRecipes(
+        open: RecipesWindow,
+        then: (List<Recipe>, List<Recipe>) -> Unit = { all, own -> open.render(all, own) },
+    ) {
+        Thread({
+            val own = runCatching { recipeStore.all() }.getOrDefault(emptyList())
+            val all = recipesFor(BuiltInRecipes.all, own)
+            SwingUtilities.invokeLater { then(all, own) }
+        }, "latch-recipes-read").apply { isDaemon = true }.start()
+    }
+
+    private fun saveRecipe(form: RecipeForm) {
+        val open = recipesWindow ?: return
+        val applied = applyRecipeForm(form)
+        val recipe = applied.recipe
+        if (recipe == null) {
+            open.say(applied.problems.joinToString(" ") { recipeProblemText(it) })
+            return
+        }
+        storeRecipe(recipe)
+    }
+
+    /**
+     * FR-603's store, and the shadowing rule in one line.
+     *
+     * `editableCopyOf` keeps a built-in's id and clears its `builtIn` flag, so a stored copy
+     * *shadows* the shipped one rather than replacing it — which is what makes deleting the copy
+     * a restore. Neither client re-decides that; `:recipes` owns it.
+     */
+    private fun storeRecipe(recipe: Recipe, then: () -> Unit = {}) {
+        Thread({
+            val stored = runCatching { recipeStore.save(editableCopyOf(recipe)) }.isSuccess
+            SwingUtilities.invokeLater {
+                recipesWindow?.let { open ->
+                    open.say(if (stored) DesktopStrings.RECIPE_SAVED else DesktopStrings.RECIPE_WRITE_FAILED)
+                    refreshRecipes(open)
+                }
+                then()
+            }
+        }, "latch-recipes-save").apply { isDaemon = true }.start()
+    }
+
+    private fun deleteRecipe(recipeId: String) {
+        Thread({
+            runCatching { recipeStore.delete(recipeId) }
+            SwingUtilities.invokeLater { recipesWindow?.let { refreshRecipes(it) } }
+        }, "latch-recipes-delete").apply { isDaemon = true }.start()
     }
 
     // ---------------------------------------------------------------- FR-1000, Settings
@@ -1031,6 +1230,7 @@ object Latch {
         window?.close()
         inboxWindow?.close()
         settingsWindow?.close()
+        recipesWindow?.close()
         tray?.close()
     }
 }

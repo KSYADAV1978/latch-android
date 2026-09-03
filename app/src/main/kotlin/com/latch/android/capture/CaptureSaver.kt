@@ -40,6 +40,9 @@ import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
 import com.latch.wire.DraftBlocker
 import com.latch.wire.DraftResult
+import com.latch.wire.RecipeApplication
+import com.latch.wire.expandRecipe
+import com.latch.wire.recipeItems
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.bodyWithNote
 import com.latch.wire.dateSpans
@@ -562,7 +565,7 @@ class CaptureSaver(
                 selected = recipe.selected,
                 captureId = captureId,
                 chainId = chainId,
-                defaults = defaults,
+                destination = defaults.toWireDestination(),
                 context = context,
                 defaultReminderMinutes = settings().defaultReminderMinutes,
             ).ifEmpty {

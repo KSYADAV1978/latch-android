@@ -31,7 +31,7 @@ data class TrayModel(
 /** One entry of the tray menu. */
 data class TrayEntry(val label: String, val id: TrayAction, val enabled: Boolean = true)
 
-enum class TrayAction { CAPTURE, INBOX, SIGN_IN, SIGN_OUT, RETRY, SETTINGS, QUIT }
+enum class TrayAction { CAPTURE, INBOX, RECIPES, SIGN_IN, SIGN_OUT, RETRY, SETTINGS, QUIT }
 
 /**
  * The menu, as a pure function.
@@ -71,6 +71,7 @@ fun trayMenu(model: TrayModel): List<TrayEntry> = buildList {
     // comes first and neither is ever shown at zero.
     inboxCountLabel(InboxStatus(due = model.inbox, snoozed = 0, unreadable = 0))
         ?.let { add(TrayEntry(it, TrayAction.INBOX)) }
+    add(TrayEntry("Recipes…", TrayAction.RECIPES))
     add(TrayEntry("Settings…", TrayAction.SETTINGS))
     add(TrayEntry("Quit Latch", TrayAction.QUIT))
 }

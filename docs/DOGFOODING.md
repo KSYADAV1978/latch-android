@@ -278,7 +278,7 @@ defects** — but do say if one bites in a way this list does not describe.
 
 - **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
   is deliberate — it is what makes the two machines recognise each other's captures.
-- **No recipes and no notification capture on the PC.**
+- **No notification capture on the PC** — that is an Android capture layer.
 - **The PC's queue only runs while Latch is running.** Queue something with no connection, quit,
   and it waits until you open Latch again. It is held, not lost — but the phone would have
   written it in the background.
@@ -354,6 +354,25 @@ last three slices I would most like a result from. Three things worth checking:
   attempt, at the moment you save.
 - **Look at the endpoint after saving it.** It should read `https://yourhost/••••••••`. The rest
   of the address is often a token, which is why it is hidden.
+
+## Recipes on the PC (new, 3 Sep 2026)
+
+Capture a dated meeting — "Project sync on 8 September 2026 at 11:00" — and below the date you
+should now see a row of recipe buttons. Press **Meeting + prep**. You get three rows instead of
+one, and the prep step should say the weekend was skipped, because 8 September 2026 is a Tuesday
+and three working days back lands on the Thursday.
+
+**Press "Just this one" to go back.** Picking a recipe must never be a one-way move — the popup
+is a floating window and a click outside it closes it.
+
+Untick a step before saving and only the rest should be written. Then look at the event in
+Google Calendar: **does it have a 30-minute reminder?** That is the part I would most like
+confirmed — reminders are read from the recipe step and no chain has ever been written from this
+machine.
+
+**Recipes** is on the tray menu. The eight that ship are there, plus anything you make. Edit one
+of the shipped ones and it says "edited by you"; the button beside it then reads **Restore the
+shipped version** rather than Delete, because that is what it does.
 
 **And one worth trying on the PC**, because it is the newest thing and the most interesting to
 get wrong: capture the line above with the date changed to **12 October**. You should get the

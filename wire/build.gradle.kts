@@ -20,6 +20,10 @@ dependencies {
     // that computes an item key holds a ParseResult to compute it from.
     api(project(":core-model"))
     api(project(":parser"))
+    // FR-600's chain is part of what Google receives, so `RecipeChain` belongs here with
+    // `ItemDrafts` — and it takes `:recipes`' own types in its signatures. Both modules are
+    // pure Kotlin, so this module's portability constraint is unmoved.
+    api(project(":recipes"))
 
     testImplementation(libs.kotlin.test)
 }

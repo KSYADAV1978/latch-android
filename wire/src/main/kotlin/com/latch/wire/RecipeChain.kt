@@ -1,11 +1,10 @@
-package com.latch.android.capture
+package com.latch.wire
 
 import com.latch.core.model.Holiday
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.core.model.Recipe
 import com.latch.core.model.WorkingWeek
-import com.latch.data.AccountDefaults
 import com.latch.core.model.LatchSettings
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
@@ -18,10 +17,16 @@ import java.time.LocalDateTime
 /**
  * FR-601 to FR-608: a captured date expanded into a chain, and the chain turned into items.
  *
- * This lives in `:app` for the reason `ItemDrafts` does — it is the only module that sees both
- * `:recipes` and `:core-model`'s write-shaped types — and it is pure and clock-free for the
- * reason `ItemDrafts` is: the confirmation screen and the saver must reach the same items from
- * the same choices, and the arithmetic AC-06 pins down should be testable without a device.
+ * **This lives in `:wire` beside `ItemDrafts`, for the same reason and for one more.** It is
+ * pure and clock-free because the confirmation screen and the saver must reach the same items
+ * from the same choices, and because the arithmetic AC-06 pins down should be testable without
+ * a device. And it is *shared* because a recipe decides bytes Google receives: two clients
+ * expanding one recipe over one date must produce the same chain, or a user who applies
+ * "Meeting + prep" on a phone and again on a desktop gets two different sets of items from one
+ * message — with §7.2's `chain_id` and `item_key` derived over each.
+ *
+ * It is why `:wire` depends on `:recipes`. Both are pure Kotlin, so the portability constraint
+ * that governs this module is unmoved.
  */
 
 /**
@@ -96,8 +101,8 @@ fun expandRecipe(
 /**
  * FR-601, FR-607, FR-608: the chain as items a save will write.
  *
- * **FR-607 holds structurally.** Every event in the chain takes [defaults]'s destination
- * calendar and every task its task list, in this one place, so "all items in a chain shall be
+ * **FR-607 holds structurally.** Every event in the chain takes [destination]'s calendar and
+ * every task its task list, in this one place, so "all items in a chain shall be
  * written to the same calendar" is not something a call site can forget. `Recipe.targetCalendarId`
  * is deliberately not read here yet: honouring it would route a save to a calendar the user has
  * not seen on the confirmation screen, which FR-906 forbids outright, and the picker that would
@@ -115,7 +120,7 @@ fun recipeItems(
     selected: Set<Int>,
     captureId: String,
     chainId: String,
-    defaults: AccountDefaults,
+    destination: WireDestination,
     context: ParseContext,
     defaultReminderMinutes: List<Int> = emptyList(),
 ): List<Item> = planned
@@ -147,7 +152,7 @@ fun recipeItems(
                         start.plus(context.defaultEventDuration)
                     },
                     allDay = allDay,
-                    calendarId = defaults.destinationCalendarId,
+                    calendarId = destination.calendarId,
                     reminderMinutes = reminders,
                 )
             }
@@ -160,7 +165,7 @@ fun recipeItems(
                 title = step.title,
                 // A task never carries a start: Google Tasks discards the time (§8.1).
                 dueDate = step.dueDate,
-                taskListId = defaults.taskListId,
+                taskListId = destination.taskListId,
                 // Google Tasks has no reminder of its own, so a step asking for one on a task
                 // gets none. Recorded rather than silently dropped at the wire.
                 reminderMinutes = emptyList(),

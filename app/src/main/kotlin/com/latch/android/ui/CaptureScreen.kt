@@ -45,7 +45,7 @@ import com.latch.android.capture.CapturedText
 import com.latch.wire.DateSuggestion
 import com.latch.android.capture.DestinationState
 import com.latch.wire.DraftBlocker
-import com.latch.android.capture.RecipeBlocker
+import com.latch.wire.RecipeBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
 import com.latch.wire.SaveRoute
@@ -54,10 +54,10 @@ import com.latch.wire.TypeChangeCost
 import com.latch.wire.canOverrideTo
 import com.latch.wire.candidateBlocker
 import com.latch.wire.dateFrom
-import com.latch.android.capture.recipeBlocker
+import com.latch.wire.recipeBlocker
 import com.latch.android.capture.saveBlocker
 import com.latch.android.capture.saveIsOffered
-import com.latch.android.capture.skippedDaysOf
+import com.latch.wire.skippedDaysOf
 import com.latch.wire.typeChangeCost
 import com.latch.android.capture.undoOffer
 import com.latch.core.model.ItemType

@@ -137,6 +137,14 @@ class DesktopSaver(
         items: List<Item>,
         defaults: DesktopDefaults,
         chainId: String,
+        /**
+         * §7.2's `latch.recipe`, where FR-601 expanded this capture into a chain.
+         *
+         * **Absent rather than empty for an ordinary capture**, which §7.2 is strict about: a
+         * key that exists with no value cannot be told from one that means something. The 27 Aug
+         * 2026 device pass checked for exactly that absence against the live API.
+         */
+        recipeId: String? = null,
         capturedAt: Instant = clock(),
     ): SaveResult {
         if (items.isEmpty()) return SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
@@ -152,6 +160,7 @@ class DesktopSaver(
             chainId = chainId,
             capturedAt = capturedAt,
             sourceApp = null,
+            recipeId = recipeId,
         )
 
         // FR-805, and FR-805b where the capture was recognised from an image. Composed once, by

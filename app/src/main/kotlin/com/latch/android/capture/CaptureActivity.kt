@@ -31,6 +31,9 @@ import com.latch.parser.DateOrder
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.wire.DraftResult
+import com.latch.wire.RecipeApplication
+import com.latch.wire.expandRecipe
+import com.latch.wire.recipeItems
 import com.latch.wire.parseContextFor
 import com.latch.wire.SaveRoute
 import com.latch.wire.saveRoute
@@ -318,7 +321,7 @@ class CaptureActivity : ComponentActivity() {
                                 selected = recipeSelection,
                                 captureId = "export",
                                 chainId = "export",
-                                defaults = account,
+                                destination = account.toWireDestination(),
                                 context = parseContext,
                             )
                         } else {
