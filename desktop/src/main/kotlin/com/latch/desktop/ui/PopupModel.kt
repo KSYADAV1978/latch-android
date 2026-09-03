@@ -282,6 +282,44 @@ object DesktopStrings {
     const val INBOX_NEEDS_DATE = "Give this a date before saving it."
     const val INBOX_REFRESH = "Refresh"
 
+    // ---- FR-1000, Settings -------------------------------------------------------------------
+
+    const val SETTINGS_TITLE = "Latch Settings"
+    const val SETTINGS_SAVE = "Save"
+    const val SETTINGS_CLOSE = "Close"
+    const val SETTINGS_SAVED = "Saved."
+    const val SETTINGS_WRITE_FAILED = "Latch could not store those settings on this PC."
+
+    const val SETTINGS_HOTKEY = "Capture shortcut"
+    const val SETTINGS_HOTKEY_HINT =
+        "Type it as Ctrl+Shift+K. It works anywhere in Windows, so pick something no other " +
+            "application uses."
+    const val SETTINGS_HOTKEY_RETAKEN = "Shortcut changed. It is now %s."
+    const val SETTINGS_HOTKEY_REFUSED =
+        "Another application already uses %s. The old shortcut is back; choose a different one."
+
+    const val SETTINGS_DATE_ORDER = "Read 05/09 as"
+    const val SETTINGS_DAY_FIRST = "5 September (day first)"
+    const val SETTINGS_MONTH_FIRST = "9 May (month first)"
+
+    const val SETTINGS_DURATION = "Default event length, in minutes"
+    const val SETTINGS_REMINDERS = "Default reminders, in minutes before"
+    const val SETTINGS_REMINDERS_HINT =
+        "Comma-separated, for example 30, 1440. Leave it empty to use your calendar's own."
+    const val SETTINGS_THRESHOLD = "Hold a capture below this confidence, as a percentage"
+    const val SETTINGS_THRESHOLD_HINT = "Below this, a capture waits in the Inbox instead of being saved."
+    const val SETTINGS_WORKING_WEEK = "Working week"
+    const val SETTINGS_TIME_ZONE = "Time zone"
+    const val SETTINGS_TIME_ZONE_HINT = "A name like Asia/Kolkata. Leave it empty to follow this PC."
+
+    const val SETTINGS_NOT_YET = "Not on this PC yet"
+    const val SETTINGS_GAP_DESTINATION =
+        "Choosing a calendar, and the Option A / Option B switch (FR-900, FR-1002). " +
+            "Captures go to the Latch calendar your phone made."
+    const val SETTINGS_GAP_LAYERS =
+        "Turning capture layers on and off (FR-1003). Windows has one way in — the shortcut."
+    const val SETTINGS_GAP_RECIPES = "Recipes (FR-600)."
+
     const val REASON_UNDATED = "No date was found in this capture."
     const val REASON_LOW_CONFIDENCE = "Latch was not confident about this one."
     const val REASON_INCOMPLETE = "A time, but no day to put it on."

@@ -14,7 +14,7 @@ requirement ID in your summary so work can be traced back.
 | Module | Type | Holds |
 |---|---|---|
 | `:app` | Android application | Capture entry points, first-run setup, Compose confirmation UI |
-| `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1, including FR-701's `InboxCapture` and `InboxReason` — §7.1's `Capture` carries `state (inbox / saved / discarded)`, so which client holds a row is a storage question and what a row *is* is not |
+| `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1, including FR-701's `InboxCapture` and `InboxReason` — §7.1's `Capture` carries `state (inbox / saved / discarded)`, so which client holds a row is a storage question and what a row *is* is not — and FR-1001's `LatchSettings`, because three of its fields reach `ParseContext` and a parse two clients read differently is the drift `:wire` exists against |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
 | `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
@@ -1098,7 +1098,7 @@ pressed by a person** — the model is tested, the Swing is not.
 
 | Family | State on Windows |
 |---|---|
-| **FR-1000 Settings** | Nothing. The tray item says "Settings are not built yet." The hotkey, FR-1002's date order, the default duration and reminder, FR-512's threshold and FR-1003's layer toggles all use their defaults and cannot be changed. FR-1002's Option A/B switch does not exist. |
+| ~~**FR-1000 Settings**~~ | **Built 3 Sep 2026 (SRS 1.67), JVM-verified and HUMAN-OWED.** FR-302's hotkey, FR-504's date order, the default duration and reminders, FR-512's threshold, FR-605's working week and the time zone. `LatchSettings` moved to `:core-model` and `parseContextFor` to `:wire`, so a preference now actually reaches the parse — until this slice the desktop built a bare `ParseContext(now = LocalDateTime.now())` and **every FR-1001 preference was inert here**. Still absent and **named on the screen** with their requirement numbers: FR-900's picker and with it FR-1002's Option A/B switch, FR-1003's layer toggles, FR-600's recipes. **Nobody has opened the window or changed the hotkey.** |
 | **FR-900 destination** | `DesktopSetup` takes the Option B default and says which calendar it chose. No picker (FR-901/902/904), no hidden-calendar badge (FR-903), no routing rules (FR-905), no override-three-times offer (FR-907), and **no FR-908 refresh** — a Latch calendar deleted in Google would not be noticed. |
 | ~~**FR-700 Capture Inbox**~~ | **Built 3 Sep 2026 (SRS 1.66), JVM-verified and HUMAN-OWED.** `saveRoute` moved into `:wire`, so both clients route on one compiled decision; the store is `inbox.dat` under DPAPI, one row per line. FR-701 to FR-705 all reach a screen. **Nobody has opened the window.** |
 | **FR-600 recipes** | Nothing. `:recipes` is on the classpath and unused. |
@@ -1114,7 +1114,8 @@ pressed by a person** — the model is tested, the Swing is not.
 
 **What is built and working** — for completeness, since the list above is long: FR-301, FR-302,
 FR-303, FR-304, FR-002's grant, FR-701 to FR-705, FR-801, FR-802, FR-803, FR-804, FR-806,
-FR-807, FR-1005, and FR-502/509/509a/509b/510/511 through the shared modules.
+FR-807, FR-1001 (for what this client has), FR-1005, and FR-502/509/509a/509b/510/511 through
+the shared modules.
 
 ### Human pass backlog — Windows
 
@@ -1133,6 +1134,11 @@ fail*, then *the fixture*.
 | **Sign-in, end to end** | Needs FR-001's Desktop client. Browser opens, consent granted, tray says which calendar. Failure: no refresh token, which looks like working software until the hour is up | a real account |
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
 | **AC-03 on Windows** | Capture text with no date. The popup must say **"Held in the Latch Inbox on this PC"** and **nothing** must appear in Google Calendar or Tasks. Failure is the old behaviour: an undated to-do written to the account, which is what this client did until SRS 1.66 | "Ask about the uniform order" |
+| **Settings opens and takes** | The tray's Settings item opens a window showing what is actually in force, not the shipped defaults. Change the confidence threshold to 99 and capture "Kickoff 8 September 2027 at 9am": it must go to the **Inbox** rather than to Google. Set it back to 0 and nothing does. This is the check that a preference is read rather than merely stored — the whole class of defect SRS 1.65 found on this client | Settings, then a capture |
+| **FR-504 through Settings** | Set month-first and capture "Invoice 05/09". It must read **9 May**. Failure is a preference the capture path never asked for, which is what this client did with every FR-1001 field until SRS 1.67 | "Invoice 05/09" |
+| **Changing the FR-302 hotkey** | Set it to something else, then press the new combination: a capture opens. Press the old one: nothing. Then the case that matters — set it to something another application already holds (Ctrl+Shift+S in many) and confirm the window says so **and the old shortcut still works**. Failure is being left with no shortcut at all, which is silent | Settings, and a running app that holds a combination |
+| **A refused shortcut does not get stored** | After the refusal above, close and reopen Settings: the field must show the old combination, not the refused one | as above |
+| **Settings survive a restart** | Change the working week to six days, quit Latch, start it again: still six | Settings, then a restart |
 | **The Inbox opens and triages** | The tray shows "1 waiting in the Inbox" and the entry opens a window. Then each of FR-702's five in turn: set a date, edit the title, save, snooze, discard. Each must survive **closing and reopening the window** — the store is the assertion, not the screen | any undated capture |
 | **FR-702's assigned date reaches Google** | An undated row given 20 Sep 2027 saves as a **TASK due 20 Sep 2027** — not an event, not undated. Inspect the item in Google, not the row | undated capture + a chip |
 | **FR-703** | Nothing in the Inbox appears in Google Calendar or Tasks until Save is pressed. Verified in the account | any row left un-saved |

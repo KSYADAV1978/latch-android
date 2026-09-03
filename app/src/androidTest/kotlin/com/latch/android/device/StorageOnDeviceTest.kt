@@ -20,7 +20,7 @@ import com.latch.google.EventWrite
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
 import com.latch.google.ItemDates
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.data.PendingWrite
 import com.latch.google.RescheduleSearch
 import com.latch.data.SqliteCaptureInbox

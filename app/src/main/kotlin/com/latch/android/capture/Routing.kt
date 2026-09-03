@@ -4,7 +4,7 @@ import com.latch.core.model.MatchType
 import com.latch.core.model.RoutingMode
 import com.latch.core.model.RoutingRule
 import com.latch.data.AccountDefaults
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.google.latestEventMatch
 
 /**

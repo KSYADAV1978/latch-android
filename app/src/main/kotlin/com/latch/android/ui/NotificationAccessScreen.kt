@@ -24,7 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.core.model.CaptureLayer
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 
 /**
  * FR-209 and FR-1104: the disclosure screen, without which the notification listener cannot be

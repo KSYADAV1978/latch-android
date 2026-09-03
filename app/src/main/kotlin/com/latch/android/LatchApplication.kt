@@ -32,7 +32,7 @@ import com.latch.data.EncryptedAccountDefaultsStore
 import com.latch.data.EncryptedSecretStore
 import com.latch.data.EncryptedSettingsStore
 import com.latch.data.EncryptedWriteQueueStore
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.data.LocalItemIndex
 import com.latch.data.QueueStatus
 import com.latch.data.RecipeStore

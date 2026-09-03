@@ -6,7 +6,7 @@ import com.latch.core.model.ItemType
 import com.latch.core.model.Recipe
 import com.latch.core.model.WorkingWeek
 import com.latch.data.AccountDefaults
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
 import com.latch.recipes.HolidayCalendar

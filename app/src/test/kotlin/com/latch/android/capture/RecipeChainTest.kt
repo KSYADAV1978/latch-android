@@ -14,7 +14,7 @@ import com.latch.core.model.Recipe
 import com.latch.core.model.RecipeStep
 import com.latch.core.model.RoutingMode
 import com.latch.data.AccountDefaults
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.data.recipesFor
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext

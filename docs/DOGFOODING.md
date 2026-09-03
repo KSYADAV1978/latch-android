@@ -276,8 +276,6 @@ Both clients now capture, parse, save, detect duplicates, offer reschedules, und
 offline and export `.ics`. These are the remaining differences. **Please do not report them as
 defects** — but do say if one bites in a way this list does not describe.
 
-- **No Settings screen on the PC.** The hotkey, the date order, the default duration and the
-  rest use their defaults and can only be changed on the phone.
 - **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
   is deliberate — it is what makes the two machines recognise each other's captures.
 - **No recipes, no webhook, no notification capture on the PC.**
@@ -315,6 +313,22 @@ Two things worth watching, because they are the ones that would be hardest to no
 - **A held date must not walk.** Capture "kal 4 baje meeting" today; it means tomorrow. Open the
   Inbox again in a couple of days — it must still say the day after you captured it, not the day
   after today. If that date has moved, stop and tell me.
+
+## Settings on the PC (new, 3 Sep 2026)
+
+Right-click the tray icon, **Settings**. It has the shortcut, how `05/09` is read, the default
+event length, default reminders, how sure Latch has to be before it saves rather than holds, the
+working week, and the time zone. Everything the PC does **not** have yet is listed at the bottom
+of that window rather than left out, so you can see what is missing without guessing.
+
+Two worth trying, because they are where this would fail quietly:
+
+- **Set the confidence to 99 and capture "Kickoff 8 September 2027 at 9am".** It should go to
+  the Inbox instead of Google. Set it back to 0 and it should save normally. Until today every
+  one of these preferences was stored and then ignored by the capture path.
+- **Change the shortcut to something another application already uses** — Ctrl+Shift+S is a good
+  bet. Latch should say so and **put your old shortcut back**. If you end up with no working
+  shortcut at all, that is the defect, and it is the one I would most want to hear about.
 
 **And one worth trying on the PC**, because it is the newest thing and the most interesting to
 get wrong: capture the line above with the date changed to **12 October**. You should get the

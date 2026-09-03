@@ -1,6 +1,7 @@
 package com.latch.data
 
 import android.content.Context
+import com.latch.core.model.LatchSettings
 import com.latch.google.ALLOWED_HOSTS
 import com.latch.google.alreadyGone
 import com.latch.google.requireGoogleEndpoint

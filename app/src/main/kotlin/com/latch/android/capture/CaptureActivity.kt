@@ -31,6 +31,7 @@ import com.latch.parser.DateOrder
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.wire.DraftResult
+import com.latch.wire.parseContextFor
 import com.latch.wire.SaveRoute
 import com.latch.wire.saveRoute
 import com.latch.wire.SheetEdits
@@ -144,18 +145,10 @@ class CaptureActivity : ComponentActivity() {
                  * or an asynchronous text path, and NFR-102's note is explicit that the risk of
                  * adding one is that it quietly captures the synchronous one.
                  */
-                val parseContext = remember(settings) {
-                    val zone = settings.timeZone
-                        ?.let { runCatching { ZoneId.of(it) }.getOrNull() }
-                        ?: ZoneId.systemDefault()
-                    ParseContext(
-                        now = capturedAt.atZone(zone).toLocalDateTime(),
-                        zone = zone,
-                        dateOrder = if (settings.dayFirstDates) DateOrder.DAY_FIRST else DateOrder.MONTH_FIRST,
-                        defaultEventDuration = settings.defaultEventDuration,
-                        confidenceThreshold = Confidence(settings.confidenceThreshold),
-                    )
-                }
+                // Derived in `:wire` rather than here, so this client and the desktop cannot
+                // read one settings record into two different parses — FR-504's date order
+                // being the field most likely to differ between a phone and a desktop.
+                val parseContext = remember(settings) { parseContextFor(settings, capturedAt) }
                 val today = parseContext.now.toLocalDate()
                 val layerDisabled = layer != null && layer !in settings.enabledLayers
 

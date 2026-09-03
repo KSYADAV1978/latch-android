@@ -11,7 +11,7 @@ import com.latch.data.AccountDefaultsStore
 import com.latch.google.CalendarApi
 import com.latch.data.EncryptedSecretStore
 import com.latch.data.EndpointRefusal
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.data.SecretStore
 import com.latch.data.SettingsStore
 import com.latch.google.TaskList

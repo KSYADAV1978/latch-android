@@ -30,12 +30,19 @@ import com.latch.desktop.save.SaveResult
 import com.latch.desktop.save.SetupResult
 import com.latch.desktop.save.toWireDestination
 import com.latch.desktop.store.DefaultsStore
+import com.latch.desktop.store.DesktopSettings
+import com.latch.desktop.store.DesktopSettingsStore
 import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.latchDataDirectory
 import com.latch.desktop.ui.CaptureWindow
 import com.latch.desktop.ui.DesktopStrings
 import com.latch.desktop.ui.InboxWindow
+import com.latch.desktop.ui.SettingsForm
+import com.latch.desktop.ui.SettingsWindow
+import com.latch.desktop.ui.applyForm
+import com.latch.desktop.ui.hotkeyChanged
 import com.latch.desktop.ui.inboxModel
+import com.latch.desktop.ui.settingsProblemText
 import com.latch.desktop.ui.LatchTray
 import com.latch.desktop.ui.TrayAction
 import com.latch.desktop.ui.TrayModel
@@ -51,12 +58,14 @@ import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
 import com.latch.core.model.InboxCapture
+import com.latch.core.model.LatchSettings
 import com.latch.core.model.InboxReason
 import com.latch.core.model.ItemType
 import com.latch.wire.DraftResult
 import com.latch.wire.SaveRoute
 import com.latch.wire.parseContextOf
 import com.latch.wire.parseOf
+import com.latch.wire.parseContextFor
 import com.latch.wire.saveRoute
 import com.latch.wire.titleOverridesOf
 import com.latch.wire.SheetEdits
@@ -70,7 +79,6 @@ import java.net.URI
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalDateTime
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.system.exitProcess
@@ -88,6 +96,12 @@ object Latch {
     private val secrets by lazy { SecretFile(File(latchDataDirectory(), "secrets.dat")) }
     private val auth by lazy { DesktopAuth(secrets, ClientConfig.load()) }
     private val defaultsStore by lazy { DefaultsStore(secrets) }
+
+    /**
+     * FR-1001, and it is read on the capture path — so it is cached after the first read.
+     * NFR-101 budgets a capture 800 ms and the DPAPI bridge costs most of a second.
+     */
+    private val settingsStore by lazy { DesktopSettingsStore(secrets) }
     private val queue by lazy { WriteQueue(File(latchDataDirectory(), "queue.dat")) }
 
     /** FR-701. Local only (FR-703); nothing in it has reached the user's Google account. */
@@ -135,12 +149,28 @@ object Latch {
     private var hotkey: GlobalHotkey? = null
     private var window: CaptureWindow? = null
     private var inboxWindow: InboxWindow? = null
+    private var settingsWindow: SettingsWindow? = null
 
-    private val spec: HotkeySpec =
-        (parseHotkey(HotkeySpec.DEFAULT) as HotkeyParse.Parsed).spec
+    /**
+     * FR-302's combination, from FR-1001's record.
+     *
+     * **A stored value that will not parse falls back to the shipped default rather than
+     * leaving the client with no shortcut at all.** `applyForm` refuses to store an unparseable
+     * one, so this can only happen to a record written by another version — and a client whose
+     * only way in silently stopped working would be the least diagnosable failure this
+     * application has.
+     */
+    private fun specOf(text: String): HotkeySpec = when (val parsed = parseHotkey(text)) {
+        is HotkeyParse.Parsed -> parsed.spec
+        is HotkeyParse.Rejected -> (parseHotkey(HotkeySpec.DEFAULT) as HotkeyParse.Parsed).spec
+    }
+
+    private var spec: HotkeySpec = specOf(HotkeySpec.DEFAULT)
 
     fun start() {
         runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+
+        spec = specOf(runCatching { settingsStore.read().hotkey }.getOrNull() ?: HotkeySpec.DEFAULT)
 
         val trayIcon = LatchTray(::onTrayAction)
         if (!trayIcon.install(model())) {
@@ -149,26 +179,45 @@ object Latch {
         }
         tray = trayIcon
 
-        val listener = GlobalHotkey(spec)
+        registerHotkey(spec)
+        runner.start()
+
+        Runtime.getRuntime().addShutdownHook(Thread { shutDown() })
+    }
+
+    /**
+     * FR-302's registration, and the one operation Settings can make worse.
+     *
+     * Re-registering means stopping a sidecar and starting another, so a combination another
+     * application already holds leaves the user with **no** shortcut. [onRefused] is how the
+     * caller puts the old one back rather than reporting a failure and stopping there.
+     */
+    private fun registerHotkey(wanted: HotkeySpec, onRefused: ((Int) -> Unit)? = null) {
+        hotkey?.close()
+        spec = wanted
+        val listener = GlobalHotkey(wanted)
         listener.start { event ->
             when (event) {
                 HotkeyEvent.Pressed -> SwingUtilities.invokeLater(::capture)
                 HotkeyEvent.Ready -> Unit
-                is HotkeyEvent.Refused -> trayIcon.say(
-                    "Latch",
-                    "Another application already uses " + spec.display +
-                        ". Choose a different shortcut in Settings.",
-                    TrayIcon.MessageType.WARNING,
-                )
-                is HotkeyEvent.Broken -> trayIcon.say(
-                    "Latch", "The keyboard shortcut stopped working.", TrayIcon.MessageType.ERROR,
-                )
+                is HotkeyEvent.Refused -> SwingUtilities.invokeLater {
+                    if (onRefused != null) onRefused(event.code)
+                    else tray?.say(
+                        "Latch",
+                        "Another application already uses " + wanted.display +
+                            ". Choose a different shortcut in Settings.",
+                        TrayIcon.MessageType.WARNING,
+                    )
+                }
+                is HotkeyEvent.Broken -> SwingUtilities.invokeLater {
+                    tray?.say(
+                        "Latch", "The keyboard shortcut stopped working.", TrayIcon.MessageType.ERROR,
+                    )
+                }
             }
         }
         hotkey = listener
-        runner.start()
-
-        Runtime.getRuntime().addShutdownHook(Thread { shutDown() })
+        tray?.update(model())
     }
 
     private fun model(): TrayModel {
@@ -206,7 +255,7 @@ object Latch {
             runner.nudge(DrainTrigger.USER_ASKED)
             tray?.say("Latch", "Trying again now.") ?: Unit
         }
-        TrayAction.SETTINGS -> tray?.say("Latch", "Settings are not built yet.") ?: Unit
+        TrayAction.SETTINGS -> SwingUtilities.invokeLater(::openSettings)
         TrayAction.QUIT -> {
             shutDown()
             exitProcess(0)
@@ -244,7 +293,14 @@ object Latch {
         when (outcome) {
             is CaptureOutcome.Nothing -> tray?.say("Latch", messageFor(outcome.reason))
             is CaptureOutcome.Ready -> {
-                val context = ParseContext(now = LocalDateTime.now())
+                // FR-1001, through the same function `:app` calls. FR-504's date order, the
+                // default duration and FR-512's threshold all reach the parse from here, and a
+                // client that filled them differently would read `05/09` the other way round
+                // from the phone.
+                val context = parseContextFor(
+                    runCatching { settingsStore.read().shared }.getOrElse { LatchSettings() },
+                    Instant.now(),
+                )
                 val result = DateParser.parse(outcome.capture.text, context)
                 val selected = result.candidates.indices.toSet()
 
@@ -438,6 +494,60 @@ object Latch {
             },
             onLapse = { tray?.update(model()) },
         )
+    }
+
+    // ---------------------------------------------------------------- FR-1000, Settings
+
+    private fun openSettings() {
+        val opened = settingsWindow ?: SettingsWindow(
+            onSave = ::saveSettings,
+            onClose = { settingsWindow = null },
+        ).also { settingsWindow = it }
+        opened.show(runCatching { settingsStore.read() }.getOrElse { DesktopSettings() })
+    }
+
+    /**
+     * FR-1001. Nothing is stored unless the whole form is good, and the hotkey is re-registered
+     * only if it actually changed.
+     *
+     * **A refused combination puts the old one back**, which is the difference between a
+     * setting that failed and a client with no way in. `RegisterHotKey` is system-wide, so
+     * "already held by another application" is a normal answer and not an error.
+     */
+    private fun saveSettings(form: SettingsForm) {
+        val window = settingsWindow ?: return
+        val current = runCatching { settingsStore.read() }.getOrElse { DesktopSettings() }
+        val applied = applyForm(current, form)
+        val wanted = applied.settings
+        if (wanted == null) {
+            window.say(applied.problems.joinToString(" ") { settingsProblemText(it) })
+            return
+        }
+
+        val stored = runCatching { settingsStore.write(wanted) }.isSuccess
+        if (!stored) {
+            window.say(DesktopStrings.SETTINGS_WRITE_FAILED)
+            return
+        }
+        window.fill(com.latch.desktop.ui.formOf(wanted))
+
+        if (!hotkeyChanged(current, wanted)) {
+            window.say(DesktopStrings.SETTINGS_SAVED)
+            return
+        }
+
+        val previous = current
+        registerHotkey(specOf(wanted.hotkey)) {
+            // Put back what was working. The user changed a shortcut and must not be left
+            // without one because the new combination belongs to something else.
+            runCatching { settingsStore.write(previous) }
+            registerHotkey(specOf(previous.hotkey))
+            settingsWindow?.let {
+                it.fill(com.latch.desktop.ui.formOf(previous))
+                it.say(DesktopStrings.SETTINGS_HOTKEY_REFUSED.replace("%s", wanted.hotkey))
+            }
+        }
+        window.say(DesktopStrings.SETTINGS_HOTKEY_RETAKEN.replace("%s", spec.display))
     }
 
     // ---------------------------------------------------------------- FR-700, the Inbox
@@ -770,6 +880,7 @@ object Latch {
         hotkey?.close()
         window?.close()
         inboxWindow?.close()
+        settingsWindow?.close()
         tray?.close()
     }
 }

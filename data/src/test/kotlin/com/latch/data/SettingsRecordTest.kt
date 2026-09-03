@@ -1,5 +1,7 @@
 package com.latch.data
 
+import com.latch.core.model.LatchSettings
+import com.latch.core.model.DEFAULT_WORKING_DAYS
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.Direction
 import com.latch.core.model.Holiday

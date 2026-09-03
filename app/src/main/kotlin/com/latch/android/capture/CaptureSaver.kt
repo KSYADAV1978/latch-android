@@ -11,7 +11,7 @@ import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
 import com.latch.wire.SaveRoute
 import com.latch.wire.saveRoute
-import com.latch.data.LatchSettings
+import com.latch.core.model.LatchSettings
 import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
 import com.latch.data.StoredUndoOffer
