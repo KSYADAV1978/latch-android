@@ -159,9 +159,21 @@ class CaptureWindow(
         dialog.pack()
         dialog.location = nearCursor(dialog.size)
         dialog.isVisible = true
-        // The first thing the keyboard lands on is the title, which is the field most likely
-        // to need correcting after an OCR capture.
-        SwingUtilities.invokeLater { titleField.requestFocusInWindow() }
+        // The title is focused **and selected**, so correcting it is type-then-Enter with no
+        // click at all, and accepting it is Enter on its own.
+        //
+        // FR-509 cannot be fixed by a better derivation — measured, see SRS 1.64 — so the
+        // answer is to make FR-509b's correction the path of least resistance rather than a
+        // button to notice and reach for. Selecting is what turns two actions into none: the
+        // user either types over it or does not.
+        //
+        // Wiping it by accident costs nothing, which is what makes selecting safe here: FR-509b
+        // already reads a blank field as "no override" and falls back to the derived title, so
+        // the worst case is undone by clearing.
+        SwingUtilities.invokeLater {
+            titleField.requestFocusInWindow()
+            titleField.selectAll()
+        }
     }
 
     private fun rowPanel(row: CaptureRow): JPanel = JPanel().apply {

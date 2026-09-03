@@ -1063,7 +1063,20 @@ private fun EditableTitle(
     if (!editing) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                modifier = Modifier.weight(1f, fill = false),
+                // The title itself opens the editor, not only the button beside it.
+                //
+                // FR-509 cannot be fixed by a better derivation — measured, see SRS 1.64 — so
+                // FR-509b's correction has to be the easy thing rather than the noticed thing.
+                // On a desktop that means focusing the field; here it cannot, because a field
+                // that opens by itself raises the software keyboard over the very sheet the
+                // user is trying to read. What is available instead is the touch target: the
+                // title is the largest thing on the sheet and the thing being corrected, so it
+                // is the control. The button stays, because a word that says what will happen
+                // is what makes the gesture discoverable at all — the same reason FR-507's
+                // badge needed a line of text beside it.
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .clickable { editing = true },
                 text = title,
                 style = style,
                 maxLines = 3,
