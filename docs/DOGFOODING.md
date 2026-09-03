@@ -289,12 +289,17 @@ defects** — but do say if one bites in a way this list does not describe.
 
 ## Two things worth doing early
 
-**The one test I still need from you:** capture this text on your **phone** —
+**The test that was outstanding here is done, 3 Sep 2026.** You captured an email selection on
+the PC on 18 Sept, corrected its title before saving, and then shared the same text into Latch
+on the phone. The phone said **"Already saved. Nothing was written again."** and created
+nothing — checked against the phone's own records, not the message. That closes the reverse
+half of AC-07 as the criterion is written, and it also showed that **correcting a title does
+not break recognition**, which is the part that would have been expensive to get wrong.
 
-> Latch desktop first write 11 October 2027 at 15:30
-
-The PC wrote it already, so the phone should say **"Already saved. Nothing was written
-again."** and create nothing. That closes the reverse half of AC-07. Tell me what it says.
+One thing is still owed from it, and it is mine rather than yours: the phone gives no sign of
+*which* check answered. "Already saved" reads the same whether it came from the message hash or
+from the weaker item-key match, and this project has been caught by that difference once
+already. I owe a build that says which, and then one more run of the same test.
 
 ## The Inbox on the PC (new, 3 Sep 2026)
 

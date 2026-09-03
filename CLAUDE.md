@@ -219,7 +219,8 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **The desktop adopts the phone's calendar, not a second one** | 3 Sep 2026 | **Pass, and it is AC-07's second guard.** Three writable calendars in the account, exactly one named Latch, and the desktop chose it by id rather than creating its own. FR-803's event query is scoped to a calendar id, so a second Latch calendar would have made the desktop blind to everything the phone wrote. |
 | **FR-801/802 from Windows — a real write** | 3 Sep 2026 | **Pass.** Two captures written to the live API through the shared `:google` client. Read back: all five §7.2 keys present, `latch.recipe` correctly **absent**, metadata decoding cleanly through `remoteMetadataFromEventProperties`, description carrying the source text, and Google canonicalising the zone this JVM calls `Asia/Calcutta` to `Asia/Kolkata`. The absent-recipe check is the hand-written JSON's `put(name, null)` removes semantics, confirmed against Google rather than against a unit test. |
 | **FR-803 on Windows** | 3 Sep 2026 | **Pass.** The identical capture a second time answered "Already saved. Nothing was written again."; a different message wrote. **On this client that answer can only be the source-hash query**, because the desktop has no FR-804 path to fall through to — which is what Android's did on 1 Sep, and why AC-07 was worth closing here first. |
-| **AC-07 — the same message on phone and PC** | 3 Sep 2026 | **PASS. The oldest open criterion in this record, closed.** The phone captured `Kickoff 8 September 2027 at 9am` on a device weeks earlier. The PC computed `source_hash b3375f4a…` and `item_key f5d2496e…` — **byte-identical to what the phone stored**, verified against the values read back out of Google — and answered "Already saved. Nothing was written again." Evidence is the count and not the message: the calendar held **4 events before and 4 after**, exactly one Kickoff, and FR-803's own query returns exactly **1** match for that hash. Two things make this more than one green run. The identity was derived by *shared compiled code*, so it agrees by construction rather than by luck; and `f5d2496e…` is the same digest the `plain_event` row of `item_key_vectors.tsv` was generated with today, on Windows, from `:wire` — so a vector taken this morning matches an item a phone wrote in August. **The reverse direction — PC first, then phone — is still owed**; it is not the same test, and `docs`' procedure says why. |
+| **AC-07 — the same message on phone and PC** | 3 Sep 2026 | **PASS. The oldest open criterion in this record, closed.** The phone captured `Kickoff 8 September 2027 at 9am` on a device weeks earlier. The PC computed `source_hash b3375f4a…` and `item_key f5d2496e…` — **byte-identical to what the phone stored**, verified against the values read back out of Google — and answered "Already saved. Nothing was written again." Evidence is the count and not the message: the calendar held **4 events before and 4 after**, exactly one Kickoff, and FR-803's own query returns exactly **1** match for that hash. Two things make this more than one green run. The identity was derived by *shared compiled code*, so it agrees by construction rather than by luck; and `f5d2496e…` is the same digest the `plain_event` row of `item_key_vectors.tsv` was generated with today, on Windows, from `:wire` — so a vector taken this morning matches an item a phone wrote in August. The reverse direction was run on 3 Sep 2026 — see the row below. |
+| **AC-07 — the reverse direction, PC first then phone** | 3 Sep 2026 | **Pass on the criterion as written; the mechanism half is OWED and the reason is structural.** An email selection captured on the PC on 18 Sept, **with its title corrected before saving** (FR-509b), was shared into Latch on the phone. The sheet said *"Already saved. Nothing was written again."* and **nothing was written** — FR-803's index unchanged at 2 rows, no Inbox row, no stored undo offer, empty write queue, `latch.db` untouched since the morning's unrelated save. The phone's index records every item *this* device writes, so an unchanged index proves this phone created nothing rather than that nothing is visible. **The title edit made no difference**, which is the load-bearing half: FR-509b's correction travels through `titleOverrides`, outside both `source_hash` and `item_key`, precisely so correcting a typo cannot make an item unmatchable. **What is NOT established is which query answered.** SRS 1.60 closed the forward direction on the desktop *because* `DesktopSaver` has no FR-804 path; the reverse direction has no such guard — Android falls through to `item_key`, and §7.2's row 3 produces the identical sentence. That is the 1 Sep 2026 confusion exactly. It is not academic: `item_key` is the weaker identity (title with date spans blanked), the text reached the phone through a note-taking app, and a reflowed line break would have changed `source_hash` while `item_key` still matched. **Owed: the same run with a decision log line in place.** |
 | **FR-503 / SRS 1.62 — a relative word and its gloss are one date** | 3 Sep 2026 | **Pass, on the capture that prompted it.** The NITI Aayog email shared into Latch verbatim (256 chars, `ocr=false`, 0 ms — the synchronous text path, so NFR-102 is undisturbed). The sheet showed **one** candidate, not two: no checkboxes at all, which is how a single-candidate sheet renders, where the same text produced a to-do for the reading day beside an event for the previous one before the change. It read `EVENT`, `2 Sept 2026, 5:30 pm` — the explicit date, not the relative one — with FR-510's line *"2 Sept 2026 has passed. Latch will save a follow-up to-do instead of a dated item."* The developer then pressed Save while this was being watched, and the local index records exactly one new row: a **TASK**, at 12:56:03, which is FR-510's undated follow-up and the expected outcome of the merge. Nothing was queued and nothing crashed. **Read back out of Google afterwards**: the task is in the list with **no due date**, carrying `Originally dated 2 September 2026.` and FR-805's source text, and its `source_hash` and `item_key` match the phone's index byte for byte — sheet, index and account all agree. FR-509's title finding is visible in the same item, and in its worst form: `In continuation of the trail mail, please find` is the title of a real to-do in the user's list. Recorded against FR-509, deliberately not fixed, FR-509b's edit being the answer. |
 | **FR-509b is easier to reach** | — | **Built 3 Sep 2026, NOT device-checked on either client.** On Windows the title field is focused and selected when a capture opens; on Android the title itself is now tappable, not only the button beside it. Neither has been watched. The Windows check is that typing immediately replaces the title and Enter alone saves without touching it; the Android check is that tapping the title text opens the editor and that the software keyboard does **not** appear until it is tapped — a field that opened by itself would cover the sheet, which is the whole reason the two-tap arrangement exists. |
 | **AC-05 — a screenshot with three dates** | 31 Aug 2026 | **Pass**, on `three-dates-v4.png`. Exactly three dates — `TASK 14 Sept 2026`, `TASK 20 Sept 2027`, `EVENT 1 Oct 2027`, the range correctly one candidate and an Event. Three checkboxes all `checked=true` at open, read from the view hierarchy rather than eyeballed; unticking the middle gave `true,false,true`; the save wrote **two** items, not three; nothing on the unticked date; and a re-capture answered "Already saved", which is Google confirming both landed. **Provenance:** v4 is a *rendered* chat image, not a device screenshot, so the criterion is met by a proxy and is to be re-run if a real screenshot is supplied. **The undo half was not re-run here** and is not silently omitted: it is covered by AC-11's four-item chain undo of 28 Aug. |
@@ -443,6 +444,22 @@ drained** — the 28 Aug pass was online throughout, so the worker's update path
 staleness SRS 1.19 records have only ever run on the JVM — and **the task search has never
 capped**, which needs a list longer than ten pages, so the give-up behaviour is JVM-only.
 
+**The phone says nothing about what a save decided, and that is now a known obstacle to
+device passes.** `LatchTiming` logs the content step — `content ready, ocr=false, chars=437 in
+0ms` — and nothing after it. So from outside the phone there is no way to tell a source-hash
+match from an item-key fall-through, and (as the 3 Sep AC-07 reverse run showed before the
+developer said which) no way to tell either of those from a Save that was never pressed: all
+three leave the same trace, which is an unchanged index and an untouched database.
+
+The desktop says what it did, on screen and in the tray. The phone says it only to whoever is
+holding it. This directly defeats the discipline recorded above — *the count is the instrument,
+not the screen* — in the one case this file warns about hardest, because the count is identical
+in every branch and only the reason differs.
+
+**The cure is one debug line at the decision**, naming which query answered: source-hash hit,
+item-key fall-through to §7.2 row 3, create, queued, or routed to the Inbox. It is the same
+shape as `LatchTiming` and costs nothing. **Owed, and AC-07's mechanism half waits on it.**
+
 **Two observations from real use, recorded rather than acted on.**
 
 **Ten seconds is tight for anyone who verifies before undoing.** The undo window was missed
@@ -464,10 +481,27 @@ nowhere at all.
 
 **AC-07 is closed as of 3 Sep 2026.** It was owed from the first day of this project because
 the Windows client did not exist; it does, and the criterion passed in the phone-to-PC
-direction with the count as evidence. What remains is the **PC-to-phone** direction, which is
-not the same test — FR-803 is symmetric by construction, but the two clients compose that
-query in code that has only ever been exercised one way round against a real account. Two
-PC-written events are sitting in the Latch calendar as its fixture.
+direction with the count as evidence.
+
+**The PC-to-phone direction was run on 3 Sep 2026 and passes on the criterion as written**: a
+task the PC created on 18 Sept from an email selection — with its title corrected before saving
+— was re-captured on the phone, which answered "Already saved. Nothing was written again." and
+wrote nothing. Four local stores agree that the phone created nothing.
+
+**What that run could not establish, and what is now owed, is *which query* answered.** The
+forward direction was clean because `DesktopSaver` has no FR-804 path at all, so an "Already
+saved" there could only be the source-hash query — SRS 1.60 says so, and says it is why AC-07
+was worth closing on the desktop first. **The reverse direction has no equivalent guard.**
+Android asks FR-803 and, only on a miss, FR-804's `item_key`; §7.2's row 3 — same key, same
+resolved date — returns `AlreadySaved` too, and both paths reach the identical sentence. That
+is the 1 Sep 2026 defect's own shape, where an "Already saved" was traced to the fall-through
+while FR-803's query was returning `items=0`.
+
+The ambiguity is not academic on this run. `item_key` is the **weaker** identity of the two —
+the title with every date span blanked — so it survives changes to the surrounding text that
+`source_hash` would not. The text reached the phone through a note-taking app; had that
+transport reflowed a single line break, `source_hash` would have differed while `item_key`
+still matched, and the sentence on screen would have been the same.
 
 **Retired rather than owed**, so it is not mistaken for a gap: FR-804's device check that a
 **pre-fix item is offered no update**. The 27 Aug items carrying pre-v1.14 `latch.item_key`
