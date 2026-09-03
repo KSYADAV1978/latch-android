@@ -143,7 +143,7 @@ Subject line in the present tense, imperative, one line. The body carries the re
 which requirements the change serves, and any decision the code cannot state for itself.
 
 ## State of the build
-Skeleton only. Working: the six-module structure, the parser (110-case corpus, all passing —
+Skeleton only. Working: the six-module structure, the parser (113-case corpus, all passing —
 see the NFR-502 note below),
 working-day arithmetic and recipe expansion, capture layers 1, 2 and 4 as far as the
 confirmation screen, first-run setup (FR-100 series) end to end, on-device OCR of
@@ -866,9 +866,10 @@ unit tests over that reducer. Keep it that way.
 
 **NFR-502 is not met, and this is the first place it is written down.** The requirement asks for
 a corpus of "no fewer than **300** real-world input strings and expected outputs". There are
-**110** — eight of them added on 3 Sep 2026 for year-first dates, after building §7.2's
+**113** — eight added on 3 Sep 2026 for year-first dates and three more that day for the
+first real desktop capture, after building §7.2's
 date-free-title vectors found that `Renewal 2027-10-14` resolved to October **2026**. Every one of them earns its place — each was added against a rule or a defect, and the
-v1.21 voice-typing row that FR-511's slice was told to activate is active — but 110 is a third of
+v1.21 voice-typing row that FR-511's slice was told to activate is active — but 113 is a third of
 what the requirement names, and the gap has been carried silently since the corpus was started.
 
 It is recorded rather than closed because closing it is its own slice: two hundred more rows is
@@ -1004,6 +1005,33 @@ left a sidecar holding Ctrl+Shift+K. What a user notices then is a shortcut that
 nothing in *every* application on the machine, with no error and nothing to blame. The sidecar
 now waits on the parent's process handle alongside its message queue. Verified by hard-killing
 the application and re-registering the combination afterwards.
+
+### The shared parser changed on 3 Sep 2026 — Android is BUILT, NOT INSTALLED
+
+A relative word adjacent to an explicit date is now one commitment (SRS 1.62). The change is
+in `:parser`, which both clients compile, so **the phone and the PC will only read that email
+the same way once both are running the new build**.
+
+| Client | State |
+|---|---|
+| Windows | **Installed and running.** `install-local.ps1` re-run, relaunched from the shortcut. |
+| Android | **APK built, NOT installed.** No device was attached when the change landed — `adb devices` was empty — so nothing was pushed and nothing on the phone has changed. |
+
+The APK is at `app/build/outputs/apk/debug/app-debug.apk` (55.01 MB, universal debug). To
+install it:
+
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+**Until that is done the two clients disagree about this class of capture**, which is worth
+knowing before testing AC-07 with anything containing a relative word: the phone would derive a
+different `item_key` from the same email, because the span it blanks would stop short of
+"today". Captures with no relative word are unaffected.
+
+Once installed it is **installed-not-yet-device-checked**: the fix is JVM-verified by fourteen
+candidate-count tests and a live corpus row, and nobody has watched the phone open that email.
+The check is one line — capture the NITI Aayog email on the phone and confirm **one** row, an
+undated to-do carrying "Originally dated 2 September 2026" rather than a to-do for today beside
+an event for yesterday.
 
 ### Closing AC-07 — the oldest open criterion in this record
 

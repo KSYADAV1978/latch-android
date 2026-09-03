@@ -91,7 +91,7 @@ object DateParser {
                 if (absorbed.isEmpty()) return@map date
                 // "Monday, 31 August" begins at the weekday, so absorbing it can move the
                 // start of the phrase earlier than the date word itself.
-                val span = date.span.spanning(absorbed.map { it.span })
+                val span = closingBracket(normalized, date.span.spanning(absorbed.map { it.span }))
                 date.copy(span = span, firstMentionAt = minOf(date.firstMentionAt, span.first))
             }
             // SRS 1.23: two dates joined by a range connective are one commitment, and the
@@ -224,7 +224,7 @@ object DateParser {
         val explicit = accepted.filter { it.source == DateSource.EXPLICIT }
         if (explicit.isEmpty()) return emptyMap()
 
-        return accepted
+        val byWeekday = accepted
             .filter { it.source == DateSource.WEEKDAY }
             .mapNotNull { weekday ->
                 val near = explicit.filter { it.span.gapTo(weekday.span) <= CORROBORATION_WINDOW }
@@ -234,30 +234,97 @@ object DateParser {
 
                 val owner = near.filter { it.date.dayOfWeek == weekday.date.dayOfWeek }
                     .minWithOrNull(nearest)
-                    ?: near.filter { samePhrase(text, weekday.span, it.span) }.minWithOrNull(nearest)
+                    ?: near.filter { samePhrase(text, weekday.span, it.span, WEEKDAY_SEPARATORS) }
+                        .minWithOrNull(nearest)
 
                 owner?.let { weekday to it }
             }
-            .toMap()
+
+        val byRelative = accepted
+            .filter { it.source == DateSource.RELATIVE }
+            .mapNotNull { relative ->
+                val nearest = compareBy<RawDate>({ it.span.gapTo(relative.span) }, { it.span.first })
+                explicit
+                    .filter { it.span.gapTo(relative.span) <= CORROBORATION_WINDOW }
+                    .filter { samePhrase(text, relative.span, it.span, RELATIVE_SEPARATORS) }
+                    .minWithOrNull(nearest)
+                    ?.let { relative to it }
+            }
+
+        return (byWeekday + byRelative).toMap()
     }
 
     /**
-     * Whether two spans are parts of one written phrase: everything between them is a space or
-     * a comma, and there is nothing else at all.
+     * Extends a span by one character where it opened a bracket it did not close.
+     *
+     * "today (2 September, 2026)" absorbs as `today (2 September, 2026` — the date's own span
+     * stops inside the bracket, because the bracket is not part of the date. Leaving the stray
+     * `)` behind costs twice: FR-504 shows the user a phrase missing its last character, and
+     * §7.2's `latch.item_key` is the title with these spans blanked, so the bracket would sit
+     * in the identity of every such item for ever. `item_key_vectors.tsv` records why that is
+     * worth getting right the first time rather than tidying later.
+     */
+    private fun closingBracket(text: String, span: IntRange): IntRange {
+        val opens = (span.first..minOf(span.last, text.lastIndex)).count { text[it] == '(' }
+        val closes = (span.first..minOf(span.last, text.lastIndex)).count { text[it] == ')' }
+        val next = span.last + 1
+        return if (opens > closes && next <= text.lastIndex && text[next] == ')') {
+            span.first..next
+        } else {
+            span
+        }
+    }
+
+    /**
+     * What may sit between a **weekday** and the date it corroborates.
+     *
+     * "monday, 31 august" is settled English apposition, so a comma belongs here.
+     */
+    private val WEEKDAY_SEPARATORS = setOf(' ', ',')
+
+    /**
+     * What may sit between a **relative word** and the date that glosses it.
+     *
+     * **Brackets in, commas out**, and the asymmetry with [WEEKDAY_SEPARATORS] is the whole of
+     * the reading. A weekday has a second way in — it can agree with the date's own day of the
+     * week — so proximity is only ever half its evidence. A relative word has no such check
+     * available, because agreement is precisely the case where the answer does not matter and
+     * *disagreement* is the case this rule exists for. Structure is therefore all there is, and
+     * it has to carry the decision alone.
+     *
+     * A comma is too weak to carry it. "Call me today, 5 September deadline" is two
+     * commitments and would merge into one, losing the call; "today, 2 September" is one and
+     * will not merge, leaving two rows the user unticks. Those are the two ways to be wrong and
+     * they are not equal — an extra row is visible and FR-511 removes it, a swallowed date is
+     * silent, and design principle 1 is about not losing things.
+     */
+    private val RELATIVE_SEPARATORS = setOf(' ', '(', ')')
+
+    /**
+     * Whether two spans are parts of one written phrase: everything between them is one of
+     * [separators], and there is nothing else at all.
      *
      * A deliberately literal test rather than a tuned character distance. "friday 12 september"
      * and "monday, 31 august" pass; "september 6, 2026\ndate: monday" fails on the line break
      * and the word between, and "gym friday, and the review on 12 september" fails on the
      * words. A distance threshold would have to be tuned to sit between two of those and would
      * silently mean something different in a language with longer separators.
+     *
+     * The set is a parameter because a weekday and a relative word are not owed the same
+     * latitude; see [WEEKDAY_SEPARATORS] and [RELATIVE_SEPARATORS].
      */
-    private fun samePhrase(text: String, a: IntRange, b: IntRange): Boolean {
+    private fun samePhrase(
+        text: String,
+        a: IntRange,
+        b: IntRange,
+        separators: Set<Char>,
+    ): Boolean {
         val between = when {
             a.last < b.first -> text.substring(a.last + 1, b.first)
             b.last < a.first -> text.substring(b.last + 1, a.first)
             else -> return true
         }
-        return between.all { it == ' ' || it == ',' }
+        return between.all { it in separators }
     }
 
     /**
