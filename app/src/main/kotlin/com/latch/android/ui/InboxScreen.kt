@@ -33,7 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.capture.SaveFailure
-import com.latch.android.capture.canOverrideTo
+import com.latch.wire.canOverrideTo
 import com.latch.android.capture.SaveState
 import com.latch.android.inbox.parseOf
 import com.latch.data.InboxCapture

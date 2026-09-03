@@ -47,7 +47,9 @@ import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
 import com.latch.wire.DraftResult
+import com.latch.wire.SheetEdits
 import com.latch.wire.draftItems
+import com.latch.wire.withEdits
 import kotlinx.coroutines.runBlocking
 import java.awt.Desktop
 import java.awt.TrayIcon
@@ -223,17 +225,27 @@ object Latch {
                 val selected = result.candidates.indices.toSet()
 
                 window?.close()
+                val today = LocalDate.now()
                 val opened = CaptureWindow(
-                    onSave = { ticked, titles ->
-                        save(outcome.capture, result, context, ticked, titles)
+                    onSave = { ticked, edits ->
+                        save(outcome.capture, result, context, ticked, edits, today)
                     },
-                    onExport = { ticked, titles ->
-                        export(outcome.capture, result, context, ticked, titles)
+                    onExport = { ticked, edits ->
+                        export(outcome.capture, result, context, ticked, edits, today)
                     },
                     onClose = { window = null },
                 )
                 window = opened
-                opened.show(popupModel(outcome.capture, result, selected, LocalDate.now()))
+                // The sheet re-derives from the edits on every change, so the badge, the date
+                // line, the blocker and the write all read the same rows — `:app` does the same
+                // with one `parsed.withEdits(edits, today)`, and for the same reason.
+                opened.show(selected) { edits, ticked ->
+                    val edited = result.withEdits(edits, today)
+                    popupModel(
+                        outcome.capture, edited, ticked, today,
+                        edits.titleOverrides, edits.typeOverrides,
+                    )
+                }
             }
         }
     }
@@ -249,11 +261,16 @@ object Latch {
      */
     private fun save(
         captured: com.latch.desktop.capture.DesktopCapture,
-        result: ParseResult,
+        parsed: ParseResult,
         context: ParseContext,
         selected: Set<Int>,
-        titleOverrides: Map<Int, String>,
+        edits: SheetEdits,
+        today: LocalDate,
     ) {
+        // FR-506 row 3, FR-507 and FR-509b applied in one place, exactly as the sheet renders
+        // them — so what was confirmed and what is written cannot differ.
+        val result = parsed.withEdits(edits, today)
+        val titleOverrides = edits.titleOverrides
         if (!auth.isConfigured) {
             window?.showOutcome(DesktopStrings.NOT_CONFIGURED)
             return
@@ -395,11 +412,16 @@ object Latch {
      */
     private fun export(
         captured: com.latch.desktop.capture.DesktopCapture,
-        result: ParseResult,
+        parsed: ParseResult,
         context: ParseContext,
         selected: Set<Int>,
-        titleOverrides: Map<Int, String>,
+        edits: SheetEdits,
+        today: LocalDate,
     ) {
+        // FR-506 row 3, FR-507 and FR-509b applied in one place, exactly as the sheet renders
+        // them — so what was confirmed and what is written cannot differ.
+        val result = parsed.withEdits(edits, today)
+        val titleOverrides = edits.titleOverrides
         val chainId = java.util.UUID.randomUUID().toString()
         val draft = draftItems(
             captured = captured,

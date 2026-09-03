@@ -1,6 +1,9 @@
 package com.latch.desktop.ui
 
 import com.latch.desktop.save.undoSecondsLeft
+import com.latch.wire.DateSuggestion
+import com.latch.wire.SheetEdits
+import com.latch.wire.dateFrom
 
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -10,6 +13,7 @@ import java.awt.GraphicsEnvironment
 import java.awt.MouseInfo
 import java.awt.Point
 import java.awt.Rectangle
+import java.time.LocalDate
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -20,6 +24,8 @@ import javax.swing.JDialog
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JScrollPane
+import javax.swing.JSpinner
+import javax.swing.SpinnerDateModel
 import javax.swing.JTextField
 import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
@@ -44,9 +50,9 @@ import javax.swing.SwingUtilities
  * would have left Save reachable only after everything above it.
  */
 class CaptureWindow(
-    private val onSave: (Set<Int>, Map<Int, String>) -> Unit,
+    private val onSave: (Set<Int>, SheetEdits) -> Unit,
     /** FR-1005. Nothing is written to Google by this, which is the point of offering it. */
-    private val onExport: (Set<Int>, Map<Int, String>) -> Unit,
+    private val onExport: (Set<Int>, SheetEdits) -> Unit,
     private val onClose: () -> Unit,
 ) {
     private val dialog = JDialog(null as java.awt.Frame?, "Latch", false)
@@ -64,6 +70,19 @@ class CaptureWindow(
     private val actions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0))
     private var countdown: javax.swing.Timer? = null
     private val checkboxes = mutableMapOf<Int, JCheckBox>()
+
+    /**
+     * FR-506 row 3, FR-507 and FR-509b's answers, held here and applied in **one** place.
+     *
+     * The window keeps the edits and re-asks [renderer] for a model whenever they change, which
+     * is how the badge, the date line, the blocker and the write all read the same rows. A
+     * screen that applied an override itself would eventually show one thing and save another —
+     * the divergence a confirmation screen exists to make impossible, and the reason `:app`
+     * derives `parsed.withEdits(edits, today)` exactly once.
+     */
+    private var edits = SheetEdits()
+    private var renderer: ((SheetEdits, Set<Int>) -> PopupModel)? = null
+    private var selected: MutableSet<Int> = mutableSetOf()
 
     init {
         dialog.defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
@@ -102,7 +121,7 @@ class CaptureWindow(
         )
 
         exportButton.addActionListener {
-            onExport(checkboxes.filterValues { it.isSelected }.keys.toSet(), titleOverride())
+            onExport(ticked(), withTypedTitle())
         }
         closeButton.addActionListener { dismiss() }
 
@@ -113,12 +132,7 @@ class CaptureWindow(
         content.add(south, BorderLayout.SOUTH)
         showConfirmActions()
 
-        save.addActionListener {
-            onSave(
-                checkboxes.filterValues { it.isSelected }.keys.toSet(),
-                titleOverride(),
-            )
-        }
+        save.addActionListener { onSave(ticked(), withTypedTitle()) }
         // FR-304: Enter saves and Escape dismisses, from anywhere in the window.
         dialog.rootPane.defaultButton = save
         dialog.rootPane.registerKeyboardAction(
@@ -132,17 +146,26 @@ class CaptureWindow(
 
     private var derivedTitle: String = ""
 
-    private fun titleOverride(): Map<Int, String> {
+    private fun ticked(): Set<Int> = checkboxes.filterValues { it.isSelected }.keys.toSet()
+
+    private fun withTypedTitle(): SheetEdits {
         val typed = titleField.text.trim()
         // Blank, or unchanged, is not an override. A user who cleared the field mid-edit has
         // not asked for an item with no name — the same reading FR-509b takes on the phone.
-        if (typed.isEmpty() || typed == derivedTitle) return emptyMap()
-        return checkboxes.keys.associateWith { typed }
+        if (typed.isEmpty() || typed == derivedTitle) return edits
+        return edits.copy(titleOverrides = checkboxes.keys.associateWith { typed })
     }
 
-    fun show(model: PopupModel) {
-        derivedTitle = model.title
-        titleField.text = model.title
+    /**
+     * Re-derives everything from the edits, so no two parts of the sheet can disagree.
+     *
+     * It renders with [withTypedTitle] rather than the stored edits, so a title corrected in the
+     * field shows on the rows immediately. `derivedTitle` is deliberately **not** updated here:
+     * it is what the parser produced, set once, and comparing against it is how FR-509b tells a
+     * correction from an untouched title.
+     */
+    private fun redraw() {
+        val model = renderer?.invoke(withTypedTitle(), selected) ?: return
         summary.text = model.summary
         blocker.text = model.blocker.orEmpty()
         save.isEnabled = model.canSave
@@ -155,8 +178,18 @@ class CaptureWindow(
         }
         rowsPanel.revalidate()
         rowsPanel.repaint()
-
         dialog.pack()
+    }
+
+    fun show(initiallyTicked: Set<Int>, render: (SheetEdits, Set<Int>) -> PopupModel) {
+        renderer = render
+        edits = SheetEdits()
+        selected = initiallyTicked.toMutableSet()
+        // FR-511: every row starts ticked, which is what the requirement asks the checkboxes to
+        // begin as.
+        derivedTitle = render(edits, selected).title
+        titleField.text = derivedTitle
+        redraw()
         dialog.location = nearCursor(dialog.size)
         dialog.isVisible = true
         // The title is focused **and selected**, so correcting it is type-then-Enter with no
@@ -181,32 +214,130 @@ class CaptureWindow(
         alignmentX = JComponent.LEFT_ALIGNMENT
         border = BorderFactory.createEmptyBorder(4, 0, 4, 0)
 
-        val top = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
-            alignmentX = JComponent.LEFT_ALIGNMENT
-            val box = JCheckBox(row.badge + "   " + row.whenLine, row.checked).apply {
-                // The badge and the date read as one label to a screen reader, which is what
-                // NFR-401 needs: two adjacent controls saying "EVENT" and "8 Sep 2027" are
-                // read as two unrelated things.
-                getAccessibleContext().accessibleName = row.badge + ", " + row.whenLine + ", " + row.title
+        add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                alignmentX = JComponent.LEFT_ALIGNMENT
+                val box = JCheckBox(row.whenLine, row.checked).apply {
+                    // The badge and the date read as one label to a screen reader, which is
+                    // what NFR-401 needs: two adjacent controls saying "EVENT" and "8 Sep 2027"
+                    // are read as two unrelated things.
+                    getAccessibleContext().accessibleName =
+                        row.badge + ", " + row.whenLine + ", " + row.title
+                    addItemListener {
+                        if (isSelected) selected += row.index else selected -= row.index
+                        redraw()
+                    }
+                }
+                checkboxes[row.index] = box
+                add(badgeButton(row))
+                add(box)
             }
-            checkboxes[row.index] = box
-            add(box)
-        }
-        add(top)
+        )
 
-        add(JLabel(row.title).apply {
-            alignmentX = JComponent.LEFT_ALIGNMENT
-            border = BorderFactory.createEmptyBorder(0, 26, 0, 0)
-            font = font.deriveFont(Font.PLAIN, 12f)
-        })
-
-        row.note?.let {
-            add(JLabel(it).apply {
+        add(
+            JLabel(row.title).apply {
                 alignmentX = JComponent.LEFT_ALIGNMENT
                 border = BorderFactory.createEmptyBorder(0, 26, 0, 0)
-                font = font.deriveFont(Font.ITALIC, 11f)
-            })
+                font = font.deriveFont(Font.PLAIN, 12f)
+            }
+        )
+
+        // §8.1's cost, and FR-510's reason where the badge is fixed. Both read *before* the
+        // press: this is the one place a user action deliberately discards something they
+        // wrote, so the sentence has to be there while the badge still says what it says now.
+        val hint = row.overrideCost ?: if (!row.canOverride) DesktopStrings.PAST_CANNOT_BE_EVENT else null
+        hint?.let { add(smallNote(it)) }
+        row.note?.let { add(smallNote(it)) }
+
+        if (row.needsDate) add(datePicker(row))
+    }
+
+    /**
+     * FR-507's single control.
+     *
+     * The badge **is** the control, which satisfies "a single control" literally and puts the
+     * override where FR-508 already requires the classification to be shown. It was computed by
+     * the model and drawn as dead text until 3 Sep 2026 — the capability existed and nothing
+     * rendered it, which reads as done and is worse than absent.
+     */
+    private fun badgeButton(row: CaptureRow): JButton = JButton(row.badge).apply {
+        font = font.deriveFont(Font.BOLD, 11f)
+        margin = java.awt.Insets(2, 8, 2, 8)
+        isFocusPainted = true
+        isEnabled = row.canOverride
+        toolTipText =
+            if (row.canOverride) "Switch between event and to-do"
+            else DesktopStrings.PAST_CANNOT_BE_EVENT
+        getAccessibleContext().accessibleName = row.badge + ", press to switch"
+        addActionListener {
+            edits = edits.copy(
+                typeOverrides = edits.typeOverrides + (row.index to row.otherType),
+            )
+            redraw()
         }
+    }
+
+    /**
+     * FR-506 row 3: a time with no day.
+     *
+     * **The chips are on screen without a press**, because the requirement says the picker
+     * "opens automatically with suggestion chips" — a row that only says "pick a day" and hides
+     * the way to do it is the state this client was in until now.
+     *
+     * **Nothing is pre-selected.** The spinner shows today because a spinner must show
+     * something, and it does not count as a choice until `Use` is pressed: design principle 1
+     * forbids the *app* choosing a date, and a control the user operates is the user choosing
+     * one.
+     */
+    private fun datePicker(row: CaptureRow): JPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+        alignmentX = JComponent.LEFT_ALIGNMENT
+        border = BorderFactory.createEmptyBorder(2, 22, 0, 0)
+
+        listOf(
+            DesktopStrings.TODAY to DateSuggestion.TODAY,
+            DesktopStrings.TOMORROW to DateSuggestion.TOMORROW,
+            DesktopStrings.IN_A_WEEK to DateSuggestion.IN_A_WEEK,
+        ).forEach { (label, suggestion) ->
+            add(
+                JButton(label).apply {
+                    font = font.deriveFont(Font.PLAIN, 11f)
+                    margin = java.awt.Insets(1, 6, 1, 6)
+                    addActionListener { assign(row.index, suggestion.dateFrom(LocalDate.now())) }
+                }
+            )
+        }
+
+        val spinner = JSpinner(SpinnerDateModel()).apply {
+            editor = JSpinner.DateEditor(this, "d MMM yyyy")
+            preferredSize = Dimension(120, preferredSize.height)
+            getAccessibleContext().accessibleName = "Other date"
+        }
+        add(spinner)
+        add(
+            JButton(DesktopStrings.OTHER_DATE).apply {
+                font = font.deriveFont(Font.PLAIN, 11f)
+                margin = java.awt.Insets(1, 6, 1, 6)
+                addActionListener {
+                    val picked = (spinner.value as java.util.Date).toInstant()
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                    assign(row.index, picked)
+                }
+            }
+        )
+    }
+
+    private fun assign(index: Int, date: LocalDate) {
+        edits = edits.copy(assignedDates = edits.assignedDates + (index to date))
+        // Completing a row ticks it. A picker that filled the date and left the row unticked
+        // would feel inert — the user has just said when the thing is.
+        selected += index
+        redraw()
+    }
+
+    private fun smallNote(text: String): JLabel = JLabel(text).apply {
+        alignmentX = JComponent.LEFT_ALIGNMENT
+        border = BorderFactory.createEmptyBorder(0, 26, 0, 0)
+        font = font.deriveFont(Font.ITALIC, 11f)
     }
 
     private fun showConfirmActions() {

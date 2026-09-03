@@ -2,8 +2,8 @@ package com.latch.android.inbox
 
 import com.latch.android.capture.CapturedText
 import com.latch.android.capture.CaptureSaver
-import com.latch.android.capture.withAssignedDate
-import com.latch.android.capture.withTypeOverrides
+import com.latch.wire.withAssignedDate
+import com.latch.wire.withTypeOverrides
 import com.latch.data.CaptureInbox
 import com.latch.core.model.ItemType
 import com.latch.data.InboxCapture

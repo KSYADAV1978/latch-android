@@ -1088,12 +1088,11 @@ not what is wrong.
 
 Read from the source rather than from memory. The order is by how much the absence costs.
 
-**Two are worse than absent, because the client half-implies they exist.**
-
-| Gap | Why it is the sharp end |
-|---|---|
-| **FR-507 — the Event/To-do override** | `PopupModel` computes `canOverride` and `popupModel` accepts `typeOverrides`, and **nothing renders a control for either**. The capability is dead code that reads as done. The badge is drawn inside the checkbox label and cannot be pressed. |
-| **FR-506 row 3 — a time with no day** | The sheet says *"Pick a day for this."* and offers **no way to pick one**. It instructs the user to do something the client cannot do. On the phone this row has suggestion chips and a calendar. |
+**The two that were worse than absent are fixed (SRS 1.65, 3 Sep 2026).** FR-507's badge is a
+button that flips the row and states §8.1's cost before the press; FR-506 row 3 has Today /
+Tomorrow / In a week and a date spinner, with nothing pre-selected. `SheetEdits` moved into
+`:wire`, so both clients apply those answers through one `withEdits`. **Neither control has been
+pressed by a person** — the model is tested, the Swing is not.
 
 **Absent, and plainly so.**
 

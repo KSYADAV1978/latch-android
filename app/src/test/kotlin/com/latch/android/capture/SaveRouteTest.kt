@@ -11,6 +11,7 @@ import com.latch.parser.ParseContext
 import com.latch.wire.DraftBlocker
 import com.latch.wire.candidateBlocker
 import com.latch.wire.dateSpans
+import com.latch.wire.withAssignedDate
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId

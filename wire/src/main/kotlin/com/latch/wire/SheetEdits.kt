@@ -1,4 +1,4 @@
-package com.latch.android.capture
+package com.latch.wire
 
 import com.latch.core.model.ItemType
 import com.latch.parser.Classification
@@ -7,8 +7,6 @@ import com.latch.parser.Confidence
 import com.latch.parser.DatedCandidate
 import com.latch.parser.Field
 import com.latch.parser.ParseResult
-import com.latch.wire.draftItems
-import com.latch.wire.titleFor
 import java.time.LocalDate
 
 /**

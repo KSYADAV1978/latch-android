@@ -7,7 +7,10 @@ import com.latch.desktop.capture.EmptyCapture
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
 import com.latch.wire.WireCapture
+import com.latch.wire.TypeChangeCost
+import com.latch.wire.canOverrideTo
 import com.latch.wire.candidateBlocker
+import com.latch.wire.typeChangeCost
 import com.latch.wire.titleFor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -22,6 +25,18 @@ data class CaptureRow(
     val checked: Boolean,
     /** FR-507: whether this row's type can be changed. FR-510 forbids a past date becoming an event. */
     val canOverride: Boolean,
+    /** What the row would become if the badge were pressed. */
+    val otherType: ItemType,
+    /**
+     * §8.1's cost of pressing it, **shown before the press and not after**.
+     *
+     * This is the one place in the app where a user action deliberately loses something they
+     * wrote — a time, or the closing day of a range — so the sentence has to be readable while
+     * the badge still says what it says now.
+     */
+    val overrideCost: String?,
+    /** FR-506 row 3: a time with no day, which the row offers a way out of. */
+    val needsDate: Boolean,
     val note: String?,
 )
 
@@ -53,13 +68,19 @@ fun popupModel(
 ): PopupModel {
     val rows = result.candidates.mapIndexed { index, candidate ->
         val type = typeOverrides[index] ?: candidate.classification.itemType
+        val other = if (type == ItemType.EVENT) ItemType.TASK else ItemType.EVENT
         CaptureRow(
             index = index,
             badge = if (type == ItemType.EVENT) DesktopStrings.BADGE_EVENT else DesktopStrings.BADGE_TASK,
             whenLine = whenLineFor(candidate),
             title = titleFor(captured, result, candidate, titleOverrides[index]),
             checked = index in selected,
-            canOverride = candidate.date?.value?.isBefore(today) != true,
+            // FR-510 outranks FR-507: a past date becomes an undated follow-up, so offering to
+            // make it an event would offer something the requirement forbids.
+            canOverride = canOverrideTo(candidate, other),
+            otherType = other,
+            overrideCost = typeChangeCost(candidate, other)?.let(::overrideCostText),
+            needsDate = candidate.date == null,
             note = noteFor(candidate, today),
         )
     }
@@ -94,6 +115,13 @@ internal fun whenLineFor(candidate: DatedCandidate): String {
     if (end != null && end != date) return day + " – " + end.format(DAY)
     val time = candidate.time?.value ?: return day
     return day + ", " + time.format(TIME)
+}
+
+/** §8.1's costs, in words. NFR-402 keeps the phrasing here and the facts in `:wire`. */
+internal fun overrideCostText(cost: TypeChangeCost): String = when (cost) {
+    TypeChangeCost.LOSES_TIME -> DesktopStrings.COST_TIME
+    TypeChangeCost.LOSES_END_DATE -> DesktopStrings.COST_END_DATE
+    TypeChangeCost.LOSES_TIME_AND_END_DATE -> DesktopStrings.COST_BOTH
 }
 
 internal fun noteFor(candidate: DatedCandidate, today: LocalDate): String? {
@@ -203,6 +231,16 @@ object DesktopStrings {
     const val UPDATE = "Update"
     const val CREATE_NEW = "Create new"
     const val NO_DATE = "no date"
+    const val COST_TIME =
+        "As a to-do this keeps the day but not the time — Google Tasks has no time of day."
+    const val COST_END_DATE = "As a to-do this keeps the first day but not the last."
+    const val COST_BOTH =
+        "As a to-do this keeps only the first day — not the time, and not the last day."
+    const val PAST_CANNOT_BE_EVENT = "A past date cannot be an event."
+    const val TODAY = "Today"
+    const val TOMORROW = "Tomorrow"
+    const val IN_A_WEEK = "In a week"
+    const val OTHER_DATE = "Use"
     const val SAVED = "Saved to Latch."
     const val UPDATED = "Moved. The existing item now sits on the new date."
     const val HELD = "No connection. Held on this machine, and it will be written when there is one."
