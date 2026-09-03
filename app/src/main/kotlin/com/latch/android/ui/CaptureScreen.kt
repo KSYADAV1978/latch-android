@@ -48,7 +48,7 @@ import com.latch.wire.DraftBlocker
 import com.latch.android.capture.RecipeBlocker
 import com.latch.android.capture.SaveBlocker
 import com.latch.android.capture.SaveFailure
-import com.latch.android.capture.SaveRoute
+import com.latch.wire.SaveRoute
 import com.latch.android.capture.SaveState
 import com.latch.wire.TypeChangeCost
 import com.latch.wire.canOverrideTo
@@ -63,7 +63,7 @@ import com.latch.android.capture.undoOffer
 import com.latch.core.model.ItemType
 import com.latch.core.model.Recipe
 import com.latch.data.AccountDefaults
-import com.latch.data.InboxReason
+import com.latch.core.model.InboxReason
 import com.latch.google.ItemDates
 import com.latch.google.WritableCalendar
 import com.latch.ocr.OcrFailure

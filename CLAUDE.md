@@ -14,7 +14,7 @@ requirement ID in your summary so work can be traced back.
 | Module | Type | Holds |
 |---|---|---|
 | `:app` | Android application | Capture entry points, first-run setup, Compose confirmation UI |
-| `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1 |
+| `:core-model` | pure Kotlin (JVM) | Domain types from SRS §7.1, including FR-701's `InboxCapture` and `InboxReason` — §7.1's `Capture` carries `state (inbox / saved / discarded)`, so which client holds a row is a storage question and what a row *is* is not |
 | `:parser` | pure Kotlin (JVM) | Date and time extraction, classification (FR-500 series) |
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
 | `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
@@ -1100,7 +1100,7 @@ pressed by a person** — the model is tested, the Swing is not.
 |---|---|
 | **FR-1000 Settings** | Nothing. The tray item says "Settings are not built yet." The hotkey, FR-1002's date order, the default duration and reminder, FR-512's threshold and FR-1003's layer toggles all use their defaults and cannot be changed. FR-1002's Option A/B switch does not exist. |
 | **FR-900 destination** | `DesktopSetup` takes the Option B default and says which calendar it chose. No picker (FR-901/902/904), no hidden-calendar badge (FR-903), no routing rules (FR-905), no override-three-times offer (FR-907), and **no FR-908 refresh** — a Latch calendar deleted in Google would not be noticed. |
-| **FR-700 Capture Inbox** | Nothing. An undated capture is saved as an undated to-do instead of being held, which SRS 1.62 records as the deliberate interim reading for this client. FR-512's routing therefore does nothing here. |
+| ~~**FR-700 Capture Inbox**~~ | **Built 3 Sep 2026 (SRS 1.66), JVM-verified and HUMAN-OWED.** `saveRoute` moved into `:wire`, so both clients route on one compiled decision; the store is `inbox.dat` under DPAPI, one row per line. FR-701 to FR-705 all reach a screen. **Nobody has opened the window.** |
 | **FR-600 recipes** | Nothing. `:recipes` is on the classpath and unused. |
 | **FR-1004 webhook** | Nothing, including FR-1004a's payload and FR-1004b's rules. |
 | **NFR-205 disconnect** | Nothing. Signing out forgets the local sign-in and the destination; it does **not** revoke the grant at Google, and there is no "delete everything" action. `oauth2.googleapis.com` is already in `ALLOWED_HOSTS` for it. |
@@ -1113,8 +1113,8 @@ pressed by a person** — the model is tested, the Swing is not.
 **Deliberately narrowed rather than missing**, so they are not counted above: no notification capture (FR-208 to FR-212 are Android layers), and the queue drains only while Latch runs.
 
 **What is built and working** — for completeness, since the list above is long: FR-301, FR-302,
-FR-303, FR-304, FR-002's grant, FR-801, FR-802, FR-803, FR-804, FR-806, FR-807, FR-1005, and
-FR-502/509/509a/509b/510/511 through the shared modules.
+FR-303, FR-304, FR-002's grant, FR-701 to FR-705, FR-801, FR-802, FR-803, FR-804, FR-806,
+FR-807, FR-1005, and FR-502/509/509a/509b/510/511 through the shared modules.
 
 ### Human pass backlog — Windows
 
@@ -1132,6 +1132,15 @@ fail*, then *the fixture*.
 | A second monitor, mixed DPI | The popup appears on the monitor the pointer is on, and the tray icon is sharp | two monitors at different scaling |
 | **Sign-in, end to end** | Needs FR-001's Desktop client. Browser opens, consent granted, tray says which calendar. Failure: no refresh token, which looks like working software until the hour is up | a real account |
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
+| **AC-03 on Windows** | Capture text with no date. The popup must say **"Held in the Latch Inbox on this PC"** and **nothing** must appear in Google Calendar or Tasks. Failure is the old behaviour: an undated to-do written to the account, which is what this client did until SRS 1.66 | "Ask about the uniform order" |
+| **The Inbox opens and triages** | The tray shows "1 waiting in the Inbox" and the entry opens a window. Then each of FR-702's five in turn: set a date, edit the title, save, snooze, discard. Each must survive **closing and reopening the window** — the store is the assertion, not the screen | any undated capture |
+| **FR-702's assigned date reaches Google** | An undated row given 20 Sep 2027 saves as a **TASK due 20 Sep 2027** — not an event, not undated. Inspect the item in Google, not the row | undated capture + a chip |
+| **FR-703** | Nothing in the Inbox appears in Google Calendar or Tasks until Save is pressed. Verified in the account | any row left un-saved |
+| **FR-704 does not nag** | At zero the tray entry is **absent**, not "0 waiting". A snoozed row is not counted | empty Inbox, then one snoozed row |
+| **FR-515 across days** | Capture "kal 4 baje meeting", leave it a day, reopen the Inbox: the date must still read the day after the **capture**. A date that walked forward is a serious defect. JVM-verified with a fixed clock; the device check is that the *stored* instant is the one being replayed | "kal 4 baje meeting", two days |
+| **FR-705's review line** | A row older than a fortnight says "Still want it?" and is **still there**. Needs a clock change or a seeded row — awkward rather than skipped | an aged row |
+| **A held row survives a restart** | Hold a capture, quit Latch, start it again: the row is still there with its reason. The store writes and reads within one process in the tests, so a restart is the part they do not prove | any undated capture |
+| **The batched DPAPI bridge, in the wild** | Every store on this client now crosses the bridge once per file rather than once per record. The check is that the tray menu opens **without a pause** with several rows held and several queued — and that a sign-in still works, since the same bridge carries the refresh token | 5+ Inbox rows, 2+ queued |
 | The Latch calendar is reused | The desktop writes into the calendar the phone already made, not a second one with the same name. Verified in the account, not on screen | an account set up on the phone |
 | Launch at sign-in (FR-301) | Not built. See `docs/RELEASE-WINDOWS.md` | |
 | ~~**The queue survives a restart**~~ | **Done, 3 Sep 2026.** One JVM with every HTTPS connection failing held the capture on disk, encrypted; a **second, fresh** JVM read it and drained it to Google; re-capturing the same text then answered "already saved", which is Google's index confirming it landed. | |
@@ -1310,6 +1319,22 @@ JVM-reachable code.** Every filter is tested; nothing that actually reads a noti
 | **AC-19** | Configure a webhook, enable it, confirm a notification capture with a monitor running: **no** request to the endpoint. This is the criterion that has waited on this slice | a request-bin endpoint |
 | The Inbox is never reached | A low-confidence notification capture is **saved** with its confidence shown, not routed. That is the permanent narrowing SRS 1.43 records | a vague dated message |
 | NFR-104 | The listener is the only persistent service. Nothing else appears in `adb shell dumpsys activity services com.latch.android` | any state |
+
+### Owed on Android, found while building the Windows Inbox (3 Sep 2026)
+
+**`SqliteCaptureInbox` deletes an Inbox row it cannot decode, and that row is a capture that
+exists nowhere else.** FR-703 guarantees exactly that: nothing in the Inbox has reached Google.
+The store's own note gives the reason for deleting — keeping it "would mean a count that never
+goes down over a row that can never be opened" — and that reason is right about the *count* and
+not about the *storage*. The Windows client (SRS 1.66) keeps the row and counts it separately,
+so FR-704's number still goes down and nothing is lost; the two clients now differ, and the
+phone is the side that loses data.
+
+Left alone deliberately in that slice: it is Android storage under an instrumented suite, and
+changing what a live device does with a user's held captures is not a side effect a Windows
+slice should have. **The change is to stop deleting and to add an `unreadable` count beside
+`pendingCount`**, mirroring `DesktopInbox` and `WriteQueue`. It needs an instrumented run,
+because `SQLiteOpenHelper` is a throwing stub under JVM unit tests.
 
 ### Slice 9 — the instrumented suite
 

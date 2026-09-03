@@ -29,6 +29,20 @@ class SecretFile(
 
     fun get(key: String): String? = read()[key]?.let { secrets.unprotect(it) }
 
+    /**
+     * Every named secret, decrypted in **one** crossing of the process boundary.
+     *
+     * A caller that wanted three values used to pay three PowerShell launches. Nothing about
+     * the store changes — each record is still encrypted on its own and one the operating
+     * system refuses still comes back null on its own.
+     */
+    fun getAll(keys: List<String>): Map<String, String> {
+        val records = read()
+        val present = keys.filter { it in records }
+        val values = secrets.unprotectAll(present.map { records.getValue(it) })
+        return present.zip(values).mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
+    }
+
     fun remove(key: String) {
         write(read() - key)
     }

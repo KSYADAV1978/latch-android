@@ -32,13 +32,12 @@ import java.util.concurrent.TimeUnit
  * user signs in again.
  */
 class WindowsSecrets(
-    private val run: (Mode, String) -> BridgeReply = ::runDpapi,
+    private val run: (Mode, List<String>) -> BridgeReply = ::runDpapi,
 ) {
     enum class Mode { PROTECT, UNPROTECT }
 
     /** Ciphertext as base64, or null where the operating system refused. */
-    fun protect(plaintext: String): String? =
-        answer(Mode.PROTECT, base64(plaintext.toByteArray(StandardCharsets.UTF_8)))
+    fun protect(plaintext: String): String? = protectAll(listOf(plaintext)).single()
 
     /**
      * The plaintext, or null where it could not be decrypted.
@@ -48,12 +47,39 @@ class WindowsSecrets(
      * store in this project already follows: an unreadable record is dropped rather than
      * guessed at.
      */
-    fun unprotect(ciphertext: String): String? = answer(Mode.UNPROTECT, ciphertext)
-        ?.let { runCatching { String(unbase64(it), StandardCharsets.UTF_8) }.getOrNull() }
+    fun unprotect(ciphertext: String): String? = unprotectAll(listOf(ciphertext)).single()
 
-    private fun answer(mode: Mode, payload: String): String? {
-        val reply = runCatching { run(mode, payload) }.getOrNull() ?: return null
-        return readReply(reply)
+    /**
+     * The same operation over many values, in **one** crossing of the process boundary.
+     *
+     * **This is what makes a per-record store affordable**, and it was added for FR-704 rather
+     * than for tidiness. Each call to this bridge costs a PowerShell process — measured at
+     * roughly 700–900 ms — so a store that unprotected one record at a time cost the user a
+     * second per row every time the Inbox count was read. A fortnight's worth of held captures
+     * (FR-705) would have made an "unobtrusive count" take ten seconds to compute.
+     *
+     * **The isolation it exists for is preserved exactly**: the child answers one line per
+     * input line, so one value the operating system refuses comes back null and its neighbours
+     * still decrypt. Batching the transport does not batch the failure.
+     *
+     * A reply with the wrong number of lines is **all** null, deliberately. A bridge that
+     * answered a different question from the one asked cannot have its answers matched to
+     * inputs by position, and guessing which record each line belonged to is how a secret comes
+     * back under the wrong name.
+     */
+    fun protectAll(plaintexts: List<String>): List<String?> =
+        answer(Mode.PROTECT, plaintexts.map { base64(it.toByteArray(StandardCharsets.UTF_8)) })
+
+    fun unprotectAll(ciphertexts: List<String>): List<String?> =
+        answer(Mode.UNPROTECT, ciphertexts).map { encoded ->
+            encoded?.let { runCatching { String(unbase64(it), StandardCharsets.UTF_8) }.getOrNull() }
+        }
+
+    private fun answer(mode: Mode, payloads: List<String>): List<String?> {
+        if (payloads.isEmpty()) return emptyList()
+        val reply = runCatching { run(mode, payloads) }.getOrNull()
+            ?: return List(payloads.size) { null }
+        return readReplies(reply, payloads.size)
     }
 
     companion object {
@@ -69,22 +95,33 @@ internal fun base64(bytes: ByteArray): String = Base64.getEncoder().encodeToStri
 internal fun unbase64(text: String): ByteArray = Base64.getDecoder().decode(text)
 
 /**
- * The bridge's one-line protocol, pulled out so a test can reach every branch of it without a
+ * The bridge's line protocol, pulled out so a test can reach every branch of it without a
  * Windows — the rule this project keeps relearning about where decisions have to live.
+ *
+ * One reply line per request line, in order. Anything else — a timeout, a short reply, a long
+ * one — is every value null rather than a best guess at which line meant what.
  */
-internal fun readReply(reply: BridgeReply): String? {
-    if (reply.timedOut) return null
-    val line = reply.stdout.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: return null
-    return when {
-        line.startsWith("OK ") -> line.removePrefix("OK ")
-        // `OK` with nothing after it is an empty secret, which is a legitimate value to have
-        // stored and must not come back as a failure.
-        line == "OK" -> ""
-        else -> null
+internal fun readReplies(reply: BridgeReply, expected: Int): List<String?> {
+    if (reply.timedOut) return List(expected) { null }
+    val lines = reply.stdout.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+    if (lines.size != expected) return List(expected) { null }
+    return lines.map { line ->
+        when {
+            line.startsWith("OK ") -> line.removePrefix("OK ")
+            // `OK` with nothing after it is an empty secret, which is a legitimate value to
+            // have stored and must not come back as a failure.
+            line == "OK" -> ""
+            else -> null
+        }
     }
 }
 
-private fun runDpapi(mode: WindowsSecrets.Mode, payload: String): BridgeReply {
+internal fun readReply(reply: BridgeReply): String? = readReplies(reply, 1).single()
+
+/** One request per line, and the child answers one line per request. */
+private const val LINE = "\n"
+
+private fun runDpapi(mode: WindowsSecrets.Mode, payloads: List<String>): BridgeReply {
     val script = WindowsSecrets::class.java.getResourceAsStream("/store/dpapi.ps1")
         ?.readBytes()?.toString(StandardCharsets.UTF_8)
         ?: error("dpapi.ps1 is missing from the build")
@@ -95,9 +132,14 @@ private fun runDpapi(mode: WindowsSecrets.Mode, payload: String): BridgeReply {
         "-EncodedCommand", encoded,
     ).apply { environment()["LATCH_DPAPI_MODE"] = mode.name }.start()
 
-    process.outputStream.use { it.write(payload.toByteArray(StandardCharsets.UTF_8)) }
+    process.outputStream.use {
+        it.write(payloads.joinToString(LINE).toByteArray(StandardCharsets.UTF_8))
+    }
     val out = process.inputStream.readBytes().toString(StandardCharsets.UTF_8)
-    if (!process.waitFor(20, TimeUnit.SECONDS)) {
+    // The timeout scales with the work asked for, because the whole point of the batch is that
+    // one call may now carry a fortnight of held captures.
+    val seconds = 20L + payloads.size
+    if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
         process.destroyForcibly()
         return BridgeReply(out, timedOut = true)
     }

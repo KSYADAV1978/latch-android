@@ -250,6 +250,43 @@ object DesktopStrings {
     const val EDIT_TITLE = "Edit"
     const val OVERRIDE_HINT = "Press Space on a badge to switch between event and to-do."
     const val NOT_SIGNED_IN = "Sign in to Google from the Latch tray icon first."
+
+    // ---- FR-700, the Capture Inbox ---------------------------------------------------------
+
+    const val INBOX_TITLE = "Latch Inbox"
+    const val INBOX_EMPTY = "Nothing waiting. Captures Latch is unsure about will appear here."
+    // FR-703, said rather than assumed: this is the one screen in the client where the
+    // difference between "held" and "saved" is the whole point.
+    const val INBOX_LOCAL_ONLY =
+        "Everything here is on this PC only. Nothing reaches Google until you save it."
+    const val INBOX_NO_DATE_YET = "No date yet"
+    const val INBOX_CAPTURED_ON = "Captured %s"
+    // FR-705: surfaced for review, never deleted automatically.
+    const val INBOX_AGED = "Waiting since %s. Still want it?"
+    const val INBOX_ONE_WAITING = "1 waiting in the Inbox"
+    const val INBOX_MANY_WAITING = "%d waiting in the Inbox"
+    const val INBOX_UNREADABLE =
+        "%d held captures could not be read by this version of Latch. " +
+            "They are still on this PC and nothing has been deleted."
+    const val INBOX_ADD = "Add to Inbox"
+    const val INBOX_ADDED = "Held in the Latch Inbox on this PC. Nothing was written to Google."
+    const val INBOX_ADD_FAILED = "Latch could not hold that capture. Nothing was saved."
+    // FR-702's five actions, in the requirement's own order.
+    const val INBOX_SET_DATE = "Set a date"
+    const val INBOX_TITLE_FIELD = "Title"
+    const val INBOX_SAVE = "Save to Google"
+    const val INBOX_SNOOZE = "Snooze a week"
+    const val INBOX_DISCARD = "Discard"
+    const val INBOX_SAVING = "Saving…"
+    const val INBOX_SAVE_FAILED = "Could not save that to Google. It is still here — try again."
+    const val INBOX_NEEDS_DATE = "Give this a date before saving it."
+    const val INBOX_REFRESH = "Refresh"
+
+    const val REASON_UNDATED = "No date was found in this capture."
+    const val REASON_LOW_CONFIDENCE = "Latch was not confident about this one."
+    const val REASON_INCOMPLETE = "A time, but no day to put it on."
+    const val REASON_RESCHEDULE =
+        "This looks like a change to something already saved, and there was no connection to ask about it."
     const val NOT_CONFIGURED =
         "This copy of Latch has no Google client configured, so it cannot sign in."
 }

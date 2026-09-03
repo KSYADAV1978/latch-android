@@ -11,8 +11,10 @@ import com.latch.desktop.capture.HotkeyEvent
 import com.latch.desktop.capture.HotkeyParse
 import com.latch.desktop.capture.HotkeySpec
 import com.latch.desktop.capture.buildCapture
+import com.latch.desktop.capture.desktopSource
 import com.latch.desktop.capture.parseHotkey
 import com.latch.desktop.capture.writeForRecognition
+import com.latch.desktop.inbox.DesktopInbox
 import com.latch.desktop.ocr.WindowsOcr
 import com.latch.desktop.queue.DrainTrigger
 import com.latch.desktop.queue.QueueRunner
@@ -32,6 +34,8 @@ import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.latchDataDirectory
 import com.latch.desktop.ui.CaptureWindow
 import com.latch.desktop.ui.DesktopStrings
+import com.latch.desktop.ui.InboxWindow
+import com.latch.desktop.ui.inboxModel
 import com.latch.desktop.ui.LatchTray
 import com.latch.desktop.ui.TrayAction
 import com.latch.desktop.ui.TrayModel
@@ -46,7 +50,15 @@ import com.latch.google.googleTasksApi
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
+import com.latch.core.model.InboxCapture
+import com.latch.core.model.InboxReason
+import com.latch.core.model.ItemType
 import com.latch.wire.DraftResult
+import com.latch.wire.SaveRoute
+import com.latch.wire.parseContextOf
+import com.latch.wire.parseOf
+import com.latch.wire.saveRoute
+import com.latch.wire.titleOverridesOf
 import com.latch.wire.SheetEdits
 import com.latch.wire.draftItems
 import com.latch.wire.withEdits
@@ -55,6 +67,8 @@ import java.awt.Desktop
 import java.awt.TrayIcon
 import java.io.File
 import java.net.URI
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import javax.swing.SwingUtilities
@@ -75,6 +89,9 @@ object Latch {
     private val auth by lazy { DesktopAuth(secrets, ClientConfig.load()) }
     private val defaultsStore by lazy { DefaultsStore(secrets) }
     private val queue by lazy { WriteQueue(File(latchDataDirectory(), "queue.dat")) }
+
+    /** FR-701. Local only (FR-703); nothing in it has reached the user's Google account. */
+    private val inbox by lazy { DesktopInbox(File(latchDataDirectory(), "inbox.dat")) }
 
     /**
      * FR-806's drain.
@@ -117,6 +134,7 @@ object Latch {
     private var tray: LatchTray? = null
     private var hotkey: GlobalHotkey? = null
     private var window: CaptureWindow? = null
+    private var inboxWindow: InboxWindow? = null
 
     private val spec: HotkeySpec =
         (parseHotkey(HotkeySpec.DEFAULT) as HotkeyParse.Parsed).spec
@@ -155,17 +173,20 @@ object Latch {
 
     private fun model(): TrayModel {
         val status = runCatching { queue.status() }.getOrNull()
+        val held = runCatching { inbox.status(Instant.now()) }.getOrNull()
         return TrayModel(
             hotkeyLabel = spec.display,
             signedInAs = if (auth.isSignedIn) defaultsStore.read()?.email ?: "your Google account" else null,
             configured = auth.isConfigured,
             pending = status?.waiting ?: 0,
             givenUp = status?.givenUp ?: 0,
+            inbox = held?.due ?: 0,
         )
     }
 
     private fun onTrayAction(action: TrayAction) = when (action) {
         TrayAction.CAPTURE -> SwingUtilities.invokeLater(::capture)
+        TrayAction.INBOX -> SwingUtilities.invokeLater(::openInbox)
         TrayAction.SIGN_IN -> signIn()
         TrayAction.SIGN_OUT -> {
             // NFR-205's local half only: this forgets the sign-in on this machine and
@@ -173,6 +194,9 @@ object Latch {
             // grant is a different action and is owed.
             auth.forget()
             defaultsStore.clear()
+            // The Inbox is deliberately **not** cleared, for the same reason the queue is not:
+            // its rows are captures that exist nowhere else (FR-703), and leaving an account is
+            // not a request to throw away work. NFR-205's disconnect is, and it is owed.
             // The queue is deliberately **not** cleared. Its entries are captures that
             // exist nowhere else, and signing out of an account is not a request to throw
             // away work — NFR-205's disconnect is, and that is a different action.
@@ -271,6 +295,17 @@ object Latch {
         // them — so what was confirmed and what is written cannot differ.
         val result = parsed.withEdits(edits, today)
         val titleOverrides = edits.titleOverrides
+
+        // FR-512, FR-506 rows 3 and 4, AC-03 — through the same compiled function the phone
+        // calls, which is why it moved into `:wire`. **This retires SRS 1.55's interim reading
+        // for this client**: an undated capture was saved as an undated to-do here because
+        // there was nowhere to hold it, and now there is.
+        val route = saveRoute(result, selected, context.confidenceThreshold, desktopSource(captured))
+        if (route is SaveRoute.Inbox) {
+            hold(captured, result, context, route.reason)
+            return
+        }
+
         if (!auth.isConfigured) {
             window?.showOutcome(DesktopStrings.NOT_CONFIGURED)
             return
@@ -405,6 +440,204 @@ object Latch {
         )
     }
 
+    // ---------------------------------------------------------------- FR-700, the Inbox
+
+    /**
+     * FR-701: the capture is held on this machine and **nothing reaches Google** (FR-703).
+     *
+     * The row stores the text and the capture own `now` and zone, never the parse — FR-515
+     * makes a parse a function of the instant it was made at, so replaying the stored context is
+     * what reproduces the reading the user was shown rather than a fresh one against today
+     * clock.
+     *
+     * Off the event thread because the store crosses the DPAPI bridge, which costs most of a
+     * second: doing it inline would freeze the popup at the moment the user pressed Save.
+     */
+    private fun hold(
+        captured: com.latch.desktop.capture.DesktopCapture,
+        result: ParseResult,
+        context: ParseContext,
+        reason: InboxReason,
+    ) {
+        Thread({
+            val held = runCatching {
+                inbox.add(
+                    InboxCapture(
+                        id = java.util.UUID.randomUUID().toString(),
+                        rawText = captured.text,
+                        layer = desktopSource(captured).layer,
+                        appId = null,
+                        preferredTitle = captured.preferredTitle,
+                        ocrUsed = captured.ocrUsed,
+                        capturedAt = Instant.now(),
+                        capturedLocal = context.now,
+                        zone = context.zone.id,
+                        confidence = result.overallConfidence.value,
+                        reason = reason,
+                    )
+                )
+            }.isSuccess
+            SwingUtilities.invokeLater {
+                tray?.update(model())
+                inboxWindow?.let { refreshInbox(it) }
+                // NFR-303. There is no queue behind this — the Inbox *is* the local store — so
+                // a failure here means the capture is nowhere, and saying so is the whole of
+                // what can be done about it.
+                window?.showOutcome(
+                    if (held) DesktopStrings.INBOX_ADDED else DesktopStrings.INBOX_ADD_FAILED,
+                )
+            }
+        }, "latch-inbox-hold").apply { isDaemon = true }.start()
+    }
+
+    /** FR-702 triage surface. One window, reopened rather than stacked. */
+    private fun openInbox() {
+        val opened = inboxWindow ?: InboxWindow(
+            onAssignDate = { id, date -> edit(id) { it.copy(assignedDate = date) } },
+            onEditTitle = { id, title ->
+                edit(id) { it.copy(editedTitle = title.trim().takeIf(String::isNotEmpty)) }
+            },
+            onOverrideType = { id, type -> edit(id) { it.copy(typeOverride = type) } },
+            onSave = ::saveHeld,
+            // A week, and it is the phone reading rather than a fresh one: shorter and the row
+            // returns before the reason it was put off has changed, longer and FR-705 review
+            // period is doing the work instead.
+            onSnooze = { id -> edit(id) { it.copy(snoozedUntil = Instant.now().plus(SNOOZE)) } },
+            onDiscard = ::discardHeld,
+            onClose = { inboxWindow = null },
+        ).also { inboxWindow = it }
+
+        Thread({
+            val model = readInbox()
+            SwingUtilities.invokeLater { opened.show(model) }
+        }, "latch-inbox-open").apply { isDaemon = true }.start()
+    }
+
+    private fun readInbox() = runCatching {
+        val now = Instant.now()
+        inboxModel(
+            captures = inbox.due(now),
+            now = now,
+            unreadable = inbox.status(now).unreadable,
+        )
+    }.getOrElse { inboxModel(emptyList(), Instant.now()) }
+
+    private fun refreshInbox(window: InboxWindow) {
+        Thread({
+            val model = readInbox()
+            SwingUtilities.invokeLater { window.render(model) }
+        }, "latch-inbox-refresh").apply { isDaemon = true }.start()
+    }
+
+    private fun edit(id: String, change: (InboxCapture) -> InboxCapture) {
+        Thread({
+            runCatching { inbox.find(id)?.let { inbox.update(change(it)) } }
+            SwingUtilities.invokeLater {
+                tray?.update(model())
+                inboxWindow?.let { refreshInbox(it) }
+            }
+        }, "latch-inbox-edit").apply { isDaemon = true }.start()
+    }
+
+    /** FR-702: discard. The user has decided; nothing is kept and nothing reached Google. */
+    private fun discardHeld(id: String) {
+        Thread({
+            runCatching { inbox.discard(id) }
+            SwingUtilities.invokeLater {
+                tray?.update(model())
+                inboxWindow?.let { refreshInbox(it) }
+            }
+        }, "latch-inbox-discard").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-702 save, and FR-703 boundary: this is the confirmation, and the first moment
+     * anything about this capture leaves this machine.
+     *
+     * **The row is not routed back into the Inbox**, which is `CaptureSaver` rule on the phone
+     * and is the same one here: a capture the user has confirmed out of the Inbox has already
+     * passed the only judgement FR-512 threshold was standing in for.
+     *
+     * **The row is discarded only once the write lands.** A failure has to leave it exactly
+     * where it was, which is the whole point of the Inbox holding it — and a "Queued" answer is
+     * *not* a landing, so the row stays until the queue has actually written it.
+     */
+    private fun saveHeld(id: String) {
+        if (!auth.isConfigured) {
+            inboxWindow?.say(DesktopStrings.NOT_CONFIGURED)
+            return
+        }
+        if (!auth.isSignedIn) {
+            inboxWindow?.say(DesktopStrings.NOT_SIGNED_IN)
+            return
+        }
+        inboxWindow?.say(DesktopStrings.INBOX_SAVING)
+
+        Thread({
+            val outcome = runCatching {
+                runBlocking {
+                    val capture = inbox.find(id) ?: return@runBlocking null
+                    val defaults = defaultsStore.read() ?: return@runBlocking null
+                    val context = parseContextOf(capture)
+                    val today = LocalDate.now()
+                    val result = parseOf(capture, context, today)
+                    val wire = com.latch.desktop.capture.DesktopCapture(
+                        text = capture.rawText,
+                        // FR-702 edited title deliberately does **not** travel here: §7.2
+                        // returns `preferredTitle` verbatim as `item_key` input, so a user
+                        // correction routed through it would silently move the item identity
+                        // and make it permanently unmatchable by FR-804. It goes as FR-509b
+                        // title override instead.
+                        preferredTitle = capture.preferredTitle,
+                        ocrUsed = capture.ocrUsed,
+                    )
+                    val chainId = java.util.UUID.randomUUID().toString()
+                    val draft = draftItems(
+                        captured = wire,
+                        result = result,
+                        context = context,
+                        destination = defaults.toWireDestination(),
+                        captureId = chainId,
+                        chainId = chainId,
+                        titleOverrides = titleOverridesOf(capture, result),
+                    )
+                    if (draft !is DraftResult.Ready) {
+                        return@runBlocking SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
+                    }
+                    saver(context.zone.id).save(wire, result, draft.items, defaults, chainId)
+                }
+            }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
+
+            // Written, or already there — either way the message is in the account and the row
+            // has done its job. A queued or failed save leaves it standing.
+            val settled = outcome is SaveResult.Written ||
+                outcome is SaveResult.Updated ||
+                outcome == SaveResult.AlreadySaved
+            if (settled) runCatching { inbox.discard(id) }
+
+            SwingUtilities.invokeLater {
+                tray?.update(model())
+                inboxWindow?.let { open ->
+                    refreshInbox(open)
+                    open.say(heldSaveMessage(outcome))
+                }
+            }
+        }, "latch-inbox-save").apply { isDaemon = true }.start()
+    }
+
+    private fun heldSaveMessage(outcome: SaveResult?): String = when (outcome) {
+        null -> DesktopStrings.INBOX_SAVE_FAILED
+        is SaveResult.Written -> DesktopStrings.SAVED
+        is SaveResult.Updated -> DesktopStrings.UPDATED
+        SaveResult.AlreadySaved -> DesktopStrings.ALREADY_SAVED
+        is SaveResult.Queued -> DesktopStrings.HELD
+        // FR-804 offer has no surface on this window and must not be answered blind, so the
+        // save stands unwritten and the row stays. Re-capturing the text puts the question on
+        // the popup, which is where it can be answered.
+        is SaveResult.RescheduleOffered -> DesktopStrings.INBOX_SAVE_FAILED
+        is SaveResult.Failed -> saveMessage(outcome.reason)
+    }
+
     /**
      * FR-1005, and it writes nothing to Google — which is the point of offering it beside Save
      * rather than after it. A user who wants the dates in their own calendar program, or who
@@ -527,12 +760,16 @@ object Latch {
         true
     }.getOrDefault(false)
 
+    /** FR-702 snooze. See `openInbox` for the reading behind the week. */
+    private val SNOOZE: Duration = Duration.ofDays(7)
+
     private fun shutDown() {
         // The hotkey registration lives as long as its child process, so this is what gives
         // the combination back to the rest of the desktop.
         runCatching { runner.close() }
         hotkey?.close()
         window?.close()
+        inboxWindow?.close()
         tray?.close()
     }
 }

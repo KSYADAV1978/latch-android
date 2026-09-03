@@ -17,8 +17,8 @@ import com.latch.data.EncryptedSecretStore
 import com.latch.data.EncryptedSettingsStore
 import com.latch.data.EncryptedWriteQueueStore
 import com.latch.google.EventWrite
-import com.latch.data.InboxCapture
-import com.latch.data.InboxReason
+import com.latch.core.model.InboxCapture
+import com.latch.core.model.InboxReason
 import com.latch.google.ItemDates
 import com.latch.data.LatchSettings
 import com.latch.data.PendingWrite

@@ -1,5 +1,6 @@
 package com.latch.desktop.ui
 
+import com.latch.desktop.inbox.InboxStatus
 import java.awt.Color
 import java.awt.Font
 import java.awt.MenuItem
@@ -18,12 +19,19 @@ data class TrayModel(
     val pending: Int,
     /** FR-806: entries retries have stopped for. They stay, and a tap revives them. */
     val givenUp: Int = 0,
+    /**
+     * FR-704: captures held in the Inbox and waiting on the user, snoozed rows excluded.
+     *
+     * Zero shows **nothing at all** rather than "0 waiting" — the requirement's "shall not nag"
+     * in the one place it can be got wrong for free. `inboxCountLabel` is that rule.
+     */
+    val inbox: Int = 0,
 )
 
 /** One entry of the tray menu. */
 data class TrayEntry(val label: String, val id: TrayAction, val enabled: Boolean = true)
 
-enum class TrayAction { CAPTURE, SIGN_IN, SIGN_OUT, RETRY, SETTINGS, QUIT }
+enum class TrayAction { CAPTURE, INBOX, SIGN_IN, SIGN_OUT, RETRY, SETTINGS, QUIT }
 
 /**
  * The menu, as a pure function.
@@ -58,6 +66,11 @@ fun trayMenu(model: TrayModel): List<TrayEntry> = buildList {
         }
         add(TrayEntry(label, TrayAction.RETRY))
     }
+    // FR-704, and it is deliberately below FR-806's line: a queued capture is on its way to
+    // Google and a held one is waiting on the user, so the one the user can do nothing about
+    // comes first and neither is ever shown at zero.
+    inboxCountLabel(InboxStatus(due = model.inbox, snoozed = 0, unreadable = 0))
+        ?.let { add(TrayEntry(it, TrayAction.INBOX)) }
     add(TrayEntry("Settings…", TrayAction.SETTINGS))
     add(TrayEntry("Quit Latch", TrayAction.QUIT))
 }

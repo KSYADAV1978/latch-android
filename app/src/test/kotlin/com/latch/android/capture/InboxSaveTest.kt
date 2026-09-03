@@ -7,7 +7,7 @@ import com.latch.data.AccountDefaults
 import com.latch.data.CreatedItem
 import com.latch.google.DuplicateSearch
 import com.latch.google.GoogleUnreachable
-import com.latch.data.InboxReason
+import com.latch.core.model.InboxReason
 import com.latch.google.ItemDates
 import com.latch.data.PendingWrite
 import com.latch.data.QueuedWrite

@@ -99,6 +99,22 @@ class JSONObject {
         }
 
     /**
+     * The same shape as [optInt], and it exists because a confidence is not an integer.
+     *
+     * FR-505's confidence reaches a stored record as a fraction, and reading it back through
+     * [optInt] would have turned every value below 1.0 into zero — a below-threshold capture
+     * reporting perfect certainty, silently. The parser writes it, so a string fallback is
+     * carried for the same reason the others carry one: a number that has been through a text
+     * format and back should still read.
+     */
+    fun optDouble(name: String, fallback: Double = 0.0): Double =
+        when (val value = values[name]) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull() ?: fallback
+            else -> fallback
+        }
+
+    /**
      * The throwing accessors, which exist for the tests rather than for the client.
      *
      * A caller reading somebody else's API wants `opt` and a fallback, because a field that

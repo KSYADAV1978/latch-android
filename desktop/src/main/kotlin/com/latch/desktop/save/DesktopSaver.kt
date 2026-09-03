@@ -1,9 +1,8 @@
 package com.latch.desktop.save
 
-import com.latch.core.model.CaptureLayer
-import com.latch.core.model.CaptureSource
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
+import com.latch.desktop.capture.desktopSource
 import com.latch.desktop.queue.QueuedItem
 import com.latch.desktop.queue.QueuedWrite
 import com.latch.desktop.queue.WriteQueue
@@ -149,11 +148,9 @@ class DesktopSaver(
         // the same function `CaptureSaver` uses, so the two clients cannot describe one message
         // differently.
         val body = sourceBlock(
-            source = CaptureSource(
-                layer = CaptureLayer.SHARE_SHEET,
-                ocrUsed = captured.ocrUsed,
-                appId = null,
-            ),
+            // The same source `saveRoute` asked about, so what may be *held* and what may be
+            // *described* cannot be decided from two different readings of one capture.
+            source = desktopSource(captured),
             sourceText = captured.text,
             dateSpans = dateSpans(result),
             sourceLink = null,

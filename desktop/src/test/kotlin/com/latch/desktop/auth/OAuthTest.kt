@@ -1,5 +1,6 @@
 package com.latch.desktop.auth
 
+import com.latch.desktop.store.reversingSecrets
 import com.latch.desktop.store.BridgeReply
 import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.WindowsSecrets
@@ -34,7 +35,7 @@ class OAuthTest {
 
     private fun store() = SecretFile(
         File(directory, "secrets.dat"),
-        WindowsSecrets { _, payload -> BridgeReply("OK " + base64(unbase64(payload).reversedArray())) },
+        reversingSecrets(),
     )
 
     private val client = ClientConfig("1234.apps.googleusercontent.com", "not-really-secret")

@@ -2,18 +2,16 @@ package com.latch.android.inbox
 
 import com.latch.android.capture.CapturedText
 import com.latch.android.capture.CaptureSaver
-import com.latch.wire.withAssignedDate
-import com.latch.wire.withTypeOverrides
 import com.latch.data.CaptureInbox
 import com.latch.core.model.ItemType
-import com.latch.data.InboxCapture
-import com.latch.parser.DateParser
-import com.latch.parser.ParseContext
+import com.latch.core.model.InboxCapture
 import com.latch.parser.ParseResult
+import com.latch.wire.parseContextOf
+import com.latch.wire.parseOf
+import com.latch.wire.titleOverridesOf
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -115,41 +113,6 @@ class InboxCoordinator(
 }
 
 /**
- * The parse context a row is read against: **the capture's own, not today's**.
- *
- * This is the load-bearing half of storing the text rather than the parse. FR-515 makes a parse
- * a pure function of its text and its context, so replaying the stored context reproduces the
- * reading the user was shown when they captured. Parsing against today's clock would resolve
- * "kal" one day further every time the list was opened and walk "next Monday" forward a week at
- * a time — design principle 1's failure inverted: not inventing a date, but quietly moving one.
- */
-fun parseContextOf(capture: InboxCapture): ParseContext = ParseContext(
-    now = capture.capturedLocal,
-    zone = runCatching { ZoneId.of(capture.zone) }.getOrElse { ZoneId.systemDefault() },
-)
-
-/**
- * The parse a row shows and saves, with FR-702's assigned date applied over it.
- *
- * [today] decides only whether the resulting date is in the past (FR-510), which is a fact
- * about now rather than about the capture — the one thing here that is right to read from the
- * present clock.
- */
-fun parseOf(
-    capture: InboxCapture,
-    context: ParseContext = parseContextOf(capture),
-    today: LocalDate = LocalDate.now(),
-): ParseResult {
-    val parsed = DateParser.parse(capture.rawText, context)
-    // The same order the confirmation sheet applies them in, and for the same reason: FR-507's
-    // override reclassifies against whether a date is present, so a row that has just been
-    // given one is a different row.
-    val dated = capture.assignedDate?.let { withAssignedDate(parsed, it, today) } ?: parsed
-    val override = capture.typeOverride ?: return dated
-    return withTypeOverrides(dated, dated.candidates.indices.associateWith { override })
-}
-
-/**
  * The row as the save path sees it.
  *
  * **FR-702's edited title deliberately does not go in `preferredTitle`**, and this was a defect
@@ -166,9 +129,3 @@ fun capturedTextOf(capture: InboxCapture): CapturedText = CapturedText(
     appId = capture.appId,
     ocrUsed = capture.ocrUsed,
 )
-
-/** FR-509b, from the Inbox: one edited title applies to every item the row produces. */
-fun titleOverridesOf(capture: InboxCapture, result: ParseResult): Map<Int, String> =
-    capture.editedTitle?.takeIf { it.isNotBlank() }
-        ?.let { edited -> result.candidates.indices.associateWith { edited } }
-        .orEmpty()

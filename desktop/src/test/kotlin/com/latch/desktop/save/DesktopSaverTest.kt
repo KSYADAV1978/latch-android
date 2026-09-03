@@ -1,5 +1,6 @@
 package com.latch.desktop.save
 
+import com.latch.desktop.store.reversingSecrets
 import com.latch.core.model.Item
 import com.latch.desktop.FakeCalendar
 import com.latch.desktop.FakeTasks
@@ -250,9 +251,7 @@ class DesktopSaverTest {
         it.delete(); it.mkdirs(); it
     }
 
-    private fun reversingCipher() = WindowsSecrets { _, payload ->
-        BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
-    }
+    private fun reversingCipher() = reversingSecrets()
 
     @Test
     fun `an empty chain is reported rather than written as a success`() = runTest {

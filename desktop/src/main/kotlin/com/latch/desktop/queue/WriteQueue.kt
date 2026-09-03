@@ -90,9 +90,13 @@ class WriteQueue(
 
         val entries = mutableListOf<QueuedWrite>()
         val opaque = mutableListOf<String>()
-        lines.drop(1).filter { it.isNotBlank() }.forEach { line ->
-            val decoded = secrets.unprotect(line.trim())?.let(::decodeQueuedWrite)
-            if (decoded != null) entries += decoded else opaque += line.trim()
+        // One crossing of the DPAPI bridge for the whole file, not one per entry. The
+        // per-record isolation is unchanged — the bridge answers a line per line, so an entry
+        // this machine's key cannot open still comes back alone and is still kept.
+        val ciphertexts = lines.drop(1).filter { it.isNotBlank() }.map { it.trim() }
+        secrets.unprotectAll(ciphertexts).forEachIndexed { index, plaintext ->
+            val decoded = plaintext?.let(::decodeQueuedWrite)
+            if (decoded != null) entries += decoded else opaque += ciphertexts[index]
         }
         return entries to opaque
     }
@@ -102,12 +106,14 @@ class WriteQueue(
             file.delete()
             return
         }
+        val ciphertexts = secrets.protectAll(entries.map { it.encode() })
         val body = buildList {
             add(QUEUE_FILE_VERSION)
-            entries.forEach { entry ->
-                val ciphertext = secrets.protect(entry.encode())
-                    ?: throw IllegalStateException("Windows would not encrypt a queued capture")
-                add(ciphertext)
+            ciphertexts.forEach { ciphertext ->
+                add(
+                    ciphertext
+                        ?: throw IllegalStateException("Windows would not encrypt a queued capture"),
+                )
             }
             // Carried through untouched. This build cannot read them and must not lose them.
             addAll(opaque)

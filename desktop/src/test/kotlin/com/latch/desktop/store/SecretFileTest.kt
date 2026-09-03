@@ -43,9 +43,7 @@ class SecretFileTest {
      * produces would pass while the real path was broken, which is the failure this project
      * has already met once in `findEventBySourceHash`.
      */
-    private fun reversing() = WindowsSecrets { _, payload ->
-        BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
-    }
+    private fun reversing() = reversingSecrets()
 
     // ---- the file format --------------------------------------------------------------------
 
@@ -106,10 +104,7 @@ class SecretFileTest {
     fun `one unreadable record does not cost the others`() {
         // The reason each value is encrypted on its own rather than the file as a whole. The
         // fixture makes exactly the failure real: a cipher that refuses one specific value.
-        val fussy = WindowsSecrets { mode, payload ->
-            if (mode == WindowsSecrets.Mode.UNPROTECT && payload == BROKEN) BridgeReply("ERR nope")
-            else BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
-        }
+        val fussy = reversingSecrets(refuses = setOf(BROKEN))
         file.parentFile.mkdirs()
         file.writeText(
             listOf(SECRET_FILE_VERSION, "good" + TAB + GOOD, "broken" + TAB + BROKEN)
@@ -153,7 +148,7 @@ class SecretFileTest {
     fun `a cipher that refuses to encrypt fails loudly rather than storing nothing`() {
         // Silently storing nothing would mean a sign-in that appeared to work and did not
         // survive a restart, which is worse than an error at the moment it happened.
-        val refusing = WindowsSecrets { _, _ -> BridgeReply("ERR no") }
+        val refusing = refusingSecrets()
         assertFailsWith<IllegalStateException> { SecretFile(file, refusing).put("k", "v") }
     }
 
@@ -168,6 +163,70 @@ class SecretFileTest {
         assertNull(readReply(BridgeReply("OK fine", timedOut = true)))
         assertNull(readReply(BridgeReply("ERR the operating system refused to decrypt this")))
         assertNull(readReply(BridgeReply("")))
+    }
+
+    // ---- the batch protocol -------------------------------------------------------------------
+
+    @Test
+    fun `one refusal in a batch costs that value and not its neighbours`() {
+        // The property the whole per-record arrangement exists for, now that the *transport* is
+        // shared: batching one PowerShell launch across many values must not batch the failure.
+        // The condition that would make this fail is a bridge that gave up on the whole reply
+        // after a bad line, and the fixture creates it — the middle value is refused.
+        val replies = readReplies(BridgeReply("OK QUJD" + NEWLINE + "ERR no" + NEWLINE + "OK REVG"), 3)
+        assertEquals(listOf("QUJD", null, "REVG"), replies)
+    }
+
+    @Test
+    fun `a reply with the wrong number of lines is all null rather than misaligned`() {
+        // Matching two answers to three questions by position is how a secret comes back under
+        // another secret's name. Refusing to guess is the only safe reading.
+        assertEquals(listOf(null, null, null), readReplies(BridgeReply("OK A" + NEWLINE + "OK B"), 3))
+        assertEquals(listOf(null), readReplies(BridgeReply("OK A" + NEWLINE + "OK B"), 1))
+    }
+
+    @Test
+    fun `blank lines between replies are not answers`() {
+        assertEquals(listOf("A", "B"), readReplies(BridgeReply("OK A" + NEWLINE + NEWLINE + "OK B"), 2))
+    }
+
+    @Test
+    fun `an empty batch never crosses the process boundary`() {
+        // The fixture would throw if it ran, which is what makes this an assertion about the
+        // bridge not being launched rather than about its answer.
+        val exploding = WindowsSecrets { _, _ -> error("the bridge was launched for nothing") }
+        assertEquals(emptyList(), exploding.unprotectAll(emptyList()))
+        assertEquals(emptyList(), exploding.protectAll(emptyList()))
+    }
+
+    @Test
+    fun `many values round trip in one crossing`() {
+        var calls = 0
+        val counting = WindowsSecrets { mode, payloads ->
+            calls++
+            BridgeReply(
+                payloads.joinToString(NEWLINE) {
+                    if (mode == WindowsSecrets.Mode.UNPROTECT) "OK " + base64(unbase64(it).reversedArray())
+                    else "OK " + base64(unbase64(it).reversedArray())
+                }
+            )
+        }
+        val values = listOf("one", "two", "three", "फ़ीस")
+        val protectedValues = counting.protectAll(values)
+        assertEquals(1, calls, "one launch, not one per value")
+        assertEquals(values, counting.unprotectAll(protectedValues.map { it!! }))
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `the real bridge answers a batch line for line`() {
+        assumeTrue(WindowsSecrets.isAvailable(), "not Windows")
+        val secrets = WindowsSecrets()
+        val values = listOf("first", "", "थर्ड with unicode", "fourth")
+        val ciphertexts = secrets.protectAll(values)
+        assertEquals(values.size, ciphertexts.size)
+        assertTrue(ciphertexts.all { it != null }, "DPAPI refused part of a batch")
+        assertEquals(values, secrets.unprotectAll(ciphertexts.map { it!! }))
     }
 
     // ---- the real DPAPI ----------------------------------------------------------------------

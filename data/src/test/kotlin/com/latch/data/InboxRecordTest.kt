@@ -2,6 +2,9 @@ package com.latch.data
 
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureState
+import com.latch.core.model.InboxCapture
+import com.latch.core.model.InboxReason
+import com.latch.core.model.agedCaptures
 import com.latch.core.model.ItemType
 import com.latch.google.ItemDates
 import java.time.Duration

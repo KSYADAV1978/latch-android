@@ -276,8 +276,6 @@ Both clients now capture, parse, save, detect duplicates, offer reschedules, und
 offline and export `.ics`. These are the remaining differences. **Please do not report them as
 defects** — but do say if one bites in a way this list does not describe.
 
-- **No Capture Inbox on the PC.** On the phone, a capture with no date or a doubtful one is held
-  for you to sort out later. The PC saves an undated capture as an undated to-do instead.
 - **No Settings screen on the PC.** The hotkey, the date order, the default duration and the
   rest use their defaults and can only be changed on the phone.
 - **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
@@ -295,6 +293,28 @@ defects** — but do say if one bites in a way this list does not describe.
 
 The PC wrote it already, so the phone should say **"Already saved. Nothing was written
 again."** and create nothing. That closes the reverse half of AC-07. Tell me what it says.
+
+## The Inbox on the PC (new, 3 Sep 2026)
+
+The PC now holds a doubtful capture instead of guessing at it, exactly as the phone does.
+
+Capture something with **no date at all** — "Ask about the uniform order" — and press Save. It
+should say **"Held in the Latch Inbox on this PC"**, and nothing should appear in your Google
+account. Until today the PC wrote that as an undated to-do; if it still does, that is the
+defect.
+
+The tray then says **"1 waiting in the Inbox"**. Click it. You get a window with the capture in
+it, why it is there, and five things you can do: give it a date, correct the title, save it,
+snooze it a week, or throw it away. Nothing in that window has reached Google — the line at the
+top says so, and it is worth checking in your account rather than taking its word.
+
+Two things worth watching, because they are the ones that would be hardest to notice:
+
+- **The count must disappear at zero.** Deal with everything and the tray entry should be gone,
+  not "0 waiting".
+- **A held date must not walk.** Capture "kal 4 baje meeting" today; it means tomorrow. Open the
+  Inbox again in a couple of days — it must still say the day after you captured it, not the day
+  after today. If that date has moved, stop and tell me.
 
 **And one worth trying on the PC**, because it is the newest thing and the most interesting to
 get wrong: capture the line above with the date changed to **12 October**. You should get the

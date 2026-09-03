@@ -35,9 +35,9 @@ import com.latch.android.R
 import com.latch.android.capture.SaveFailure
 import com.latch.wire.canOverrideTo
 import com.latch.android.capture.SaveState
-import com.latch.android.inbox.parseOf
-import com.latch.data.InboxCapture
-import com.latch.data.INBOX_REVIEW_AFTER
+import com.latch.wire.parseOf
+import com.latch.core.model.InboxCapture
+import com.latch.core.model.INBOX_REVIEW_AFTER
 import com.latch.core.model.ItemType
 import com.latch.parser.ParseResult
 import java.time.Instant

@@ -1,5 +1,6 @@
 package com.latch.desktop.save
 
+import com.latch.desktop.store.reversingSecrets
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.desktop.FakeCalendar
@@ -258,7 +259,7 @@ class UndoTest {
 
     private fun queue() = WriteQueue(
         File(directory, "q.dat"),
-        WindowsSecrets { _, payload -> BridgeReply("OK " + base64(unbase64(payload).reversedArray())) },
+        reversingSecrets(),
     )
 
     private val savedAt: Instant = Instant.parse("2026-09-03T12:00:00Z")

@@ -7,7 +7,7 @@ import com.latch.data.CaptureInbox
 import com.latch.google.DuplicateSearch
 import com.latch.google.EventWrite
 import com.latch.google.FailureClass
-import com.latch.data.InboxCapture
+import com.latch.core.model.InboxCapture
 import com.latch.google.ItemDates
 import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite

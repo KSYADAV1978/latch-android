@@ -1,17 +1,13 @@
-package com.latch.android.capture
+package com.latch.wire
 
 import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureSource
 import com.latch.core.model.ItemType
-import com.latch.data.InboxReason
+import com.latch.core.model.InboxReason
 import com.latch.parser.Classification
 import com.latch.parser.Confidence
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext
-import com.latch.wire.DraftBlocker
-import com.latch.wire.candidateBlocker
-import com.latch.wire.dateSpans
-import com.latch.wire.withAssignedDate
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId

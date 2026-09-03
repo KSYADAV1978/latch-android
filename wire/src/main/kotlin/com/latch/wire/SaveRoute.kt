@@ -1,11 +1,9 @@
-package com.latch.android.capture
+package com.latch.wire
 
 import com.latch.core.model.CaptureSource
-import com.latch.data.InboxReason
-import com.latch.google.writeDecision
+import com.latch.core.model.InboxReason
 import com.latch.parser.Confidence
 import com.latch.parser.ParseResult
-import com.latch.wire.candidateBlocker
 
 /**
  * Where a confirmed capture goes: to Google, or to the Capture Inbox.

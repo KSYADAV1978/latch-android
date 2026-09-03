@@ -1,5 +1,6 @@
 package com.latch.desktop.queue
 
+import com.latch.desktop.store.reversingSecrets
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
 import com.latch.desktop.store.BridgeReply
@@ -169,9 +170,7 @@ class WriteQueueTest {
     }
 
     /** Speaks the real bridge's protocol — base64 in, base64 out — and is its own inverse. */
-    private fun cipher() = WindowsSecrets { _, payload ->
-        BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
-    }
+    private fun cipher() = reversingSecrets()
 
     private fun queue() = WriteQueue(file, cipher())
 
@@ -197,10 +196,7 @@ class WriteQueueTest {
         // record is dropped, and that is right when dropping means "setup runs again". Here it
         // means losing a capture the user believes they have saved, which NFR-302 forbids —
         // so it stays in the file and is counted, waiting for a build that understands it.
-        val refusing = WindowsSecrets { mode, payload ->
-            if (mode == WindowsSecrets.Mode.UNPROTECT && payload == "QkFE") BridgeReply("ERR no")
-            else BridgeReply("OK " + base64(unbase64(payload).reversedArray()))
-        }
+        val refusing = reversingSecrets(refuses = setOf("QkFE"))
         queue().add(anEntry())
         file.appendText("\nQkFE")
 
