@@ -89,6 +89,20 @@ try {
 $built = Join-Path $repo 'desktop\build\install\desktop'
 if (-not (Test-Path $built)) { throw "expected a build at $built" }
 
+# A running Latch holds its own jars open, so an upgrade over one fails partway through and
+# leaves a half-copied application behind. Found the first time this script was used to
+# install over a running copy. Stopping it here is what makes re-running the installer
+# routine rather than something to remember a workaround for.
+$running = @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe'" |
+    Where-Object { $_.CommandLine -like '*com.latch.desktop*' })
+foreach ($process in $running) {
+    Write-Host "stopping Latch (pid $($process.ProcessId)) so its files can be replaced"
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+}
+# The hotkey lives in a child process; a forced stop skips the shutdown hook, and the
+# sidecar's own parent-handle watch is what releases the combination. Give it a moment.
+if ($running.Count -gt 0) { Start-Sleep -Seconds 3 }
+
 if (Test-Path $appHome) { Remove-Item $appHome -Recurse -Force }
 New-Item -ItemType Directory -Path $appHome -Force | Out-Null
 Copy-Item (Join-Path $built 'lib') -Destination $appHome -Recurse -Force
@@ -113,5 +127,7 @@ if ($StartWithWindows) {
 }
 
 Write-Host ''
+Write-Host ''
+if ($running.Count -gt 0) { Write-Host 'Latch was running and was stopped; start it again from the shortcut.' }
 Write-Host 'Done. Double-click Latch on the Desktop, or find it in the Start menu.'
 Write-Host 'It has no window: look for the blue L in the system tray, next to the clock.'
