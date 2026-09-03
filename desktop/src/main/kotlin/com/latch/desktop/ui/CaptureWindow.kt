@@ -1,5 +1,7 @@
 package com.latch.desktop.ui
 
+import com.latch.desktop.save.undoSecondsLeft
+
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -53,6 +55,14 @@ class CaptureWindow(
     private val summary = JLabel()
     private val blocker = JLabel()
     private val save = JButton(DesktopStrings.SAVE)
+    private val exportButton = JButton(DesktopStrings.EXPORT)
+    private val closeButton = JButton(DesktopStrings.CLOSE)
+    private val update = JButton(DesktopStrings.UPDATE)
+    private val createNew = JButton(DesktopStrings.CREATE_NEW)
+    private val undo = JButton()
+    private val message = JLabel()
+    private val actions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0))
+    private var countdown: javax.swing.Timer? = null
     private val checkboxes = mutableMapOf<Int, JCheckBox>()
 
     init {
@@ -91,22 +101,17 @@ class CaptureWindow(
             BorderLayout.CENTER,
         )
 
-        val actions = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
-            add(blocker)
-            add(
-                JButton(DesktopStrings.EXPORT).apply {
-                    addActionListener {
-                        onExport(
-                            checkboxes.filterValues { it.isSelected }.keys.toSet(),
-                            titleOverride(),
-                        )
-                    }
-                }
-            )
-            add(JButton(DesktopStrings.CLOSE).apply { addActionListener { dismiss() } })
-            add(save)
+        exportButton.addActionListener {
+            onExport(checkboxes.filterValues { it.isSelected }.keys.toSet(), titleOverride())
         }
-        content.add(actions, BorderLayout.SOUTH)
+        closeButton.addActionListener { dismiss() }
+
+        val south = JPanel(BorderLayout(0, 6))
+        message.border = BorderFactory.createEmptyBorder(0, 0, 4, 0)
+        south.add(message, BorderLayout.NORTH)
+        south.add(actions, BorderLayout.SOUTH)
+        content.add(south, BorderLayout.SOUTH)
+        showConfirmActions()
 
         save.addActionListener {
             onSave(
@@ -192,13 +197,109 @@ class CaptureWindow(
         }
     }
 
+    private fun showConfirmActions() {
+        actions.removeAll()
+        actions.add(blocker)
+        actions.add(exportButton)
+        actions.add(closeButton)
+        actions.add(save)
+        dialog.rootPane.defaultButton = save
+        relayout()
+    }
+
+    /**
+     * FR-804's offer.
+     *
+     * **Save is taken away, and that is the requirement rather than tidiness.** The question on
+     * screen is now update-or-create, and Save is not one of the two answers; leaving it up
+     * would offer a third door that writes without answering. `saveIsOffered` says the same
+     * thing on the phone.
+     *
+     * **Neither answer is the default.** `defaultButton` is cleared, so Enter does nothing here
+     * — a reschedule moves an item the user already has, and a keystroke they did not aim
+     * should not be able to choose which way. Escape still closes, and closing writes nothing.
+     */
+    fun showRescheduleOffer(text: String, onUpdate: () -> Unit, onCreateNew: () -> Unit) {
+        message.text = "<html><body style='width:400px'>" + escapeHtml(text) + "</body></html>"
+        actions.removeAll()
+        actions.add(closeButton)
+        actions.add(createNew)
+        actions.add(update)
+        for (listener in update.actionListeners) update.removeActionListener(listener)
+        for (listener in createNew.actionListeners) createNew.removeActionListener(listener)
+        update.addActionListener { onUpdate() }
+        createNew.addActionListener { onCreateNew() }
+        dialog.rootPane.defaultButton = null
+        relayout()
+    }
+
+    /**
+     * FR-807's ten seconds, on the window that made the save.
+     *
+     * The window stays open for the length of the offer and **closes itself when the offer
+     * lapses**, which is the behaviour the phone has: the capture window is the offer, so it
+     * outliving the offer would leave a dead thing on screen.
+     */
+    fun showSaved(text: String, savedAt: java.time.Instant, onUndo: () -> Unit, onLapse: () -> Unit) {
+        message.text = "<html><body style='width:400px'>" + escapeHtml(text) + "</body></html>"
+        actions.removeAll()
+        actions.add(closeButton)
+        actions.add(undo)
+        for (listener in undo.actionListeners) undo.removeActionListener(listener)
+        undo.addActionListener {
+            countdown?.stop()
+            onUndo()
+        }
+        dialog.rootPane.defaultButton = null
+
+        countdown?.stop()
+        val tick = javax.swing.Timer(250) {
+            val left = undoSecondsLeft(savedAt, java.time.Instant.now())
+            undo.text = undoLabel(left)
+            if (left <= 0) {
+                countdown?.stop()
+                onLapse()
+                dismiss()
+            }
+        }
+        undo.text = undoLabel(undoSecondsLeft(savedAt, java.time.Instant.now()))
+        tick.start()
+        countdown = tick
+        relayout()
+    }
+
+    /** A terminal message with nothing left to answer — "already saved", or a failure. */
+    fun showOutcome(text: String) {
+        countdown?.stop()
+        message.text = "<html><body style='width:400px'>" + escapeHtml(text) + "</body></html>"
+        actions.removeAll()
+        actions.add(closeButton)
+        dialog.rootPane.defaultButton = closeButton
+        relayout()
+    }
+
+    private fun relayout() {
+        actions.revalidate()
+        actions.repaint()
+        dialog.pack()
+        dialog.location = nearCursor(dialog.size)
+    }
+
     private fun dismiss() {
+        countdown?.stop()
+        countdown = null
         dialog.isVisible = false
         dialog.dispose()
         onClose()
     }
 
     fun close() = dismiss()
+
+    /** Swing renders a label as HTML, so text the user captured must not be read as markup. */
+    private fun escapeHtml(text: String) = text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 }
 
 /**

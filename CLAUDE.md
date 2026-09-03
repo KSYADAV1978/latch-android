@@ -966,12 +966,21 @@ here drops an unreadable record; the queue **keeps** one, because dropping a que
 loses a capture. It is carried through every rewrite and counted, so the tray can say how
 many lines this build could not read.
 
-**What is owed and is not pretended at.** FR-804's reschedule offer. FR-807's undo — the
-queue already refuses to drain an entry inside its ten-second window, so the rule the undo
-needs is in place before the undo is. The FR-900 destination picker: setup takes the Option B
-default and says which calendar it chose. FR-306's share target. FR-305's MSIX, which needs
-the Windows SDK. And **nobody has pressed the hotkey**: `RegisterHotKey` is verified, the
-keystroke reaching a capture is not.
+**FR-804 and FR-807 are built**, following the Android readings rather than re-deciding them:
+the offer quotes the title stored on the existing item, computes both weekdays from the dates,
+has **no default answer**, and takes Save away while it stands. Undo is one of three operations
+chosen by what the save did — delete, drop, or **restore** an update, never delete one.
+
+**A live defect was found by running the offline path.** An offline save whose access token had
+expired reported REFUSED instead of queueing, and the capture was lost — SRS 1.39's shape
+arrived at from a different direction. `accessTokenOrThrow` now separates "no network"
+(retryable, so FR-806 holds it) from "grant revoked" (permanent, so it is reported).
+
+**What is owed and is not pretended at.** The FR-900 destination picker: setup takes the
+Option B default and says which calendar it chose. No Capture Inbox, no Settings screen, no
+recipes, no webhook, no notification capture. FR-306's share target. FR-305's MSIX, which needs
+the Windows SDK. And **nobody has pressed the hotkey, Update, or Undo**: each is verified as far
+as a machine can verify it, and the keystroke and the click are a person's.
 
 Two asymmetries with Android are permanent rather than gaps.
 
@@ -1079,8 +1088,10 @@ fail*, then *the fixture*.
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
 | The Latch calendar is reused | The desktop writes into the calendar the phone already made, not a second one with the same name. Verified in the account, not on screen | an account set up on the phone |
 | Launch at sign-in (FR-301) | Not built. See `docs/RELEASE-WINDOWS.md` | |
-| **AC-10 on Windows** | Disconnect, capture, save: the tray says *held*, never *saved* — nothing is in the account yet, and that distinction is the whole point of the Queued state. Reconnect: it is written, exactly once | aeroplane mode, or the network off |
-| **The queue survives a restart** | Queue something offline, quit Latch, reopen: the count is still there and it drains. This is the limb of NFR-302 the JVM tests cannot reach — they write and read in one process | as above, plus a quit |
+| ~~**The queue survives a restart**~~ | **Done, 3 Sep 2026.** One JVM with every HTTPS connection failing held the capture on disk, encrypted; a **second, fresh** JVM read it and drained it to Google; re-capturing the same text then answered "already saved", which is Google's index confirming it landed. | |
+| **AC-10 with the network actually off** | The mechanism is verified, the *trigger* is not. The check above used a bogus proxy, so every request failed as it would offline but the interface stayed up — the connectivity-restored drain is therefore unexercised. Turn the Wi-Fi off, capture, save: the window must say *held*, never *saved*. Turn it on: it should drain within seconds rather than at the next scheduled attempt | the Wi-Fi off |
+| **Pressing Update on a real offer** | The offer is verified against the live account — a real event matched, the sentence right, nothing written. What nobody has done is press Update and confirm exactly one item moved and none was created | capture a saved item's text with the date changed |
+| **Pressing Undo** | The ten seconds, the countdown, and the window closing itself when it lapses. Then: undo of a create removes the item; undo of an **update** puts the old date back and deletes nothing | any capture, then Undo |
 | **A half-written chain resumes** | Hard to arrange by hand; the JVM tests pin the logic. The device check is that an ordinary multi-date capture queued offline writes each item exactly once on reconnection | a two-date capture, offline |
 | FR-806's Retry now | With something stuck, the tray offers it and a tap drains. A given-up entry is revived rather than left | pull the network for a long stretch |
 | **NFR-103** | The runtime half is unmeasured, and estimating it is what `docs/RELEASE.md` forbids for the Android bundle for the same reason | a full JDK with `jmods` |

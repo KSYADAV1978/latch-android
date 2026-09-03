@@ -1,11 +1,7 @@
-package com.latch.android.capture
+package com.latch.google
 
 import com.latch.core.model.Item
 import com.latch.core.model.ItemType
-import com.latch.google.DuplicateSearch
-import com.latch.google.ItemDates
-import com.latch.google.RescheduleMatch
-import com.latch.google.RescheduleSearch
 
 /**
  * What a save should do about what is already in the account: SRS §7.2's decision table,
@@ -82,7 +78,7 @@ fun writeDecision(
  * reschedule that moved nothing — the very thing this function exists to prevent. Nothing on
  * this path reschedules across zones: the zone comes from the device, not from the text.
  */
-internal fun movesNothing(existing: ItemDates, proposed: ItemDates): Boolean = when {
+fun movesNothing(existing: ItemDates, proposed: ItemDates): Boolean = when {
     existing is ItemDates.Event && proposed is ItemDates.Event ->
         existing.start == proposed.start &&
             existing.end == proposed.end &&
@@ -97,7 +93,7 @@ internal fun movesNothing(existing: ItemDates, proposed: ItemDates): Boolean = w
 }
 
 /** The dates a drafted item would write, in the shape FR-804 compares and patches. */
-internal fun itemDatesOf(item: Item, timeZone: String): ItemDates = when (item.type) {
+fun itemDatesOf(item: Item, timeZone: String): ItemDates = when (item.type) {
     ItemType.EVENT -> ItemDates.Event(
         start = requireNotNull(item.start) { "An event draft has no start" },
         end = requireNotNull(item.end) { "An event draft has no end" },

@@ -243,24 +243,49 @@ Messages appear as balloons from the tray, because there is no window to put the
 means it is not, and Latch will write it when it can. Those two are deliberately different
 sentences — if it says *held*, do not go looking in Google for it yet.
 
-## What the PC cannot do that the phone can
+## The two questions Latch asks back
 
-These are known and recorded. **Please do not report them as defects** — but do tell me if one
-of them bites in a way the list does not describe.
+These now work the same on both machines, so what you learn on one holds on the other.
 
-- **No "did you mean to move this?" offer.** On the phone, capturing a message with a changed
-  date offers to move the existing item. The PC does not ask: it writes a second item. FR-804.
-- **No undo.** The phone gives you ten seconds to take a save back. The PC does not. If you
-  save something wrong, delete it in Google Calendar.
-- **No Inbox.** A capture with no date at all is saved as an undated to-do here, where the
-  phone would hold it for you to sort out later.
-- **No Settings screen.** The hotkey, the date order, the calendar and everything else in
-  FR-1001 use their defaults and cannot be changed from the PC yet.
-- **No calendar picker.** Everything goes to the Latch calendar the phone already made. That is
-  deliberate and it is what makes the phone and the PC recognise each other's captures.
-- **No recipes, no webhook, no notification capture.**
-- **The queue only runs while Latch is running.** If you queue something offline and then quit,
-  it waits until you open Latch again. It is held, not lost.
+**"This looks like a reschedule."** Capture a message about something you have already saved,
+with the date changed, and Latch does not write a second item. It shows you the item it found —
+quoted by the title *as stored in your calendar*, with both weekdays worked out — and asks:
+
+> This looks like a reschedule. "Project sync" is already saved for Wed 8 Sep 2027, 11:00.
+> Move it to Thu 9 Sep 2027, 11:00?
+
+**Update** moves the one you have. **Create new** writes a second, which is sometimes what you
+want. **Close** does neither. Nothing is written until you choose, and there is no default —
+pressing Enter will not pick one for you, because moving an item you already own is not
+something a stray keystroke should decide.
+
+Two things it deliberately will not do. It never offers this for a capture holding **several**
+dates, because accepting would move one and quietly drop the rest. And if the message names the
+date the item is *already* on — a forward, a quote-back — it says "Already saved" instead of
+offering to move it to where it is.
+
+**"Undo."** After a save the window stays up for ten seconds with a counting-down **Undo**
+button, then closes itself. Undo removes what was just written. If the save was an *update*,
+undo **puts the old date back** rather than deleting the item — it was yours before Latch
+touched it. If several items were written and only some could be removed, it tells you how many,
+because the rest is a manual job.
+
+## What still differs between the two
+
+Both clients now capture, parse, save, detect duplicates, offer reschedules, undo, hold work
+offline and export `.ics`. These are the remaining differences. **Please do not report them as
+defects** — but do say if one bites in a way this list does not describe.
+
+- **No Capture Inbox on the PC.** On the phone, a capture with no date or a doubtful one is held
+  for you to sort out later. The PC saves an undated capture as an undated to-do instead.
+- **No Settings screen on the PC.** The hotkey, the date order, the default duration and the
+  rest use their defaults and can only be changed on the phone.
+- **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
+  is deliberate — it is what makes the two machines recognise each other's captures.
+- **No recipes, no webhook, no notification capture on the PC.**
+- **The PC's queue only runs while Latch is running.** Queue something with no connection, quit,
+  and it waits until you open Latch again. It is held, not lost — but the phone would have
+  written it in the background.
 
 ## Two things worth doing early
 
@@ -270,6 +295,11 @@ of them bites in a way the list does not describe.
 
 The PC wrote it already, so the phone should say **"Already saved. Nothing was written
 again."** and create nothing. That closes the reverse half of AC-07. Tell me what it says.
+
+**And one worth trying on the PC**, because it is the newest thing and the most interesting to
+get wrong: capture the line above with the date changed to **12 October**. You should get the
+reschedule question rather than a second event. I have checked that the question appears against
+your real calendar; what nobody has checked is what happens after you press Update.
 
 **And when you are done trying it:** the two events named "Latch desktop first write" and
 "Latch desktop second write" are mine, from testing. Delete them whenever you like.

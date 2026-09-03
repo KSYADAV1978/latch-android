@@ -14,6 +14,7 @@ import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -306,6 +307,64 @@ class OAuthTest {
         val auth = DesktopAuth(secrets, client)
         auth.forget()
         assertNull(secrets.get(DesktopAuth.REFRESH_TOKEN_KEY))
+    }
+
+    // ---- FR-806a: which failure it is decides whether the capture survives ------------------
+
+    @Test
+    fun `a refresh that cannot be sent is retryable, so the queue holds the capture`() {
+        // The defect this was written against, found by running an offline save on 3 Sep 2026:
+        // `accessToken()` answering null cannot say whether the network is down or the grant is
+        // gone, so the save path reported REFUSED and **the capture was lost**. That is SRS
+        // 1.39's shape on Android, one client over.
+        val auth = DesktopAuth(
+            store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") },
+            client,
+            post = { _, _ -> throw java.io.IOException("no route to host") },
+        )
+        val failure = assertFailsWith<com.latch.google.GoogleUnreachable> { auth.accessTokenOrThrow() }
+        assertTrue(com.latch.google.isWorthRetrying(failure), "an offline refresh must be retryable")
+    }
+
+    @Test
+    fun `a revoked grant is permanent, so it is reported instead of queued for ever`() {
+        // The other direction, and getting it wrong puts an entry in the queue that can never
+        // drain. A revoked grant is not cured by waiting.
+        val secrets = store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") }
+        val auth = DesktopAuth(secrets, client, post = { _, _ -> HttpReply(400, """{"error":"invalid_grant"}""") })
+        val failure = assertFailsWith<com.latch.google.GoogleRejected> { auth.accessTokenOrThrow() }
+        assertEquals(400, failure.status)
+        assertFalse(com.latch.google.isWorthRetrying(failure))
+        assertNull(secrets.get(DesktopAuth.REFRESH_TOKEN_KEY), "a dead grant must not be kept")
+    }
+
+    @Test
+    fun `a server having a bad day is retryable and leaves the grant alone`() {
+        val secrets = store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") }
+        val auth = DesktopAuth(secrets, client, post = { _, _ -> HttpReply(503, "unavailable") })
+        assertFailsWith<com.latch.google.GoogleUnreachable> { auth.accessTokenOrThrow() }
+        assertEquals("rt", secrets.get(DesktopAuth.REFRESH_TOKEN_KEY))
+    }
+
+    @Test
+    fun `being signed out is permanent rather than a network problem`() {
+        val auth = DesktopAuth(store(), client, post = { _, _ -> HttpReply(200, "{}") })
+        val failure = assertFailsWith<com.latch.google.GoogleRejected> { auth.accessTokenOrThrow() }
+        assertEquals(401, failure.status)
+    }
+
+    @Test
+    fun `a cached token is returned without asking Google at all`() {
+        var calls = 0
+        val now = Instant.parse("2026-09-03T10:00:00Z")
+        val auth = DesktopAuth(
+            store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") }, client,
+            post = { _, _ -> calls++; HttpReply(200, """{"access_token":"at","expires_in":3600}""") },
+            clock = { now },
+        )
+        assertEquals("at", auth.accessTokenOrThrow())
+        assertEquals("at", auth.accessTokenOrThrow())
+        assertEquals(1, calls)
     }
 
     @Test

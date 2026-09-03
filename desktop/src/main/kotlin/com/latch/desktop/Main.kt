@@ -17,7 +17,10 @@ import com.latch.desktop.ocr.WindowsOcr
 import com.latch.desktop.queue.DrainTrigger
 import com.latch.desktop.queue.QueueRunner
 import com.latch.desktop.queue.WriteQueue
+import com.latch.desktop.save.CreatedItem
 import com.latch.desktop.save.DesktopSaver
+import com.latch.desktop.save.RemovalOutcome
+import com.latch.desktop.save.undoCreated
 import com.latch.desktop.save.IcsFile
 import com.latch.desktop.save.DesktopSetup
 import com.latch.desktop.save.SaveFailure
@@ -33,6 +36,8 @@ import com.latch.desktop.ui.LatchTray
 import com.latch.desktop.ui.TrayAction
 import com.latch.desktop.ui.TrayModel
 import com.latch.desktop.ui.messageFor
+import com.latch.desktop.ui.rescheduleOfferText
+import com.latch.desktop.ui.undoOutcomeText
 import com.latch.desktop.ui.popupModel
 import com.latch.google.TokenProvider
 import com.latch.google.fetchPrimaryAccount
@@ -94,8 +99,10 @@ object Latch {
      * `DesktopAuth` is where that decision lives.
      */
     private val tokens = object : TokenProvider {
-        override suspend fun accessToken(): String =
-            auth.accessToken() ?: throw IllegalStateException("not signed in")
+        // The throwing form, deliberately. `accessToken()` answering null cannot say whether
+        // the network is down or the grant is gone, and FR-806 needs to know: the first is
+        // held, the second is reported. Reporting the first loses the capture.
+        override suspend fun accessToken(): String = auth.accessTokenOrThrow()
 
         override suspend fun invalidate(token: String) = auth.dropCachedAccessToken()
     }
@@ -247,13 +254,12 @@ object Latch {
         selected: Set<Int>,
         titleOverrides: Map<Int, String>,
     ) {
-        window?.close()
         if (!auth.isConfigured) {
-            tray?.say("Latch", DesktopStrings.NOT_CONFIGURED, TrayIcon.MessageType.WARNING)
+            window?.showOutcome(DesktopStrings.NOT_CONFIGURED)
             return
         }
         if (!auth.isSignedIn) {
-            tray?.say("Latch", DesktopStrings.NOT_SIGNED_IN, TrayIcon.MessageType.WARNING)
+            window?.showOutcome(DesktopStrings.NOT_SIGNED_IN)
             return
         }
 
@@ -275,47 +281,111 @@ object Latch {
                     if (draft !is DraftResult.Ready) {
                         return@runBlocking SaveResult.Failed(SaveFailure.NOTHING_TO_WRITE)
                     }
-                    DesktopSaver(calendarApi, tasksApi, context.zone.id, queue)
-                        .save(captured, result, draft.items, defaults, chainId)
+                    saver(context.zone.id).save(captured, result, draft.items, defaults, chainId)
                 }
             }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
 
-            SwingUtilities.invokeLater {
-                when (outcome) {
-                    null -> tray?.say(
-                        "Latch", "No calendar is chosen yet. Sign in again to set one up.",
-                        TrayIcon.MessageType.WARNING,
-                    )
-                    is SaveResult.Written -> {
-                        // FR-806: a request that just succeeded says the network is back
-                        // more reliably than any interface check, so anything held gets a
-                        // chance immediately rather than at its next scheduled attempt.
-                        runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
-                        tray?.say(
-                            "Latch",
-                            if (outcome.count == 1) "Saved to Latch."
-                            else outcome.count.toString() + " items saved to Latch.",
-                        )
-                    }
-                    SaveResult.AlreadySaved ->
-                        tray?.say("Latch", "Already saved. Nothing was written again.")
-                    is SaveResult.Queued -> {
-                        // AC-10's distinction, and the reason it is not "Saved": nothing is
-                        // in the account yet, and saying otherwise is the lie the Queued
-                        // state exists to avoid.
-                        tray?.update(model())
-                        tray?.say(
-                            "Latch",
-                            "No connection. Held on this machine, and it will be written when " +
-                                "there is one.",
-                        )
-                    }
-                    is SaveResult.Failed -> tray?.say(
-                        "Latch", saveMessage(outcome.reason), TrayIcon.MessageType.WARNING,
-                    )
-                }
-            }
+            SwingUtilities.invokeLater { present(outcome, context) }
         }, "latch-save").apply { isDaemon = true }.start()
+    }
+
+    private fun saver(zone: String) =
+        DesktopSaver(calendarApi, tasksApi, zone, queue)
+
+    /**
+     * What the window shows once a save has answered.
+     *
+     * FR-804's offer and FR-807's undo both live on the capture window rather than in a tray
+     * balloon, because both are questions and a balloon cannot be answered. The window closes
+     * itself when the undo window lapses — the window *is* the offer, so outliving it would
+     * leave a dead thing on screen.
+     */
+    private fun present(outcome: SaveResult?, context: ParseContext) {
+        val open = window ?: return
+        when (outcome) {
+            null -> open.showOutcome("No calendar is chosen yet. Sign in again to set one up.")
+
+            is SaveResult.Written -> {
+                // FR-806: a request that just succeeded says the network is back more reliably
+                // than any interface check, so anything held gets a chance now.
+                runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
+                tray?.update(model())
+                offerUndo(
+                    open,
+                    if (outcome.count == 1) DesktopStrings.SAVED
+                    else outcome.count.toString() + " items saved to Latch.",
+                    outcome.created,
+                    wasUpdate = false,
+                )
+            }
+
+            is SaveResult.Updated -> {
+                runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
+                offerUndo(open, DesktopStrings.UPDATED, listOf(outcome.created), wasUpdate = true)
+            }
+
+            SaveResult.AlreadySaved -> open.showOutcome(DesktopStrings.ALREADY_SAVED)
+
+            is SaveResult.Queued -> {
+                tray?.update(model())
+                val created = outcome.queueId?.let { listOf(CreatedItem.Queued(it)) }.orEmpty()
+                if (created.isEmpty()) open.showOutcome(DesktopStrings.HELD)
+                else offerUndo(open, DesktopStrings.HELD, created, wasUpdate = false)
+            }
+
+            is SaveResult.RescheduleOffered -> open.showRescheduleOffer(
+                text = rescheduleOfferText(outcome.storedTitle, outcome.match.dates, outcome.proposed),
+                onUpdate = { answerOffer(outcome, update = true, context = context) },
+                onCreateNew = { answerOffer(outcome, update = false, context = context) },
+            )
+
+            is SaveResult.Failed -> open.showOutcome(saveMessage(outcome.reason))
+        }
+    }
+
+    /** FR-804's two answers. Nothing was written until one of them was chosen. */
+    private fun answerOffer(
+        offer: SaveResult.RescheduleOffered,
+        update: Boolean,
+        context: ParseContext,
+    ) {
+        Thread({
+            val outcome = runCatching {
+                runBlocking {
+                    val worker = saver(offer.pending.timeZone)
+                    if (update) worker.applyReschedule(offer) else worker.createAnyway(offer)
+                }
+            }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
+            SwingUtilities.invokeLater { present(outcome, context) }
+        }, "latch-reschedule").apply { isDaemon = true }.start()
+    }
+
+    private fun offerUndo(
+        open: CaptureWindow,
+        text: String,
+        created: List<CreatedItem>,
+        wasUpdate: Boolean,
+    ) {
+        if (created.isEmpty()) {
+            open.showOutcome(text)
+            return
+        }
+        open.showSaved(
+            text = text,
+            savedAt = java.time.Instant.now(),
+            onUndo = {
+                Thread({
+                    val outcome = runCatching {
+                        runBlocking { undoCreated(created, calendarApi, tasksApi, queue) }
+                    }.getOrElse { RemovalOutcome(0, created.size) }
+                    SwingUtilities.invokeLater {
+                        tray?.update(model())
+                        window?.showOutcome(undoOutcomeText(outcome, wasUpdate))
+                    }
+                }, "latch-undo").apply { isDaemon = true }.start()
+            },
+            onLapse = { tray?.update(model()) },
+        )
     }
 
     /**
@@ -330,14 +400,13 @@ object Latch {
         selected: Set<Int>,
         titleOverrides: Map<Int, String>,
     ) {
-        window?.close()
         val chainId = java.util.UUID.randomUUID().toString()
         val draft = draftItems(
             captured = captured,
             result = result,
             context = context,
-            // FR-1005 exports what was captured, not where it would have been filed, so the
-            // ids here are placeholders and `exportItems` replaces them anyway.
+            // FR-1005 exports what was captured, not where it would have been filed, so these
+            // ids are placeholders and `exportItems` replaces them anyway.
             destination = com.latch.wire.WireDestination("export", "export"),
             captureId = chainId,
             chainId = chainId,
@@ -348,10 +417,10 @@ object Latch {
             ?.let { IcsFile.write(it.items, chainId, context.zone.id) }
 
         if (file == null) {
-            tray?.say("Latch", DesktopStrings.EXPORT_FAILED, TrayIcon.MessageType.WARNING)
+            window?.showOutcome(DesktopStrings.EXPORT_FAILED)
             return
         }
-        tray?.say("Latch", DesktopStrings.EXPORTED + " " + file.name)
+        window?.showOutcome(DesktopStrings.EXPORTED + " " + file.name)
     }
 
     private fun saveMessage(reason: SaveFailure) = when (reason) {

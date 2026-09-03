@@ -2,6 +2,8 @@ package com.latch.desktop.auth
 
 import com.latch.desktop.store.SecretFile
 import com.latch.google.json.JSONObject
+import com.latch.google.GoogleRejected
+import com.latch.google.GoogleUnreachable
 import com.latch.google.requireGoogleEndpoint
 import java.io.File
 import java.net.HttpURLConnection
@@ -162,6 +164,58 @@ class DesktopAuth(
      * The margin is a minute: a token that expires while a request is in flight fails the
      * request, and a minute is longer than any call this application makes.
      */
+    /**
+     * A usable access token, or **an exception saying why not**.
+     *
+     * This exists because [accessToken] returning null cannot tell a caller which of two
+     * quite different things happened, and the write path has to know. Android learned the
+     * same lesson as SRS 1.39: an offline save whose token had expired did not fail fast
+     * into the queue, and the capture was stranded.
+     *
+     * - **No network** throws [GoogleUnreachable], which `isWorthRetrying` classifies as
+     *   retryable, so FR-806 holds the capture instead of reporting it lost.
+     * - **The grant is gone** throws [GoogleRejected] with 401, which is permanent: no
+     *   amount of waiting fixes a revoked grant, and the answer is to sign in again.
+     *
+     * Getting this the other way round is the expensive direction. Reporting a network
+     * failure as permanent loses the capture; reporting a revoked grant as retryable puts
+     * an entry in the queue that can never drain.
+     */
+    fun accessTokenOrThrow(): String {
+        val client = config ?: throw GoogleRejected(401, "notConfigured", "no OAuth client")
+        cached?.let { if (it.expiresAt.isAfter(clock().plus(REFRESH_MARGIN))) return it.accessToken }
+
+        val refresh = secrets.get(REFRESH_TOKEN_KEY)
+            ?: throw GoogleRejected(401, "signInRequired", "not signed in")
+
+        val reply = try {
+            post(OAuthRequest.TOKEN_ENDPOINT, OAuthRequest.refreshBody(client.clientId, client.clientSecret, refresh))
+        } catch (failure: Exception) {
+            // The refresh could not be sent at all. Offline, almost always.
+            throw GoogleUnreachable("could not reach Google to refresh the sign-in", failure)
+        }
+
+        if (reply.status == 400 || reply.status == 401) {
+            secrets.remove(REFRESH_TOKEN_KEY)
+            cached = null
+            throw GoogleRejected(reply.status, "invalidGrant", readTokenError(reply.body))
+        }
+        if (reply.status >= 500 || reply.status == 429) {
+            // Google having a bad day. Worth retrying, and the grant is untouched.
+            throw GoogleUnreachable("Google returned " + reply.status + " refreshing the sign-in")
+        }
+        if (reply.status !in 200..299) {
+            throw GoogleRejected(reply.status, "refreshFailed", readTokenError(reply.body))
+        }
+
+        val tokens = readTokenResponse(reply.body, clock(), previousRefresh = refresh)
+            ?: throw GoogleRejected(reply.status, "refreshFailed", "no access token in the response")
+        tokens.refreshToken?.takeIf { it != refresh }?.let { secrets.put(REFRESH_TOKEN_KEY, it) }
+        cached = tokens
+        return tokens.accessToken
+    }
+
+    /** The same question asked without wanting a reason. Used where only presence matters. */
     fun accessToken(): String? {
         val client = config ?: return null
         cached?.let { if (it.expiresAt.isAfter(clock().plus(REFRESH_MARGIN))) return it.accessToken }

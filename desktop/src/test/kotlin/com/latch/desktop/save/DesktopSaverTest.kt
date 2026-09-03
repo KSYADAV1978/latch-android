@@ -34,6 +34,7 @@ import java.time.LocalDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -160,7 +161,12 @@ class DesktopSaverTest {
         val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata", queue)
             .save(DesktopCapture(text), result, items, defaults, "chain-1")
 
-        assertEquals(SaveResult.Queued(count = 1, alsoWritten = 0), outcome)
+        assertIs<SaveResult.Queued>(outcome)
+        assertEquals(1, outcome.count)
+        assertEquals(0, outcome.alsoWritten)
+        // FR-807: the entry is identified, so an undo inside the window drops it rather than
+        // chasing an item that was never written.
+        assertNotNull(outcome.queueId)
         val held = queue.entries().single()
         assertEquals(sourceHashOf(text), held.metadata.sourceHash)
         assertEquals("cal-1", held.calendarId)

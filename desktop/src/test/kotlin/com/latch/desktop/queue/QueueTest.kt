@@ -74,6 +74,9 @@ internal fun anEntry(
     givenUp = givenUp,
 )
 
+/** A minimal entry for suites outside this file. */
+internal fun anEntryForUndo(id: String) = anEntry(id = id)
+
 class QueueRecordTest {
 
     @Test

@@ -1,6 +1,8 @@
 package com.latch.desktop.ui
 
 import com.latch.core.model.ItemType
+import com.latch.desktop.save.RemovalOutcome
+import com.latch.google.ItemDates
 import com.latch.desktop.capture.EmptyCapture
 import com.latch.parser.DatedCandidate
 import com.latch.parser.ParseResult
@@ -107,6 +109,57 @@ internal fun summaryFor(count: Int): String = when (count) {
     else -> DesktopStrings.MANY_DATES.replace("%d", count.toString())
 }
 
+/**
+ * FR-804's offer, as the sentence the user reads before they choose.
+ *
+ * Three things about it are the Android reading followed verbatim rather than re-decided.
+ *
+ * **The title is quoted from the item that already exists**, not from the text just captured.
+ * The user is being asked about something in their calendar, and naming it by the new wording
+ * would describe a thing they cannot go and look at.
+ *
+ * **The weekdays are computed from the dates**, never taken from the captured text. A message
+ * may name a weekday that contradicts the date beside it — §7.2's own example is "PTM on Friday
+ * 12 September", where the 12th is a Saturday — and that contradiction is absorbed into the
+ * date rather than repeated back at the user as though the app believed it.
+ *
+ * **A task with no due date reads "no date"**, not an empty gap. An undated to-do is a real
+ * state on this path, and FR-510's follow-up produces one.
+ */
+fun rescheduleOfferText(storedTitle: String, existing: ItemDates, proposed: ItemDates): String =
+    "This looks like a reschedule. \"" + storedTitle + "\" is already saved for " +
+        describeDates(existing) + ". Move it to " + describeDates(proposed) + "?"
+
+internal fun describeDates(dates: ItemDates): String = when (dates) {
+    is ItemDates.Event ->
+        if (dates.allDay) dates.start.toLocalDate().format(OFFER_DATE)
+        else dates.start.format(OFFER_DATE_TIME)
+
+    is ItemDates.Task -> dates.due?.format(OFFER_DATE) ?: DesktopStrings.NO_DATE
+}
+
+private val OFFER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
+private val OFFER_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy, HH:mm")
+
+/**
+ * FR-807's countdown, as it reads on the button.
+ *
+ * The seconds are shown rather than a bare "Undo", because the whole point of the offer is that
+ * it expires: a button that gave no sign of running out would leave the user discovering the
+ * limit by missing it. `CLAUDE.md` records that happening twice on the phone.
+ */
+fun undoLabel(secondsLeft: Int): String = "Undo (" + secondsLeft + ")"
+
+/** NFR-303: a partial undo has to say how far it got, because the rest is a manual job. */
+fun undoOutcomeText(outcome: RemovalOutcome, wasUpdate: Boolean): String = when {
+    outcome.complete && wasUpdate -> "Put back where it was."
+    outcome.complete && outcome.total == 1 -> "Removed."
+    outcome.complete -> "Removed all " + outcome.total + "."
+    outcome.removed == 0 -> "Could not undo. Nothing was changed back; remove it in Google."
+    else -> "Undid " + outcome.removed + " of " + outcome.total +
+        ". Remove the rest in Google Calendar or Tasks."
+}
+
 /** What to say when a hotkey press found nothing worth capturing. */
 fun messageFor(reason: EmptyCapture): String = when (reason) {
     EmptyCapture.NOTHING_COPIED -> DesktopStrings.NOTHING_COPIED
@@ -147,6 +200,13 @@ object DesktopStrings {
     const val SAVE = "Save"
     const val CLOSE = "Close"
     const val EXPORT = "Export .ics"
+    const val UPDATE = "Update"
+    const val CREATE_NEW = "Create new"
+    const val NO_DATE = "no date"
+    const val SAVED = "Saved to Latch."
+    const val UPDATED = "Moved. The existing item now sits on the new date."
+    const val HELD = "No connection. Held on this machine, and it will be written when there is one."
+    const val ALREADY_SAVED = "Already saved. Nothing was written again."
     const val EXPORTED = "Saved a calendar file to your Downloads folder."
     const val EXPORT_FAILED = "Latch could not write the calendar file."
     const val EDIT_TITLE = "Edit"

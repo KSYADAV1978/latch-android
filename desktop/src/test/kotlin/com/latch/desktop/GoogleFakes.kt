@@ -36,6 +36,11 @@ internal class FakeCalendar : CalendarApi {
     var failInsert: Exception? = null
     var failList: Exception? = null
     var failFind: Exception? = null
+    var failDelete: Exception? = null
+    var rescheduleMatch: RescheduleSearch = RescheduleSearch()
+    var itemKeyQueries: Int = 0
+    val patched = mutableMapOf<String, ItemDates>()
+    val deleted = mutableListOf<String>()
 
     override suspend fun listWritableCalendars(): List<WritableCalendar> {
         failList?.let { throw it }
@@ -64,12 +69,19 @@ internal class FakeCalendar : CalendarApi {
         return DuplicateSearch(existingId = indexed[sourceHash])
     }
 
-    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch =
-        RescheduleSearch()
+    override suspend fun findEventByItemKey(calendarId: String, itemKey: String): RescheduleSearch {
+        itemKeyQueries++
+        return rescheduleMatch
+    }
 
-    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) = Unit
+    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
+        patched[eventId] = dates
+    }
 
-    override suspend fun deleteEvent(calendarId: String, eventId: String) = Unit
+    override suspend fun deleteEvent(calendarId: String, eventId: String) {
+        failDelete?.let { throw it }
+        deleted += eventId
+    }
 }
 
 internal class FakeTasks : TasksApi {
@@ -79,6 +91,11 @@ internal class FakeTasks : TasksApi {
     var failInsert: Exception? = null
     var cappedScan: Boolean = false
     var lastScanWasCapped: Boolean = false
+    var failDelete: Exception? = null
+    var rescheduleMatch: RescheduleSearch = RescheduleSearch()
+    var itemKeyQueries: Int = 0
+    val patched = mutableMapOf<String, ItemDates>()
+    val deleted = mutableListOf<String>()
 
     override suspend fun listTaskLists(): List<TaskList> = lists
 
@@ -99,11 +116,18 @@ internal class FakeTasks : TasksApi {
         return DuplicateSearch(existingId = indexed[sourceHash], scanCapped = cappedScan)
     }
 
-    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch =
-        RescheduleSearch()
+    override suspend fun findTaskByItemKey(taskListId: String, itemKey: String): RescheduleSearch {
+        itemKeyQueries++
+        return rescheduleMatch
+    }
 
-    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) = Unit
+    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
+        patched[taskId] = dates
+    }
 
-    override suspend fun deleteTask(taskListId: String, taskId: String) = Unit
+    override suspend fun deleteTask(taskListId: String, taskId: String) {
+        failDelete?.let { throw it }
+        deleted += taskId
+    }
 }
 

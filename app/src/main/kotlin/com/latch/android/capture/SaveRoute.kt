@@ -2,6 +2,7 @@ package com.latch.android.capture
 
 import com.latch.core.model.CaptureSource
 import com.latch.data.InboxReason
+import com.latch.google.writeDecision
 import com.latch.parser.Confidence
 import com.latch.parser.ParseResult
 import com.latch.wire.candidateBlocker
