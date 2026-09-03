@@ -15,3 +15,19 @@ payment due 30-09-2026	TASK_WITH_DUE_DATE	2026-09-30	-
 flight on 14/11/2026 at 1130 hrs	EVENT	2026-11-14	11:30
 १२/०९/२०२६	TASK_WITH_DUE_DATE	2026-09-12	-
 inspection 03/03/26 at 2:15 pm	EVENT	2026-03-03	14:15
+# Year-first dates. Added 3 Sep 2026, after the day-first pattern was found matching the
+# trailing `10-14` of `2027-10-14`, finding no year on it, and filling in the current one —
+# so a renewal due in October 2027 resolved to October 2026 with no warning. Inventing a year
+# while a correct one sits in the text is worse than declining to read the format at all.
+2027-10-14	TASK_WITH_DUE_DATE	2027-10-14	-
+Renewal 2027-10-14	TASK_WITH_DUE_DATE	2027-10-14	-
+2027/10/14	TASK_WITH_DUE_DATE	2027-10-14	-
+Deadline 2027/10/14	TASK_WITH_DUE_DATE	2027-10-14	-
+2027-1-5	TASK_WITH_DUE_DATE	2027-01-05	-
+audit on 2027-10-14 at 11:00	EVENT	2027-10-14	11:00
+# The same shape with an impossible date is refused outright rather than half-matched into
+# something plausible: without the withheld span, `13-45` would have been offered on its own.
+2027-13-45	TASK_UNDATED	-	-
+# A dot is deliberately not a year-first separator: this is as likely to be a version number,
+# and a build note becoming a calendar entry is the worse failure.
+shipping 2027.10.14	TASK_UNDATED	-	-

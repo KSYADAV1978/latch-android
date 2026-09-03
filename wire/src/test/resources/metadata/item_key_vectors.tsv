@@ -1,0 +1,93 @@
+# Golden vectors for SRS 7.2's latch.item_key -- the DATE-FREE TITLE it is derived from.
+#
+# SRS v1.11 promised this file: "a vector file for date-free titles should be added when the
+# second client is built, and until then FR-804 should be understood as reliable within a
+# client and unproven across them." The second client exists, so here it is -- but the reason
+# it exists has changed, and the change is worth reading before relying on it.
+#
+# WHAT THIS FILE IS NOT FOR ANY MORE. The Android and Windows clients do not have two
+# implementations of this derivation. Both contain the byte-identical line
+#     itemKey = itemKeyOf(itemKeyTitle(captured, result))
+# and both itemKeyTitle and itemKeyOf are compiled from :wire, from this same source tree.
+# Two clients running one function cannot disagree, so between those two there is no drift
+# for a vector file to catch.
+#
+# WHAT IT IS FOR.
+#  1. The THIRD client. SRS 4.1 names a Chrome extension, which will not be a JVM and will
+#     therefore be an independent implementation -- the situation v1.11 was written about.
+#     That client must reproduce every digest below or FR-804 stops working across it.
+#  2. Pinning this derivation against CHANGE OVER TIME, which shared code does nothing about.
+#     SRS 7.2 writes metadata once at insert and never recomputes it, so every item already in
+#     a user's account carries a key derived by the code as it stood that day. A "tidier"
+#     derivation would orphan all of them: FR-804 would stop matching anything written before
+#     the change, and would create duplicates rather than offering to move items.
+#
+# THAT SECOND POINT HAS TEETH, AND THREE ROWS BELOW SHOW IT. two_dates and
+# punctuation_after_blank keep a stray " ." where a date was blanked out, and plain_event ends
+# on a dangling "at". All read badly and all are FROZEN: the key is never shown to anyone, and
+# repairing them would change the identity of every item ever written.
+#
+# Columns: name <TAB> input <TAB> expected date-free title <TAB> expected sha-256 of item_key
+#
+# The third column is the point of the file. A table of inputs and digests alone would be
+# unreviewable -- a wrong expectation and a right one look identical -- and this project has
+# already recorded what that costs: "a test can pin behaviour exactly and pin the wrong
+# behaviour". The middle column is human-legible, so every row can be read and judged.
+#
+# It was worth doing. Generating this file on 3 Sep 2026 found a real defect on its first run:
+# "Renewal 2027-10-14" produced the title "Renewal 2027-" and the date 14 October 2026 -- the
+# day-first pattern had matched the trailing "10-14", found no year on it and filled in the
+# current one, while a correct year sat in the text. The leftover "2027-" then travelled in the
+# key, so rescheduling such an item across a year boundary would have written a duplicate.
+# Fixed in NumericDateRule before these vectors were taken; year_first and
+# reschedule_across_years below are the rows that hold it fixed.
+#
+# The input and title columns are escaped and this file is pure ASCII by design, so that an
+# editor normalising Unicode on save cannot silently turn one case into another.
+# Escapes: backslash-n, backslash-t, backslash-uXXXX, backslash-backslash. Decode before use.
+# Blank lines and lines beginning # are ignored.
+#
+# Clock for every row: 2026-09-03T09:00. No row depends on it -- a date's SPAN is its position
+# in the text, which is the same whatever day it is read on -- and ItemKeyAcrossClientsTest
+# proves that separately for the clock, the time zone, the date order and the event duration.
+
+# The ordinary case. Note the dangling "at": cosmetic, frozen, see above.
+plain_event	Kickoff 8 September 2027 at 9am	Kickoff at	f5d2496ef32f7a10125274100fc078fad578498fa7ea0580f06a9e8e3d384d34
+# A numeric date carrying a year.
+numeric_date	Fees due 20/09/2027	Fees due	29e68d14f5bbf6206a4a35763e519cabe32e14679b390d28663dd706d52438d7
+# The same message without one. FR-503: a missing year is the current year.
+numeric_no_year	Fees due 20/09	Fees due	29e68d14f5bbf6206a4a35763e519cabe32e14679b390d28663dd706d52438d7
+# ISO 8601. The defect this file found on its first run; see the note above.
+year_first	Renewal 2027-10-14	Renewal	78bf8ee749fe16fd3d83c4e1f427cf3d38fc8714760afbda3b3cae1256fea340
+# The same shape with slashes, as an exported spreadsheet writes it.
+year_first_slash	Deadline 2027/10/14	Deadline	dfc8aeb39828e31c4cf8fec553c76b65cf91b5ec8b2b00f397788b9f58bbd80e
+# FR-502. Both ends are blanked, not only the opening date.
+range	Trip from 20 September to 24 September 2027	Trip from	0115045d355116e29dc35a974a82051f84ea69ab017ade7694c60f074fea47c0
+# SRS 7.2's own example. 12 Sep 2026 is a Saturday, so the writer is wrong --
+weekday_corroboration	PTM on Friday 12 September 2026	PTM on	c3538066cd0acf4f361236c6d6a10e4719141aadfe89beec48689e078f1bd296
+#   and the weekday is absorbed anyway, so these two rows MUST share a digest.
+weekday_absent	PTM on 12 September 2026	PTM on	c3538066cd0acf4f361236c6d6a10e4719141aadfe89beec48689e078f1bd296
+# FR-804's whole mechanism: these two rows MUST share a digest, or moving a
+reschedule_before	Project sync on 8 September 2027 at 11:00	Project sync on at	f381e97ac20799667d7e9c0693eac85c3e1c8a195ad39d63a1e77904642e0851
+#   meeting creates a second item instead of offering to move the first.
+reschedule_after	Project sync on 9 September 2027 at 11:00	Project sync on at	f381e97ac20799667d7e9c0693eac85c3e1c8a195ad39d63a1e77904642e0851
+# And so must this row and year_first, or a renewal cannot be rescheduled.
+reschedule_across_years	Renewal 2028-10-14	Renewal	78bf8ee749fe16fd3d83c4e1f427cf3d38fc8714760afbda3b3cae1256fea340
+# FR-506 row 3: a time with no day still has a span, and it is blanked.
+time_only	call at 4pm	call at	7c5060eb248c9ba9e5b5479a92ae6f2c1e8ef95411390d0fa0d3912fe277e876
+# SRS 1.23: EVERY span is blanked, not only the primary. Stray " ." frozen.
+two_dates	PTM on 14 September 2026. Fees due 20 September 2027.	PTM on . Fees due .	6c56f5efb5783447995b9fa2c33b5385e7892ca31d12868124a6f12b17c47e26
+# The full stop the date stood in front of. Frozen; see above.
+punctuation_after_blank	Yes. PTM on Monday 14 September 2026.	Yes. PTM on .	24cdaeab296abba3039ac4f5845c2dcfbe3afe0d5b03086bf7e666dd69d0948e
+# FR-206: a subject line is step 1 of the derivation and is used verbatim.
+subject_wins	Board meeting 8 September 2027	Q3 board pack	c3adff27ba8a1bd3126b27524ab5a9cb953a072b7156cc04548ee56ea3240125
+# NFR-404. "kal 4 baje" is a date and a time; both spans go.
+hinglish_relative	kal 4 baje meeting	meeting	0fd924362117d03662f0e86e580ab01c70d3fa88dbffce4224017e86e5fbad52
+# FR-503 vernacular. "3 tarikh" is the third of the month.
+hinglish_tarikh	3 tarikh ko fees jama karni hai	ko fees jama karni hai	6454ee94aa09e0e9b92400aab3453bcdff33fe4597eb3d61bb777d40227f71d5
+# AC-03. Nothing to blank, so the title is the whole message.
+no_date_at_all	Ask about the uniform order	Ask about the uniform order	7594c6694ebdc8c9f6bdcb980e2c52bba5fc7ac74f3c68b6dde0d5c3e58e1505
+# The script Android bundles a model for and Windows may have no pack for.
+devanagari	\u092b\u093c\u0940\u0938 20 September 2027 \u0924\u0915	\u092b\u093c\u0940\u0938 \u0924\u0915	a0dce9d751dd10513ca82a09e4a9695112f8e0254224673acb9bd3f18efce678
+# FR-503 offsets: "within 2 weeks" is a date span like any other.
+offset	submit within 2 weeks	submit	75490bd7b93e6fa7d18cfdea90cc6bcb983d5f3ea326249d2709ca6c94bc07ba
