@@ -177,3 +177,99 @@ Not worth reporting; all of it is written up:
 - **A dangling word in a title.** "Trip from", "Yes. PTM on". Cosmetic, recorded.
 - **FR-1004's webhook is untested against a real endpoint**, as is nearly everything in the last
   four slices. That is what this document is for.
+
+---
+
+# Latch on Windows — the short version
+
+Everything above is about the phone. This part is the PC, and it is written to be read once.
+
+## Starting it
+
+It is **already installed**. Double-click **Latch** on your Desktop, or find it in the Start
+menu. There is no window — look for the blue **L** in the system tray, next to the clock. If
+you do not see it, click the `^` arrow; Windows hides new tray icons by default, and it is
+worth dragging Latch out so it is always visible.
+
+To install it again after a rebuild, or on another machine:
+
+```
+powershell -ExecutionPolicy Bypass -File desktop\install-local.ps1
+```
+
+**It starts with Windows.** That is FR-301, and it is already switched on — there is a Latch
+shortcut in your Startup folder. To turn it off: Task Manager → **Startup apps** → Latch →
+Disable. Or run the installer again *without* `-StartWithWindows`, which removes the entry.
+
+One thing to know: the shortcut points at the Java runtime inside Android Studio. If you move
+or uninstall Android Studio, Latch stops starting. A shipped version would carry its own
+runtime; that is part of what the Microsoft Store build still owes.
+
+## Capturing
+
+The hotkey is **Ctrl + Shift + K**. It works anywhere in Windows.
+
+1. **Select the text** — an email, a message, a web page, a PDF. Anywhere.
+2. **Press Ctrl+Shift+K.** Latch copies the selection itself; you do not press Ctrl+C.
+3. **A small window appears near your mouse pointer**, with the title, the date it found, and
+   a tick box for each date.
+4. **Check the title.** It is a text box — click in and correct it before saving. This is the
+   one field OCR and the parser get wrong most often.
+5. **Save.** Or **Esc** to throw it away, or **Export .ics** to get a calendar file in your
+   Downloads folder instead of writing to Google.
+
+Everything works from the keyboard: Tab moves, Space ticks, **Enter saves**, **Esc closes**.
+
+**Screenshots work too.** Snip with Win+Shift+S, then press Ctrl+Shift+K — Latch reads the text
+out of the image. Windows does this with whatever language packs are installed, and **this PC
+has no Hindi pack**, so a Devanagari screenshot will capture on your phone and not here. Latch
+says so rather than failing silently.
+
+## The tray icon
+
+Right-click it for the menu. Double-click it to capture without the hotkey.
+
+| What it says | What it means |
+|---|---|
+| **Capture now (Ctrl+Shift+K)** | Same as the hotkey. |
+| **Signed in as you@gmail.com** | Working. Click it to sign out of this PC — nothing in your Google account is touched. |
+| **Sign in to Google…** | Not signed in. Captures cannot be saved until you do. |
+| **No Google client configured** | Greyed out. The credentials file is missing; this should not happen on your machine. |
+| **3 waiting to be written — retry now** | Latch could not reach Google, so it is holding 3 captures. Nothing is lost. Click to try immediately instead of waiting. |
+| **2 stuck — retry now** | It gave up retrying those. **They are still there** and nothing is deleted — click to try again. |
+
+Messages appear as balloons from the tray, because there is no window to put them in.
+**"Saved to Latch"** means it is in your calendar. **"No connection. Held on this machine"**
+means it is not, and Latch will write it when it can. Those two are deliberately different
+sentences — if it says *held*, do not go looking in Google for it yet.
+
+## What the PC cannot do that the phone can
+
+These are known and recorded. **Please do not report them as defects** — but do tell me if one
+of them bites in a way the list does not describe.
+
+- **No "did you mean to move this?" offer.** On the phone, capturing a message with a changed
+  date offers to move the existing item. The PC does not ask: it writes a second item. FR-804.
+- **No undo.** The phone gives you ten seconds to take a save back. The PC does not. If you
+  save something wrong, delete it in Google Calendar.
+- **No Inbox.** A capture with no date at all is saved as an undated to-do here, where the
+  phone would hold it for you to sort out later.
+- **No Settings screen.** The hotkey, the date order, the calendar and everything else in
+  FR-1001 use their defaults and cannot be changed from the PC yet.
+- **No calendar picker.** Everything goes to the Latch calendar the phone already made. That is
+  deliberate and it is what makes the phone and the PC recognise each other's captures.
+- **No recipes, no webhook, no notification capture.**
+- **The queue only runs while Latch is running.** If you queue something offline and then quit,
+  it waits until you open Latch again. It is held, not lost.
+
+## Two things worth doing early
+
+**The one test I still need from you:** capture this text on your **phone** —
+
+> Latch desktop first write 11 October 2027 at 15:30
+
+The PC wrote it already, so the phone should say **"Already saved. Nothing was written
+again."** and create nothing. That closes the reverse half of AC-07. Tell me what it says.
+
+**And when you are done trying it:** the two events named "Latch desktop first write" and
+"Latch desktop second write" are mine, from testing. Delete them whenever you like.
