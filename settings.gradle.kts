@@ -51,6 +51,13 @@ rootProject.name = "latch-android"
 // does not is anything a client is free to do its own way — HTTP, JSON, storage, UI.
 include(":wire")
 include(":google")
+// :webhook is FR-1004, and it is separate from :google on purpose. AC-17 rests on every
+// outbound request this project composes going through `ALLOWED_HOSTS`; the webhook is the
+// single documented exception to that (NFR-201, AC-18), so it is sent by a different client
+// with narrower rules of its own. Keeping it out of :google is what keeps that module's
+// description — "every request either client makes to Google" — true, and what makes
+// FR-1004b's exclusion from the FR-806 write queue structural rather than remembered.
+include(":webhook")
 include(":app")
 include(":core-model")
 include(":parser")

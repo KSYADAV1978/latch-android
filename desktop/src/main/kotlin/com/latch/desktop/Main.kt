@@ -25,6 +25,7 @@ import com.latch.desktop.save.RemovalOutcome
 import com.latch.desktop.save.undoCreated
 import com.latch.desktop.save.IcsFile
 import com.latch.desktop.save.DesktopSetup
+import com.latch.desktop.save.PendingWrite
 import com.latch.desktop.save.SaveFailure
 import com.latch.desktop.save.SaveResult
 import com.latch.desktop.save.SetupResult
@@ -32,6 +33,7 @@ import com.latch.desktop.save.toWireDestination
 import com.latch.desktop.store.DefaultsStore
 import com.latch.desktop.store.DesktopSettings
 import com.latch.desktop.store.DesktopSettingsStore
+import com.latch.desktop.store.WebhookSecrets
 import com.latch.desktop.store.SecretFile
 import com.latch.desktop.store.latchDataDirectory
 import com.latch.desktop.ui.CaptureWindow
@@ -40,9 +42,16 @@ import com.latch.desktop.ui.InboxWindow
 import com.latch.desktop.ui.SettingsForm
 import com.latch.desktop.ui.SettingsWindow
 import com.latch.desktop.ui.applyForm
+import com.latch.desktop.ui.deliveryText
+import com.latch.desktop.ui.endpointLine
 import com.latch.desktop.ui.hotkeyChanged
 import com.latch.desktop.ui.inboxModel
 import com.latch.desktop.ui.settingsProblemText
+import com.latch.webhook.EndpointRefusal
+import com.latch.webhook.WebhookSender
+import com.latch.webhook.validateEndpoint
+import com.latch.webhook.webhookEligible
+import com.latch.webhook.webhookPayloadForChain
 import com.latch.desktop.ui.LatchTray
 import com.latch.desktop.ui.TrayAction
 import com.latch.desktop.ui.TrayModel
@@ -102,6 +111,10 @@ object Latch {
      * NFR-101 budgets a capture 800 ms and the DPAPI bridge costs most of a second.
      */
     private val settingsStore by lazy { DesktopSettingsStore(secrets) }
+
+    /** FR-1004's endpoint (NFR-203) and FR-1004b's passive report. */
+    private val webhookSecrets by lazy { WebhookSecrets(secrets) }
+    private val webhooks = WebhookSender()
     private val queue by lazy { WriteQueue(File(latchDataDirectory(), "queue.dat")) }
 
     /** FR-701. Local only (FR-703); nothing in it has reached the user's Google account. */
@@ -147,6 +160,13 @@ object Latch {
 
     private var tray: LatchTray? = null
     private var hotkey: GlobalHotkey? = null
+    /**
+     * The capture the open window is about.
+     *
+     * Held because FR-1004's eligibility is a question about the *capture* (FR-210a) and the
+     * save result carries the write rather than what it came from. Cleared with the window.
+     */
+    private var lastCaptured: com.latch.desktop.capture.DesktopCapture? = null
     private var window: CaptureWindow? = null
     private var inboxWindow: InboxWindow? = null
     private var settingsWindow: SettingsWindow? = null
@@ -305,6 +325,7 @@ object Latch {
                 val selected = result.candidates.indices.toSet()
 
                 window?.close()
+                lastCaptured = outcome.capture
                 val today = LocalDate.now()
                 val opened = CaptureWindow(
                     onSave = { ticked, edits ->
@@ -313,7 +334,12 @@ object Latch {
                     onExport = { ticked, edits ->
                         export(outcome.capture, result, context, ticked, edits, today)
                     },
-                    onClose = { window = null },
+                    onClose = {
+                        window = null
+                        // Cleared with the window, so a later save cannot ask FR-210a's
+                        // question about a capture that is no longer on screen.
+                        lastCaptured = null
+                    },
                 )
                 window = opened
                 // The sheet re-derives from the edits on every change, so the badge, the date
@@ -418,6 +444,9 @@ object Latch {
                 // than any interface check, so anything held gets a chance now.
                 runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
                 tray?.update(model())
+                // FR-1004, after the write and before the undo offer goes up — so it can
+                // neither delay the write nor hold up the offer.
+                outcome.pending?.let { deliverWebhook(it, lastCaptured ?: return@let) }
                 offerUndo(
                     open,
                     if (outcome.count == 1) DesktopStrings.SAVED
@@ -501,10 +530,122 @@ object Latch {
     private fun openSettings() {
         val opened = settingsWindow ?: SettingsWindow(
             onSave = ::saveSettings,
+            onSetEndpoint = ::setEndpoint,
+            onClearEndpoint = ::clearEndpoint,
             onClose = { settingsWindow = null },
         ).also { settingsWindow = it }
         opened.show(runCatching { settingsStore.read() }.getOrElse { DesktopSettings() })
+        refreshWebhook(opened)
     }
+
+    /**
+     * FR-1004, NFR-203 and FR-1004b's passive report, read off the secret store.
+     *
+     * Off the event thread because it crosses the DPAPI bridge twice; the window is already up
+     * with everything else on it, so the mask arrives a moment later rather than the whole
+     * screen arriving a moment later.
+     */
+    private fun refreshWebhook(window: SettingsWindow) {
+        Thread({
+            val mask = endpointLine(runCatching { webhookSecrets.endpoint() }.getOrNull())
+            val enabled = runCatching { settingsStore.read().shared.webhookEnabled }.getOrDefault(false)
+            val last = deliveryText(runCatching { webhookSecrets.lastDelivery() }.getOrNull())
+            SwingUtilities.invokeLater { window.fillWebhook(mask, enabled, last) }
+        }, "latch-webhook-read").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * FR-1004: the endpoint, entered explicitly and validated before it is stored.
+     *
+     * **Saving one does not start sending.** The requirement asks for the URL to be entered
+     * explicitly *and* for the feature to be enabled, and this client keeps those as two acts:
+     * the switch is on the main form and takes effect on Save.
+     */
+    private fun setEndpoint(raw: String) {
+        val window = settingsWindow ?: return
+        val refusal = validateEndpoint(raw)
+        if (refusal != null) {
+            window.say(endpointRefusalText(refusal))
+            return
+        }
+        Thread({
+            val stored = runCatching { webhookSecrets.setEndpoint(raw) }.isSuccess
+            SwingUtilities.invokeLater {
+                settingsWindow?.let {
+                    it.say(if (stored) DesktopStrings.WEBHOOK_SAVED else DesktopStrings.SETTINGS_WRITE_FAILED)
+                    refreshWebhook(it)
+                }
+            }
+        }, "latch-webhook-set").apply { isDaemon = true }.start()
+    }
+
+    /** FR-1004: with no endpoint there is nowhere to send, so the switch goes off with it. */
+    private fun clearEndpoint() {
+        Thread({
+            runCatching { webhookSecrets.clearEndpoint() }
+            runCatching {
+                val current = settingsStore.read()
+                settingsStore.write(current.copy(shared = current.shared.copy(webhookEnabled = false)))
+            }
+            SwingUtilities.invokeLater {
+                settingsWindow?.let {
+                    it.say(DesktopStrings.WEBHOOK_CLEARED)
+                    it.fill(com.latch.desktop.ui.formOf(settingsStore.read()))
+                    refreshWebhook(it)
+                }
+            }
+        }, "latch-webhook-clear").apply { isDaemon = true }.start()
+    }
+
+    private fun endpointRefusalText(refusal: EndpointRefusal) = when (refusal) {
+        EndpointRefusal.MALFORMED -> DesktopStrings.ENDPOINT_MALFORMED
+        EndpointRefusal.NOT_HTTPS -> DesktopStrings.ENDPOINT_NOT_HTTPS
+        EndpointRefusal.CARRIES_CREDENTIALS -> DesktopStrings.ENDPOINT_CREDENTIALS
+    }
+
+    /**
+     * FR-1004, FR-1004a, FR-1004b and FR-210a.
+     *
+     * **Fired after the write and never awaited**, which is every clause of FR-1004b that is
+     * about ordering: it cannot block or delay the Google write because the write has already
+     * happened, and it cannot block FR-807's undo because the undo offer is put on screen by
+     * the caller before this thread has done anything.
+     *
+     * **One attempt.** There is no loop and no queue — and it could not enter the FR-806 queue
+     * even by mistake, because everything in there drains through the Google client's
+     * `ALLOWED_HOSTS` guard, which refuses any non-Google host.
+     *
+     * **Only for a save that actually wrote.** A queued capture reaches Google later and sends
+     * no webhook at all (AC-21), which the configuration screen states rather than leaving to
+     * be discovered; and an FR-804 update sends none either, matching the phone — the payload
+     * describes items a save created, and an update creates none.
+     */
+    private fun deliverWebhook(pending: PendingWrite, captured: com.latch.wire.WireCapture) {
+        Thread({
+            val endpoint = runCatching { webhookSecrets.endpoint() }.getOrNull()
+            val enabled = runCatching { settingsStore.read().shared.webhookEnabled }.getOrDefault(false)
+            // FR-210a lives inside `webhookEligible` rather than here, so a second call site
+            // could not forget it. On this client the layer is never NOTIFICATION, and asking
+            // anyway is what keeps the rule structural rather than incidental.
+            if (!webhookEligible(desktopSource(captured), enabled, endpoint)) return@Thread
+
+            val delivery = runCatching {
+                runBlocking {
+                    webhooks.deliver(
+                        endpoint = requireNotNull(endpoint),
+                        payload = webhookPayloadForChain(pending.items, pending.metadata, pending.body),
+                    )
+                }
+            }.getOrNull() ?: return@Thread
+
+            // FR-1004b: reported passively in Settings, never as a blocking error and never on
+            // the capture window, which by now is showing an undo the user may be about to take.
+            runCatching { webhookSecrets.recordDelivery(delivery) }
+            SwingUtilities.invokeLater { settingsWindow?.let(::refreshWebhook) }
+        }, "latch-webhook").apply { isDaemon = true }.start()
+    }
+
+    // ---------------------------------------------------------------- FR-700, the Inbox
 
     /**
      * FR-1001. Nothing is stored unless the whole form is good, and the hotkey is re-registered
@@ -517,7 +658,8 @@ object Latch {
     private fun saveSettings(form: SettingsForm) {
         val window = settingsWindow ?: return
         val current = runCatching { settingsStore.read() }.getOrElse { DesktopSettings() }
-        val applied = applyForm(current, form)
+        val hasEndpoint = runCatching { webhookSecrets.endpoint() != null }.getOrDefault(false)
+        val applied = applyForm(current, form, hasEndpoint)
         val wanted = applied.settings
         if (wanted == null) {
             window.say(applied.problems.joinToString(" ") { settingsProblemText(it) })
@@ -683,6 +825,7 @@ object Latch {
         }
         inboxWindow?.say(DesktopStrings.INBOX_SAVING)
 
+        var heldCapture: com.latch.desktop.capture.DesktopCapture? = null
         Thread({
             val outcome = runCatching {
                 runBlocking {
@@ -700,7 +843,7 @@ object Latch {
                         // title override instead.
                         preferredTitle = capture.preferredTitle,
                         ocrUsed = capture.ocrUsed,
-                    )
+                    ).also { heldCapture = it }
                     val chainId = java.util.UUID.randomUUID().toString()
                     val draft = draftItems(
                         captured = wire,
@@ -717,6 +860,13 @@ object Latch {
                     saver(context.zone.id).save(wire, result, draft.items, defaults, chainId)
                 }
             }.getOrElse { SaveResult.Failed(SaveFailure.REFUSED, it.message.orEmpty()) }
+
+            // FR-1004. A row confirmed out of the Inbox is a save like any other, which is
+            // the phone's reading too — `CaptureSaver` delivers for an Inbox save on the same
+            // path as a fresh capture.
+            (outcome as? SaveResult.Written)?.pending?.let { pending ->
+                heldCapture?.let { deliverWebhook(pending, it) }
+            }
 
             // Written, or already there — either way the message is in the account and the row
             // has done its job. A queued or failed save leaves it standing.

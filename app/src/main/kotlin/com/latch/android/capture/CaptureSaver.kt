@@ -16,13 +16,13 @@ import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
 import com.latch.data.StoredUndoOffer
 import com.latch.data.UndoOfferStore
-import com.latch.data.WebhookSender
+import com.latch.webhook.WebhookSender
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
 import com.latch.data.WrittenItem
 import com.latch.data.toWireDestination
-import com.latch.data.webhookEligible
-import com.latch.data.webhookPayloadForChain
+import com.latch.webhook.webhookEligible
+import com.latch.webhook.webhookPayloadForChain
 import com.latch.google.ALLOWED_HOSTS
 import com.latch.google.CalendarApi
 import com.latch.google.DuplicateSearch

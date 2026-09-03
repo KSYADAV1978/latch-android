@@ -34,7 +34,17 @@ import java.time.Instant
 
 /** What a save did. Named, so the UI phrases it (NFR-402). */
 sealed interface SaveResult {
-    data class Written(val count: Int, val created: List<CreatedItem>) : SaveResult
+    /**
+     * [pending] is carried out with the result because FR-1004's delivery needs the items, the
+     * §7.2 metadata and the composed FR-805 body, and re-deriving them one layer up would mean
+     * a second `sourceBlock` and a second chance to describe one message two ways. The saver
+     * still knows nothing about webhooks; it hands back what it wrote.
+     */
+    data class Written(
+        val count: Int,
+        val created: List<CreatedItem>,
+        val pending: PendingWrite? = null,
+    ) : SaveResult
 
     /** FR-804: an item that already existed was **moved**, not created. */
     data class Updated(val created: CreatedItem.Updated) : SaveResult
@@ -235,7 +245,7 @@ class DesktopSaver(
                     )
                 }
                 return if (created.isEmpty()) failureFor(failure)
-                else SaveResult.Written(created.size, created)
+                else SaveResult.Written(created.size, created, pending)
             }
             writtenIds[item.id] = id
             created += CreatedItem.Written(
@@ -248,7 +258,7 @@ class DesktopSaver(
                 remoteId = id,
             )
         }
-        return SaveResult.Written(created.size, created)
+        return SaveResult.Written(created.size, created, pending)
     }
 
     private fun queueOrFail(

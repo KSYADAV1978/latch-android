@@ -121,6 +121,8 @@ dependencies {
     implementation(project(":parser"))
     implementation(project(":recipes"))
     implementation(project(":data"))
+    // FR-1004. Separate from :google on purpose — see webhook/build.gradle.kts.
+    implementation(project(":webhook"))
     implementation(project(":ocr"))
 
     // The OAuth grant only (FR-002). Every Google call is hand-written REST on the token

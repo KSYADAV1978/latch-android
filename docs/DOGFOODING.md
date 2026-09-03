@@ -278,7 +278,7 @@ defects** — but do say if one bites in a way this list does not describe.
 
 - **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
   is deliberate — it is what makes the two machines recognise each other's captures.
-- **No recipes, no webhook, no notification capture on the PC.**
+- **No recipes and no notification capture on the PC.**
 - **The PC's queue only runs while Latch is running.** Queue something with no connection, quit,
   and it waits until you open Latch again. It is held, not lost — but the phone would have
   written it in the background.
@@ -329,6 +329,31 @@ Two worth trying, because they are where this would fail quietly:
 - **Change the shortcut to something another application already uses** — Ctrl+Shift+S is a good
   bet. Latch should say so and **put your old shortcut back**. If you end up with no working
   shortcut at all, that is the defect, and it is the one I would most want to hear about.
+
+## The webhook on the PC (new, 3 Sep 2026, and never tried against a real endpoint)
+
+This is the one part of Latch that deliberately sends something to an address that is not
+Google, and it is **off** until you turn it on. It is in Settings, below everything else.
+
+If you want to try it, a request bin (`webhook.site` and its like give you a URL in one click)
+is the easiest target. Paste the `https://` address, press **Save endpoint**, then tick the box
+and press **Save**. Those are two separate acts on purpose — pasting an address does not start
+sending anything.
+
+Then capture something and save it. Exactly one request should reach your bin, carrying the
+title, the dates and the text of what you captured, and **nothing** should go anywhere else.
+
+**No delivery has ever reached a real endpoint from either machine**, so this is the part of the
+last three slices I would most like a result from. Three things worth checking:
+
+- **Point it somewhere dead** — `https://127.0.0.1:9/hook` will do. Saving must still work
+  normally, with no error on the capture window, and Undo must still work. Settings should say
+  it could not be reached.
+- **Save something with the Wi-Fi off**, then turn it back on. Google gets the item when the
+  connection returns; your endpoint gets **nothing** for it. That is deliberate — there is one
+  attempt, at the moment you save.
+- **Look at the endpoint after saving it.** It should read `https://yourhost/••••••••`. The rest
+  of the address is often a token, which is why it is hidden.
 
 **And one worth trying on the PC**, because it is the newest thing and the most interesting to
 get wrong: capture the line above with the date changed to **12 October**. You should get the

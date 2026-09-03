@@ -312,6 +312,47 @@ object DesktopStrings {
     const val SETTINGS_TIME_ZONE = "Time zone"
     const val SETTINGS_TIME_ZONE_HINT = "A name like Asia/Kolkata. Leave it empty to follow this PC."
 
+    // ---- FR-1004, the outbound webhook -------------------------------------------------------
+
+    const val WEBHOOK_HEADING = "Send saved items to your own endpoint"
+    const val WEBHOOK_NONE = "Not configured"
+    const val WEBHOOK_ENDPOINT = "Endpoint (https only)"
+    const val WEBHOOK_SET = "Save endpoint"
+    const val WEBHOOK_CLEAR = "Remove endpoint"
+    const val WEBHOOK_ENABLE = "Send items to this endpoint when they are saved"
+
+    // FR-1004: "shall display a warning at the point of configuration stating that captured
+    // content will be sent to that endpoint". Not a tooltip and not a footnote — the sentence
+    // sits above the field it is about.
+    const val WEBHOOK_WARNING =
+        "What Latch saves — the title, the dates, and the text of what you captured — will be " +
+            "sent to this address every time you save. It goes straight from this PC; nothing " +
+            "of Latch's is involved, and Latch cannot see what happens to it afterwards. Only " +
+            "use an address you control."
+
+    // FR-1004b's consequence, which the requirement says shall be stated here alongside the
+    // warning rather than left to be discovered.
+    const val WEBHOOK_OFFLINE_NOTE =
+        "If you save something while offline, Latch writes it to Google when the connection " +
+            "comes back — but no webhook is sent for it. There is one attempt, at the moment " +
+            "you save, and it is never retried."
+
+    const val WEBHOOK_SAVED = "Endpoint saved. Tick the box above and press Save to start sending."
+    const val WEBHOOK_CLEARED = "Endpoint removed, and sending is switched off."
+    const val WEBHOOK_LAST_OK = "Last delivery: accepted, %s."
+    const val WEBHOOK_LAST_REFUSED = "Last delivery: your endpoint answered %d, %s."
+    const val WEBHOOK_LAST_UNREACHABLE = "Last delivery: could not reach your endpoint, %s."
+    const val WEBHOOK_LAST_NOT_SENT =
+        "Last delivery: nothing was sent, %s. The stored address is not one Latch will send to."
+
+    const val ENDPOINT_MALFORMED = "That is not a web address."
+    const val ENDPOINT_NOT_HTTPS =
+        "The address must start with https. Latch will not send what you captured over " +
+            "an unencrypted connection."
+    const val ENDPOINT_CREDENTIALS =
+        "The address must not carry a user name and password. Put the token in the path or " +
+            "in a query string if your endpoint needs one."
+
     const val SETTINGS_NOT_YET = "Not on this PC yet"
     const val SETTINGS_GAP_DESTINATION =
         "Choosing a calendar, and the Option A / Option B switch (FR-900, FR-1002). " +

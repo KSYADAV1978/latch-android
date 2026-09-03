@@ -5,9 +5,13 @@ import com.latch.desktop.capture.HotkeyParse
 import com.latch.desktop.capture.HotkeyProblem
 import com.latch.desktop.capture.parseHotkey
 import com.latch.desktop.store.DesktopSettings
+import com.latch.webhook.WebhookDelivery
+import com.latch.webhook.WebhookResult
+import com.latch.webhook.maskedEndpoint
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * What the user typed into the Settings window, before any of it is believed.
@@ -32,6 +36,15 @@ data class SettingsForm(
     val workingDays: Set<DayOfWeek>,
     /** FR-1001: an IANA zone id, or blank to follow the machine. */
     val timeZone: String,
+    /**
+     * FR-1004, and it is **only the switch**.
+     *
+     * The endpoint is not on this form and never round-trips through it: NFR-203 requires it
+     * masked once saved, so a field holding the real value would be one render from showing it.
+     * It has its own control and its own act — FR-1004 asks for the URL to be entered
+     * explicitly *and* for the feature to be enabled, and the screen keeps those as two things.
+     */
+    val webhookEnabled: Boolean = false,
 )
 
 /** Why a form could not be saved. Named, so this file's own strings phrase it (NFR-402). */
@@ -46,6 +59,15 @@ enum class SettingsProblem {
     THRESHOLD,
     WORKING_WEEK,
     TIME_ZONE,
+
+    /**
+     * FR-1004: enabling delivery with nowhere to deliver to.
+     *
+     * Refused rather than accepted-and-inert. `webhookEligible` would decline to send anyway,
+     * so nothing would leak — but a switch that is on and does nothing is the same class of
+     * defect SRS 1.65 found in this client's badge: it reads as though the work were done.
+     */
+    WEBHOOK_NO_ENDPOINT,
 }
 
 /**
@@ -63,6 +85,7 @@ data class SettingsApplied(
 
 /** The form a stored record produces, so the window opens showing what is actually in force. */
 fun formOf(settings: DesktopSettings): SettingsForm = SettingsForm(
+    webhookEnabled = settings.shared.webhookEnabled,
     hotkey = settings.hotkey,
     dayFirst = settings.shared.dayFirstDates,
     defaultDurationMinutes = settings.shared.defaultEventDuration.toMinutes().toString(),
@@ -84,7 +107,12 @@ fun formOf(settings: DesktopSettings): SettingsForm = SettingsForm(
  * because the phone needs them, and a desktop Save that reconstructed the record from the form
  * would silently clear them.
  */
-fun applyForm(current: DesktopSettings, form: SettingsForm): SettingsApplied {
+fun applyForm(
+    current: DesktopSettings,
+    form: SettingsForm,
+    /** FR-1004: whether an endpoint is stored. Passed in, because it lives in the secret store. */
+    hasEndpoint: Boolean = false,
+): SettingsApplied {
     val problems = mutableListOf<SettingsProblem>()
 
     val hotkey = when (val parsed = parseHotkey(form.hotkey)) {
@@ -118,6 +146,8 @@ fun applyForm(current: DesktopSettings, form: SettingsForm): SettingsApplied {
             .also { if (it == null) problems += SettingsProblem.TIME_ZONE }
     }
 
+    if (form.webhookEnabled && !hasEndpoint) problems += SettingsProblem.WEBHOOK_NO_ENDPOINT
+
     if (problems.isNotEmpty()) return SettingsApplied(null, problems)
 
     return SettingsApplied(
@@ -130,6 +160,7 @@ fun applyForm(current: DesktopSettings, form: SettingsForm): SettingsApplied {
                 defaultReminderMinutes = reminders!!,
                 confidenceThreshold = threshold!! / 100.0,
                 timeZone = zone,
+                webhookEnabled = form.webhookEnabled,
             ),
         ),
         emptyList(),
@@ -180,7 +211,38 @@ fun settingsProblemText(problem: SettingsProblem): String = when (problem) {
     SettingsProblem.TIME_ZONE ->
         "That is not a time zone Latch knows. Use a name like Asia/Kolkata, or leave it empty " +
             "to follow this PC."
+    SettingsProblem.WEBHOOK_NO_ENDPOINT ->
+        "Enter an endpoint before switching the webhook on. Latch will not send anything " +
+            "without one."
 }
+
+/**
+ * FR-1004b's passive report, in words.
+ *
+ * "Passively" is the requirement's own word and it governs the phrasing as much as the place:
+ * this is a line on a screen the user chose to open, not an alert. A success is reported as
+ * well as a failure, because a webhook that silently works and a webhook that silently does
+ * nothing look identical, and the second is the state a user actually needs to notice.
+ */
+fun deliveryText(delivery: WebhookDelivery?, at: ZoneId = ZoneId.systemDefault()): String? {
+    if (delivery == null) return null
+    val when_ = DELIVERY_TIME.format(delivery.at.atZone(at))
+    return when (delivery.result) {
+        WebhookResult.DELIVERED -> DesktopStrings.WEBHOOK_LAST_OK.replace("%s", when_)
+        WebhookResult.ENDPOINT_REFUSED -> DesktopStrings.WEBHOOK_LAST_REFUSED
+            .replace("%s", when_)
+            .replace("%d", delivery.status?.toString() ?: "?")
+        WebhookResult.UNREACHABLE -> DesktopStrings.WEBHOOK_LAST_UNREACHABLE.replace("%s", when_)
+        WebhookResult.REFUSED_BEFORE_SENDING ->
+            DesktopStrings.WEBHOOK_LAST_NOT_SENT.replace("%s", when_)
+    }
+}
+
+private val DELIVERY_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, HH:mm")
+
+/** NFR-203: what the endpoint field shows once something is stored. */
+fun endpointLine(endpoint: String?): String =
+    endpoint?.let(::maskedEndpoint) ?: DesktopStrings.WEBHOOK_NONE
 
 /**
  * Whether the FR-302 registration has to be redone.

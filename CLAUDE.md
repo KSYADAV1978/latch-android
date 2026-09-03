@@ -19,12 +19,14 @@ requirement ID in your summary so work can be traced back.
 | `:recipes` | pure Kotlin (JVM) | Working-day arithmetic, recipe expansion (FR-600 series) |
 | `:wire` | pure Kotlin (JVM) | **The §7.2 write contract, compiled.** Its metadata and hashes, FR-509/509a/509b's title derivation, FR-805's description, FR-1005's `.ics` — everything that decides a byte Google receives. Shared by the Android and Windows clients so the two cannot derive different keys from one message |
 | `:google` | pure Kotlin (JVM) | **Every request either client makes to Google.** The API contracts and their REST implementations, FR-803/FR-804's duplicate and reschedule queries, AC-17's `ALLOWED_HOSTS` guard, and a hand-written JSON — because `org.json` ships inside `android.jar` and nowhere else |
+| `:webhook` | pure Kotlin (JVM) | **FR-1004, and it is not `:google` on purpose.** AC-17 rests on every request this project composes going through `ALLOWED_HOSTS`; the webhook is the single documented exception (NFR-201, AC-18), so it is sent by a different client with narrower rules. Keeping it out of `:google` is what keeps that module's description true, and what makes FR-1004b's exclusion from the write queue structural rather than remembered |
 | `:desktop` | Kotlin/JVM application | **The Windows client (FR-300 series).** Swing UI, WinRT OCR, `RegisterHotKey`, DPAPI — all reached through what Windows already ships, so no SDK and no third-party dependency. Shares `:wire`, `:parser`, `:recipes`, `:core-model` with `:app` |
 | `:ocr` | Android library | On-device OCR (FR-215, FR-207). The only module that names an ML Kit type; `:app` sees `OcrReader` and `OcrResult`. Bundled models, +12.83 MB per device — the largest single thing this app ships |
 | `:data` | Android library | Storage — the FR-701 SQLite database (Capture Inbox, FR-803's hash index, FR-807's stored offer), the write queue and account defaults in encrypted preferences, the secret store contract — and the Google API contracts plus their REST implementations. Every outbound request in the app originates here. No Play services: the OAuth grant lives in `:app` |
 
-Dependencies point one way: `:app` and `:desktop` → `:data`/`:google`/`:parser`/`:recipes`/`:ocr`/`:wire`
-→ `:core-model`. `:google` → `:wire` → `:parser` → `:core-model`. `:desktop` never touches `:data`,
+Dependencies point one way: `:app` and `:desktop` → `:data`/`:google`/`:webhook`/`:parser`/`:recipes`/`:ocr`/`:wire`
+→ `:core-model`. `:google` → `:wire` → `:parser` → `:core-model`. `:webhook` → `:google` for the
+hand-written JSON and nothing else; a test asserts it imports nothing else from there. `:desktop` never touches `:data`,
 which is Android storage; it has its own.
 `:parser` and `:recipes` do not depend on each other; they exchange `:core-model` types.
 `:ocr` depends on neither — it returns text, and what that text means is the parser's business.
@@ -1102,7 +1104,7 @@ pressed by a person** — the model is tested, the Swing is not.
 | **FR-900 destination** | `DesktopSetup` takes the Option B default and says which calendar it chose. No picker (FR-901/902/904), no hidden-calendar badge (FR-903), no routing rules (FR-905), no override-three-times offer (FR-907), and **no FR-908 refresh** — a Latch calendar deleted in Google would not be noticed. |
 | ~~**FR-700 Capture Inbox**~~ | **Built 3 Sep 2026 (SRS 1.66), JVM-verified and HUMAN-OWED.** `saveRoute` moved into `:wire`, so both clients route on one compiled decision; the store is `inbox.dat` under DPAPI, one row per line. FR-701 to FR-705 all reach a screen. **Nobody has opened the window.** |
 | **FR-600 recipes** | Nothing. `:recipes` is on the classpath and unused. |
-| **FR-1004 webhook** | Nothing, including FR-1004a's payload and FR-1004b's rules. |
+| ~~**FR-1004 webhook**~~ | **Built 3 Sep 2026 (SRS 1.68), JVM-verified and HUMAN-OWED.** The payload, endpoint rules, masking and sender moved into a new `:webhook` module — separate from `:google` so that module's own description stays true, which is what AC-17 rests on. Endpoint under DPAPI, masked on screen, FR-1004's warning above the field, FR-1004b's offline consequence stated. **No delivery has ever reached a real endpoint from either client.** |
 | **NFR-205 disconnect** | Nothing. Signing out forgets the local sign-in and the destination; it does **not** revoke the grant at Google, and there is no "delete everything" action. `oauth2.googleapis.com` is already in `ALLOWED_HOSTS` for it. |
 | **FR-305 MSIX** | Publisher work; needs the Windows SDK. `docs/RELEASE-WINDOWS.md`. |
 | **FR-306 share target** | `[SHOULD]`. Nothing. |
@@ -1114,8 +1116,8 @@ pressed by a person** — the model is tested, the Swing is not.
 
 **What is built and working** — for completeness, since the list above is long: FR-301, FR-302,
 FR-303, FR-304, FR-002's grant, FR-701 to FR-705, FR-801, FR-802, FR-803, FR-804, FR-806,
-FR-807, FR-1001 (for what this client has), FR-1005, and FR-502/509/509a/509b/510/511 through
-the shared modules.
+FR-807, FR-1001 (for what this client has), FR-1004/1004a/1004b, FR-1005, and
+FR-502/509/509a/509b/510/511 through the shared modules.
 
 ### Human pass backlog — Windows
 
@@ -1134,6 +1136,13 @@ fail*, then *the fixture*.
 | **Sign-in, end to end** | Needs FR-001's Desktop client. Browser opens, consent granted, tray says which calendar. Failure: no refresh token, which looks like working software until the hour is up | a real account |
 | **AC-07 across two clients** | Capture the same message on the phone and here: the second says "Already saved" and writes nothing. **This is the criterion that has been unclosable since the project began** | one message, both clients |
 | **AC-03 on Windows** | Capture text with no date. The popup must say **"Held in the Latch Inbox on this PC"** and **nothing** must appear in Google Calendar or Tasks. Failure is the old behaviour: an undated to-do written to the account, which is what this client did until SRS 1.66 | "Ask about the uniform order" |
+| **AC-18 — exactly one webhook request** | Configure a `https://` request-bin endpoint, tick the box, Save, then capture and save something with a network monitor running. **Exactly one** request to that endpoint and no other non-Google traffic. This is the criterion, and **no delivery has ever reached a real endpoint from either client** | a request-bin style endpoint |
+| **The accepted path at all** | The JVM tests reach every refusal and no acceptance: the sender refuses anything that is not HTTPS and there is no way to mint a certificate for a test listener. A 200 from a real endpoint is the whole of what is owed here | as above |
+| **AC-20 — an unreachable endpoint costs nothing** | Point it at `https://127.0.0.1:9/hook` and save: the item still reaches Google, the capture window says "Saved" with no error, and Undo still works. Settings then says it could not be reached | `https://127.0.0.1:9/hook` |
+| **AC-21 — nothing is sent for a queued capture** | With the Wi-Fi off, save; turn it back on and let the queue drain. Google gets the item and the endpoint gets **nothing**. Documented on the configuration screen, not a defect | the Wi-Fi off |
+| **FR-1004b's passive report** | After a failure, Settings says which kind — refused with a status, or unreachable — and after a success it says accepted. A webhook that silently does nothing and one that silently works look identical, which is why both are said | a bin that returns 404 |
+| **NFR-203's mask** | Once saved, the endpoint shows as `https://host/••••••••` and the real path is nowhere on screen, including after closing and reopening Settings | a URL with a token in the path |
+| **Two acts, not one** | Saving an endpoint must **not** start sending. The box has to be ticked and Save pressed. And ticking the box with no endpoint stored must be refused with a reason | Settings |
 | **Settings opens and takes** | The tray's Settings item opens a window showing what is actually in force, not the shipped defaults. Change the confidence threshold to 99 and capture "Kickoff 8 September 2027 at 9am": it must go to the **Inbox** rather than to Google. Set it back to 0 and nothing does. This is the check that a preference is read rather than merely stored — the whole class of defect SRS 1.65 found on this client | Settings, then a capture |
 | **FR-504 through Settings** | Set month-first and capture "Invoice 05/09". It must read **9 May**. Failure is a preference the capture path never asked for, which is what this client did with every FR-1001 field until SRS 1.67 | "Invoice 05/09" |
 | **Changing the FR-302 hotkey** | Set it to something else, then press the new combination: a capture opens. Press the old one: nothing. Then the case that matters — set it to something another application already holds (Ctrl+Shift+S in many) and confirm the window says so **and the old shortcut still works**. Failure is being left with no shortcut at all, which is silent | Settings, and a running app that holds a combination |
@@ -1325,6 +1334,19 @@ JVM-reachable code.** Every filter is tested; nothing that actually reads a noti
 | **AC-19** | Configure a webhook, enable it, confirm a notification capture with a monitor running: **no** request to the endpoint. This is the criterion that has waited on this slice | a request-bin endpoint |
 | The Inbox is never reached | A low-confidence notification capture is **saved** with its confidence shown, not routed. That is the permanent narrowing SRS 1.43 records | a vague dated message |
 | NFR-104 | The listener is the only persistent service. Nothing else appears in `adb shell dumpsys activity services com.latch.android` | any state |
+
+### Owed on Android, found while building the Windows webhook (3 Sep 2026)
+
+**FR-1004b's passive report does not exist on Android.** The requirement says a delivery failure
+"shall be reported passively in the Settings screen and shall not raise a blocking error".
+`CaptureSaver.deliverWebhook` wraps the call in `runCatching { }` and **discards the result**, so
+the second half holds and the first has never been built: a user whose endpoint is answering 404
+sees exactly what a user whose endpoint is working sees, which is nothing.
+
+Found while building the same requirement on Windows, where it is built. The type it needs —
+`WebhookDelivery`, carrying the instant, the outcome and the status the endpoint gave — is in
+`:webhook` and both clients compile it. What Android needs is a store for the last one and a
+line on the Settings screen; `WebhookSecrets` on the desktop is the shape.
 
 ### Owed on Android, found while building the Windows Inbox (3 Sep 2026)
 

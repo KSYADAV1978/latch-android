@@ -29,6 +29,8 @@ dependencies {
     // FR-800's write path and AC-17's endpoint guard, shared with the Android client so the
     // two compose identical requests. See google/build.gradle.kts.
     implementation(project(":google"))
+    // FR-1004. Separate from :google on purpose — see webhook/build.gradle.kts.
+    implementation(project(":webhook"))
     implementation(libs.kotlinx.coroutines.core)
 
     // junit5 rather than the plain artifact: an environment-dependent test must report as

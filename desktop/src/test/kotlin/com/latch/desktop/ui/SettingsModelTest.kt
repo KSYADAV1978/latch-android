@@ -74,13 +74,15 @@ class SettingsModelTest {
             shared = defaults.shared.copy(
                 routingRules = listOf(RoutingRule("r", MatchType.KEYWORD, "fees", "cal", 1)),
                 monitoredPackages = setOf("com.whatsapp"),
-                webhookEnabled = true,
+                seenNotificationPackages = setOf("com.whatsapp", "com.example.mail"),
+                holidayRemovals = setOf(LocalDate.parse("2027-08-15")),
             ),
         )
         val saved = assertNotNull(applyForm(current, form(threshold = "70")).settings)
         assertEquals(current.shared.routingRules, saved.shared.routingRules)
         assertEquals(setOf("com.whatsapp"), saved.shared.monitoredPackages)
-        assertTrue(saved.shared.webhookEnabled)
+        assertEquals(2, saved.shared.seenNotificationPackages.size)
+        assertEquals(current.shared.holidayRemovals, saved.shared.holidayRemovals)
         assertEquals(0.7, saved.shared.confidenceThreshold)
     }
 
@@ -306,6 +308,42 @@ class SettingsModelTest {
         assertTrue(gaps.any { "FR-900" in it && "FR-1002" in it }, gaps.toString())
         assertTrue(gaps.any { "FR-1003" in it }, gaps.toString())
         assertTrue(gaps.any { "FR-600" in it }, gaps.toString())
+    }
+
+    // ---- FR-1004's switch on this form --------------------------------------------------------
+
+    @Test
+    fun `FR-1004 the webhook cannot be switched on with nowhere to send`() {
+        // Refused rather than accepted-and-inert. `webhookEligible` would decline to send
+        // anyway, so nothing leaks — but a switch that is on and does nothing is the same class
+        // of defect SRS 1.65 found in this client's badge: it reads as though it were working.
+        val applied = applyForm(defaults, form().copy(webhookEnabled = true), hasEndpoint = false)
+        assertEquals(listOf(SettingsProblem.WEBHOOK_NO_ENDPOINT), applied.problems)
+        assertNull(applied.settings)
+    }
+
+    @Test
+    fun `FR-1004 with an endpoint stored, the switch takes`() {
+        val saved = assertNotNull(
+            applyForm(defaults, form().copy(webhookEnabled = true), hasEndpoint = true).settings
+        )
+        assertTrue(saved.shared.webhookEnabled)
+    }
+
+    @Test
+    fun `FR-1004 is off by default, and switching it off never needs an endpoint`() {
+        assertFalse(DesktopSettings().shared.webhookEnabled)
+        val on = defaults.copy(shared = defaults.shared.copy(webhookEnabled = true))
+        val off = assertNotNull(applyForm(on, formOf(on).copy(webhookEnabled = false)).settings)
+        assertFalse(off.shared.webhookEnabled)
+    }
+
+    @Test
+    fun `the endpoint never travels through the form`() {
+        // NFR-203 requires it masked once saved, so a form field holding the real value would
+        // be one render away from showing it. It has its own control and its own act.
+        val fields = SettingsForm::class.java.declaredFields.map { it.name }
+        assertFalse(fields.any { "ndpoint" in it }, fields.toString())
     }
 
     @Test

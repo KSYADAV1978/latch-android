@@ -38,6 +38,9 @@ import javax.swing.ScrollPaneConstants
  */
 class SettingsWindow(
     private val onSave: (SettingsForm) -> Unit,
+    /** FR-1004: entering an endpoint is its own act, and never part of Save. */
+    private val onSetEndpoint: (String) -> Unit,
+    private val onClearEndpoint: () -> Unit,
     private val onClose: () -> Unit,
 ) {
     private val frame = JFrame(DesktopStrings.SETTINGS_TITLE)
@@ -51,6 +54,14 @@ class SettingsWindow(
     private val timeZone = JTextField(20)
     private val days = WEEK_IN_ORDER.associateWith { JCheckBox(it.label()) }
     private val message = JLabel()
+
+    // FR-1004. The field is for **typing a new endpoint**, never for holding the stored one:
+    // NFR-203 requires it masked once saved, and a field that round-tripped the real value
+    // would be one render away from showing it. `endpointMask` is what the user sees.
+    private val endpoint = JTextField(28)
+    private val endpointMask = JLabel()
+    private val webhookEnabled = JCheckBox(DesktopStrings.WEBHOOK_ENABLE)
+    private val lastDelivery = JLabel()
 
     init {
         frame.defaultCloseOperation = JFrame.DISPOSE_ON_CLOSE
@@ -66,6 +77,7 @@ class SettingsWindow(
             add(field(DesktopStrings.SETTINGS_THRESHOLD, threshold, DesktopStrings.SETTINGS_THRESHOLD_HINT))
             add(workingWeek())
             add(field(DesktopStrings.SETTINGS_TIME_ZONE, timeZone, DesktopStrings.SETTINGS_TIME_ZONE_HINT))
+            add(webhook())
             add(gaps())
         }
 
@@ -119,6 +131,15 @@ class SettingsWindow(
         frame.requestFocus()
     }
 
+    /** FR-1004, NFR-203, FR-1004b: the mask, the switch and the passive report. */
+    fun fillWebhook(mask: String, enabled: Boolean, delivery: String?) {
+        endpointMask.text = mask
+        webhookEnabled.isSelected = enabled
+        endpoint.text = ""
+        lastDelivery.text = delivery.orEmpty()
+        lastDelivery.isVisible = delivery != null
+    }
+
     fun fill(form: SettingsForm) {
         hotkey.text = form.hotkey
         dayFirst.isSelected = form.dayFirst
@@ -128,6 +149,7 @@ class SettingsWindow(
         threshold.text = form.confidencePercent
         timeZone.text = form.timeZone
         days.forEach { (day, box) -> box.isSelected = day in form.workingDays }
+        webhookEnabled.isSelected = form.webhookEnabled
     }
 
     fun say(text: String) {
@@ -143,6 +165,7 @@ class SettingsWindow(
         confidencePercent = threshold.text,
         workingDays = days.filterValues { it.isSelected }.keys,
         timeZone = timeZone.text,
+        webhookEnabled = webhookEnabled.isSelected,
     )
 
     private fun field(label: String, input: JTextField, hint: String? = null): JPanel =
@@ -184,6 +207,79 @@ class SettingsWindow(
             }
         )
     }
+
+    /**
+     * FR-1004, and every clause of it that is about the screen rather than the socket.
+     *
+     * **The warning is above the field**, not beside it and not in a tooltip: FR-1004 requires
+     * "a warning at the point of configuration stating that captured content will be sent to
+     * that endpoint", and a sentence a user reads after typing is not at the point of anything.
+     *
+     * **FR-1004b's offline consequence is stated here too**, which the requirement asks for by
+     * name — a capture saved offline reaches Google later and no webhook is ever sent for it,
+     * and that is deliberate rather than a defect the user should have to work out.
+     *
+     * **Entering the endpoint and enabling delivery are two controls and two acts.** Saving an
+     * endpoint does not start sending; the switch is on the main form and takes effect on Save.
+     */
+    private fun webhook(): JPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        alignmentX = JComponent.LEFT_ALIGNMENT
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(1, 0, 0, 0, java.awt.Color(0xDD, 0xDD, 0xDD)),
+            BorderFactory.createEmptyBorder(10, 0, 12, 0),
+        )
+        add(
+            JLabel(DesktopStrings.WEBHOOK_HEADING).apply {
+                alignmentX = JComponent.LEFT_ALIGNMENT
+                font = font.deriveFont(Font.BOLD, 11f)
+            }
+        )
+        add(warningLabel(DesktopStrings.WEBHOOK_WARNING))
+        add(hintLabel(DesktopStrings.WEBHOOK_OFFLINE_NOTE))
+        add(Box.createVerticalStrut(6))
+
+        add(
+            JLabel(DesktopStrings.WEBHOOK_ENDPOINT).apply { alignmentX = JComponent.LEFT_ALIGNMENT }
+        )
+        endpointMask.alignmentX = JComponent.LEFT_ALIGNMENT
+        endpointMask.font = endpointMask.font.deriveFont(Font.PLAIN, 11f)
+        add(endpointMask)
+        add(Box.createVerticalStrut(3))
+        endpoint.alignmentX = JComponent.LEFT_ALIGNMENT
+        endpoint.maximumSize = Dimension(Int.MAX_VALUE, endpoint.preferredSize.height)
+        endpoint.getAccessibleContext().accessibleName = DesktopStrings.WEBHOOK_ENDPOINT
+        add(endpoint)
+        add(
+            JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
+                alignmentX = JComponent.LEFT_ALIGNMENT
+                add(
+                    JButton(DesktopStrings.WEBHOOK_SET).apply {
+                        addActionListener { onSetEndpoint(endpoint.text) }
+                    }
+                )
+                add(
+                    JButton(DesktopStrings.WEBHOOK_CLEAR).apply {
+                        addActionListener { onClearEndpoint() }
+                    }
+                )
+            }
+        )
+        webhookEnabled.alignmentX = JComponent.LEFT_ALIGNMENT
+        add(webhookEnabled)
+        lastDelivery.alignmentX = JComponent.LEFT_ALIGNMENT
+        lastDelivery.font = lastDelivery.font.deriveFont(Font.ITALIC, 11f)
+        lastDelivery.isVisible = false
+        add(lastDelivery)
+    }
+
+    private fun warningLabel(text: String) =
+        JLabel("<html><body style='width:440px'>" + text + "</body></html>").apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            font = font.deriveFont(Font.PLAIN, 11f)
+            foreground = java.awt.Color(0xB0, 0x30, 0x30)
+            border = BorderFactory.createEmptyBorder(4, 0, 4, 0)
+        }
 
     private fun gaps(): JPanel = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)

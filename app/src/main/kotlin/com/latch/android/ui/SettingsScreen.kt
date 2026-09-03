@@ -38,7 +38,7 @@ import com.latch.core.model.MatchType
 import com.latch.core.model.RoutingMode
 import com.latch.core.model.RoutingRule
 import com.latch.data.AccountDefaults
-import com.latch.data.EndpointRefusal
+import com.latch.webhook.EndpointRefusal
 import com.latch.core.model.LatchSettings
 import com.latch.data.RevokeOutcome
 import com.latch.google.TaskList

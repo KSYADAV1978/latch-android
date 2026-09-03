@@ -130,6 +130,14 @@ class JSONObject {
         if (it === JsonNull) throw JSONException("null value for " + name) else it.toString()
     }
 
+    fun getInt(name: String): Int = get(name).let { value ->
+        when (value) {
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull() ?: throw JSONException("not a number at " + name)
+            else -> throw JSONException("not a number at " + name)
+        }
+    }
+
     fun getJSONObject(name: String): JSONObject =
         optJSONObject(name) ?: throw JSONException("no object at " + name)
 
