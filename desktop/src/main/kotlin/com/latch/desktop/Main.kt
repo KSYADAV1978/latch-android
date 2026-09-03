@@ -186,16 +186,21 @@ object Latch {
      * save result carries the write rather than what it came from. Cleared with the window.
      */
     private var lastCaptured: com.latch.desktop.capture.DesktopCapture? = null
-
-    /** The parse the open window is showing, for FR-601's chooser to ask about. */
-    private var lastParsed: ParseResult? = null
     private var window: CaptureWindow? = null
     private var inboxWindow: InboxWindow? = null
     private var settingsWindow: SettingsWindow? = null
     private var recipesWindow: RecipesWindow? = null
 
-    /** FR-601: the chain the open capture window is showing, and what it came from. */
-    private var applied: Pair<Recipe, RecipeApplication>? = null
+    /**
+     * FR-601: the chain the open capture window is showing, what it came from, and the parse it
+     * was expanded over.
+     *
+     * The parse is kept because it is the **edited** one — FR-506 row 3's assigned date is what
+     * can make a capture expandable at all — and §7.2's `item_key` and FR-805's date spans are
+     * derived from whatever reaches the saver. Re-deriving from the original would be one more
+     * place for the sheet and the write to disagree.
+     */
+    private var applied: Triple<Recipe, RecipeApplication, ParseResult>? = null
 
     /**
      * FR-302's combination, from FR-1001's record.
@@ -353,7 +358,6 @@ object Latch {
 
                 window?.close()
                 lastCaptured = outcome.capture
-                lastParsed = result
                 applied = null
                 val today = LocalDate.now()
                 val opened = CaptureWindow(
@@ -363,14 +367,13 @@ object Latch {
                     onExport = { ticked, edits ->
                         export(outcome.capture, result, context, ticked, edits, today)
                     },
-                    onChooseRecipe = { recipe -> chooseRecipe(recipe, result, today) },
-                    onSaveChain = { ticked -> saveChain(outcome.capture, result, context, ticked) },
+                    onChooseRecipe = { recipe, edits -> chooseRecipe(recipe, result, today, edits) },
+                    onSaveChain = { ticked -> saveChain(outcome.capture, context, ticked) },
                     onClose = {
                         window = null
                         // Cleared with the window, so a later save cannot ask FR-210a's
                         // question about a capture that is no longer on screen.
                         lastCaptured = null
-                        lastParsed = null
                         applied = null
                     },
                 )
@@ -388,7 +391,7 @@ object Latch {
                 // FR-601's chooser arrives a moment after the sheet does. The recipe list
                 // crosses the DPAPI bridge and NFR-101 budgets a capture 800 ms; the dates the
                 // user came for are on screen first, and the chooser follows.
-                offerRecipes(opened)
+                offerRecipes(opened, result, today)
             }
         }
     }
@@ -568,10 +571,16 @@ object Latch {
     private fun allRecipes(): List<Recipe> =
         recipesFor(BuiltInRecipes.all, runCatching { recipeStore.all() }.getOrDefault(emptyList()))
 
-    private fun offerRecipes(open: CaptureWindow) {
+    private fun offerRecipes(open: CaptureWindow, result: ParseResult, today: LocalDate) {
         Thread({
-            val offer = recipeChooser(lastParsed ?: return@Thread, allRecipes())
-            SwingUtilities.invokeLater { if (window === open) open.offerRecipes(offer) }
+            // Read once — it crosses the DPAPI bridge — and closed over, so FR-601's blocker can
+            // be re-asked on every edit without paying for the list again.
+            val recipes = allRecipes()
+            SwingUtilities.invokeLater {
+                if (window === open) {
+                    open.offerRecipes { edits -> recipeChooser(result.withEdits(edits, today), recipes) }
+                }
+            }
         }, "latch-recipes-offer").apply { isDaemon = true }.start()
     }
 
@@ -582,8 +591,16 @@ object Latch {
      * gesture on a floating window: the user is looking at a popup they may be about to dismiss,
      * and a chooser with no way back would make a mis-click cost them the capture.
      */
-    private fun chooseRecipe(recipe: Recipe?, result: ParseResult, today: LocalDate) {
+    private fun chooseRecipe(
+        recipe: Recipe?,
+        parsed: ParseResult,
+        today: LocalDate,
+        edits: SheetEdits,
+    ) {
         val open = window ?: return
+        // FR-506 row 3's assigned date is what makes an otherwise unexpandable capture
+        // expandable, so the recipe is applied to the edited parse and not to the original.
+        val result = parsed.withEdits(edits, today)
         if (recipe == null) {
             applied = null
             open.renderChain(null)
@@ -599,7 +616,7 @@ object Latch {
                     open.showOutcome(DesktopStrings.RECIPE_NO_DATE)
                     return@invokeLater
                 }
-                applied = recipe to chain
+                applied = Triple(recipe, chain, result)
                 open.renderChain(recipeChainModel(recipe, chain.planned, chain.selected))
             }
         }, "latch-recipe-expand").apply { isDaemon = true }.start()
@@ -616,11 +633,10 @@ object Latch {
      */
     private fun saveChain(
         captured: com.latch.desktop.capture.DesktopCapture,
-        result: ParseResult,
         context: ParseContext,
         ticked: Set<Int>,
     ) {
-        val (recipe, chain) = applied ?: return
+        val (recipe, chain, result) = applied ?: return
         if (!auth.isConfigured) {
             window?.showOutcome(DesktopStrings.NOT_CONFIGURED)
             return

@@ -1012,6 +1012,13 @@ nothing in *every* application on the machine, with no error and nothing to blam
 now waits on the parent's process handle alongside its message queue. Verified by hard-killing
 the application and re-registering the combination afterwards.
 
+### Installed after the four Windows slices of 3 Sep 2026
+
+| Client | State |
+|---|---|
+| Windows | **Installed and running**, from `install-local.ps1 -StartWithWindows`, at the commit that adds FR-600. A launch canary was run and is **all that was watched**: a fresh process started, stayed up for eight seconds and wrote nothing to stderr — so the tray installed, the FR-302 sidecar registered, the queue runner started, and FR-1001's settings were read across the newly batched DPAPI bridge. **Nothing was clicked.** Every screen these four slices added is in the human backlog below. |
+| Android | **Not reinstalled, deliberately, and it does not matter for AC-07.** The four slices are Windows-only, and the shared modules moved code rather than changing what it computes: `:parser` is untouched, `TitleDerivation` and `RemoteMetadata` are untouched, `parseContextFor` is what `CaptureActivity` already did inline, and `IndianHolidays.around` is the window `LatchApplication` already composed. So the phone derives byte-identical `source_hash` and `item_key` values to the ones it derived this morning, and the reverse half of AC-07 can still be run against the build that is on it. |
+
 ### The shared parser change of 3 Sep 2026 — installed and device-checked
 
 A relative word adjacent to an explicit date is now one commitment (SRS 1.62). The change is in
@@ -1148,6 +1155,7 @@ fail*, then *the fixture*.
 | **A reminder actually fires** | The event in Google Calendar carries a 30-minute popup reminder rather than the calendar's default. `RecipeStep.reminderOffsets` reached nothing on either client until the Android slice, and nothing at all here until now | as above |
 | **FR-608** | Untick the prep step before saving: **two** items are written and nothing lands on 3 Sep | as above |
 | **"Just this one" puts the capture back** | Pick a recipe, then press it: the ordinary rows return and Save writes one item. Failure is a popup stuck in a chain the user did not want, on a window a stray click closes | as above |
+| **A picked date makes a capture expandable** | Capture "call at 4pm", give it a date with the chips, then look at the chooser: it must now **offer recipes** rather than still saying no date was found. The blocker is re-asked on every edit for exactly this; before the fix it was computed once when the sheet opened | "call at 4pm" |
 | **The chooser is absent for good reason** | A four-date capture shows the **reason** and no chooser. A capture with no date says so. Failure is silence, which reads as a missing feature | any multi-date capture |
 | **FR-605 from Settings** | Set a six-day working week; the same AC-06 capture must put prep on **Fri 4 Sep** instead of Thursday. This is the first check that Settings and recipes are wired to one another | Settings, then AC-06's capture |
 | **FR-603, all four verbs** | Create, edit, duplicate, delete — each surviving a close and reopen of the window, and a restart of Latch. **Editing a built-in must not change the others**, and deleting the edit must restore the shipped one rather than removing the row | the Recipes window |

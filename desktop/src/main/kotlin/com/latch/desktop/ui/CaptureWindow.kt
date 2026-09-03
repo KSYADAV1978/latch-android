@@ -59,7 +59,7 @@ class CaptureWindow(
      * The expansion is not done here — it needs the settings and the holiday list — so this
      * asks for a chain and `renderChain` puts one back.
      */
-    private val onChooseRecipe: (com.latch.core.model.Recipe?) -> Unit = {},
+    private val onChooseRecipe: (com.latch.core.model.Recipe?, SheetEdits) -> Unit = { _, _ -> },
     /** FR-601 and FR-608: save the expanded chain rather than the candidate rows. */
     private val onSaveChain: (Set<Int>) -> Unit = {},
     private val onClose: () -> Unit,
@@ -80,8 +80,16 @@ class CaptureWindow(
     private var countdown: javax.swing.Timer? = null
     private val checkboxes = mutableMapOf<Int, JCheckBox>()
 
-    /** FR-600. Null until a recipe is chosen; the chain then replaces the candidate rows. */
-    private var chooser: RecipeChooser? = null
+    /**
+     * FR-600's chooser, re-asked on every redraw.
+     *
+     * **A function rather than a value**, because FR-601's blocker is a question about the
+     * *edited* parse: a row that had a time and no day is "no date to expand" until FR-506 row
+     * 3's picker gives it one, and a chooser computed once at open would go on saying so
+     * afterwards. The recipe list itself is read once and closed over — it crosses the DPAPI
+     * bridge, and NFR-101 budgets this path 800 ms.
+     */
+    private var chooser: ((SheetEdits) -> RecipeChooser)? = null
     private var chain: RecipeChainModel? = null
     private var chainSelected: MutableSet<Int> = mutableSetOf()
 
@@ -202,7 +210,7 @@ class CaptureWindow(
                 rowsPanel.add(rowPanel(row))
                 rowsPanel.add(Box.createVerticalStrut(4))
             }
-            chooser?.let { rowsPanel.add(chooserPanel(it)) }
+            chooser?.let { rowsPanel.add(chooserPanel(it(withTypedTitle()))) }
         }
         rowsPanel.revalidate()
         rowsPanel.repaint()
@@ -212,6 +220,7 @@ class CaptureWindow(
     fun show(initiallyTicked: Set<Int>, render: (SheetEdits, Set<Int>) -> PopupModel) {
         renderer = render
         edits = SheetEdits()
+        chooser = null
         chain = null
         chainSelected = mutableSetOf()
         selected = initiallyTicked.toMutableSet()
@@ -240,7 +249,7 @@ class CaptureWindow(
     }
 
     /** FR-601's chooser, and the reason where there is none. */
-    fun offerRecipes(offer: RecipeChooser) {
+    fun offerRecipes(offer: (SheetEdits) -> RecipeChooser) {
         chooser = offer
         redraw()
     }
@@ -281,7 +290,7 @@ class CaptureWindow(
                         JButton(recipe.name).apply {
                             font = font.deriveFont(Font.PLAIN, 11f)
                             margin = java.awt.Insets(1, 6, 1, 6)
-                            addActionListener { onChooseRecipe(recipe) }
+                            addActionListener { onChooseRecipe(recipe, withTypedTitle()) }
                         }
                     )
                 }
@@ -303,7 +312,7 @@ class CaptureWindow(
                         margin = java.awt.Insets(1, 6, 1, 6)
                         // Back to the capture as it was. Applying a recipe must not be a
                         // one-way gesture on a window a stray click can close.
-                        addActionListener { onChooseRecipe(null) }
+                        addActionListener { onChooseRecipe(null, withTypedTitle()) }
                     }
                 )
             }
