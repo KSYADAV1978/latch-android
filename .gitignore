@@ -1,4 +1,4 @@
-﻿# build output
+# build output
 build/
 bin/
 obj/
@@ -31,6 +31,17 @@ secrets.json
 # no values. A signing config that read from a committed file would put the passwords for the
 # upload key in the repository, which is the whole of what this line prevents.
 keystore.properties
+
+# FR-001's Desktop OAuth client, on the same convention and for the same reason.
+# `client.properties` holds the client id and secret; `desktop/client.properties.example`
+# beside it is committed and shows the two keys with no values.
+#
+# Google's "secret" for a Desktop client is not confidential in any real sense — it ships
+# inside every copy of the application, which is exactly why RFC 8252 requires PKCE for this
+# client type and why PKCE rather than the secret protects the exchange. It is kept out anyway:
+# a credential in a git history cannot be removed from it, and the id identifies the project's
+# Cloud client to anyone who reads the repository.
+client.properties
 
 # OS
 Thumbs.db
