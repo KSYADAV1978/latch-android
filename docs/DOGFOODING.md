@@ -296,10 +296,12 @@ nothing — checked against the phone's own records, not the message. That close
 half of AC-07 as the criterion is written, and it also showed that **correcting a title does
 not break recognition**, which is the part that would have been expensive to get wrong.
 
-One thing is still owed from it, and it is mine rather than yours: the phone gives no sign of
-*which* check answered. "Already saved" reads the same whether it came from the message hash or
-from the weaker item-key match, and this project has been caught by that difference once
-already. I owe a build that says which, and then one more run of the same test.
+One thing was owed from it and is now done. The phone gave no sign of *which* check answered —
+"Already saved" reads the same whether it came from the message hash or from the weaker
+item-key match, and this project had been caught by that difference once already. A build that
+says which went on the phone the same afternoon, you re-ran the capture, and it said the
+message hash. **AC-07 is finished, in both directions and on the mechanism as well as the
+outcome.** Thank you — that was the oldest open item in the whole record.
 
 ## The Inbox on the PC (new, 3 Sep 2026)
 
