@@ -3,6 +3,8 @@ package com.latch.desktop.store
 import com.latch.desktop.ui.deliveryText
 import com.latch.desktop.ui.endpointLine
 import com.latch.webhook.WebhookDelivery
+import com.latch.webhook.decodeDelivery
+import com.latch.webhook.encodeDelivery
 import com.latch.webhook.WebhookResult
 import java.io.File
 import java.time.Instant

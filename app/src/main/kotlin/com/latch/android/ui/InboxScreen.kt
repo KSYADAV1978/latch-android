@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
@@ -77,6 +78,14 @@ fun InboxScreen(
      * saver is shared with the capture sheet, so this is the same state that screen renders.
      */
     saveState: SaveState = SaveState.Idle,
+    /**
+     * FR-701: rows this build could not decode.
+     *
+     * **They are on disk and nothing has been deleted**, which is why the screen says so rather
+     * than leaving them as a gap between a count the user remembers and a list that is shorter.
+     * Zero says nothing at all, as every other count in this app does.
+     */
+    unreadable: Int = 0,
     now: Instant = Instant.now(),
 ) {
     Column(
@@ -99,6 +108,12 @@ fun InboxScreen(
 
         // FR-703, said plainly and only once. A per-row reassurance would be nagging.
         Note(stringResource(R.string.inbox_local_only))
+
+        // Kept, counted and named. The alternative this replaces was deleting them, which is
+        // the one thing NFR-302 forbids for a record that exists nowhere else.
+        if (unreadable > 0) {
+            Note(pluralStringResource(R.plurals.inbox_unreadable, unreadable, unreadable))
+        }
 
         // NFR-303. A row that failed to save is still here, which is the reassuring half and
         // the reason the message says so rather than only naming the failure.

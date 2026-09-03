@@ -200,6 +200,14 @@
     <string name="inbox_captured_on">Captured %1$s</string>
     <string name="inbox_date_picker_confirm">Use this date</string>
     <string name="inbox_date_picker_cancel">Cancel</string>
+    <!-- FR-701, NFR-302: a row this build cannot decode is kept, never deleted, and counted
+         apart from FR-704's pending count so that number still reaches zero. Said here so the
+         rows are not a silent gap between the count and the list. -->
+    <plurals name="inbox_unreadable">
+        <item quantity="one">1 held capture could not be read by this version of Latch. It is still on this phone and nothing has been deleted.</item>
+        <item quantity="other">%1$d held captures could not be read by this version of Latch. They are still on this phone and nothing has been deleted.</item>
+    </plurals>
+
     <!-- FR-703: nothing here has reached the user's Google account. -->
     <string name="inbox_local_only">Everything here is on this phone only. Nothing reaches Google until you save it.</string>
     <string name="inbox_saving">Saving…</string>
@@ -332,6 +340,12 @@
     <string name="settings_webhook_save">Save endpoint</string>
     <string name="settings_webhook_saved">Saved: %1$s</string>
     <string name="settings_webhook_clear">Remove endpoint</string>
+    <!-- FR-1004b: "reported passively in the Settings screen". A success is said too, because a
+         webhook that silently works and one that silently does nothing look identical. -->
+    <string name="settings_webhook_last_ok">Last delivery: accepted, %1$s.</string>
+    <string name="settings_webhook_last_refused">Last delivery: your endpoint answered %1$d, %2$s.</string>
+    <string name="settings_webhook_last_unreachable">Last delivery: could not reach your endpoint, %1$s.</string>
+    <string name="settings_webhook_last_not_sent">Last delivery: nothing was sent, %1$s. The saved address is not one Latch will send to.</string>
     <string name="settings_webhook_enabled">Send to my endpoint</string>
     <string name="settings_webhook_malformed">That is not a URL.</string>
     <string name="settings_webhook_not_https">Only https addresses are accepted — your captures would otherwise travel in the clear.</string>

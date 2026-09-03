@@ -44,6 +44,16 @@ class EncryptedSecretStore(context: Context) : SecretStore {
         /** FR-1004's endpoint. NFR-203 treats it as a secret and requires it masked once saved. */
         const val KEY_WEBHOOK_ENDPOINT = "webhook.endpoint"
 
+        /**
+         * FR-1004b's passive report: what the last delivery attempt did.
+         *
+         * **Not a secret**, and kept here anyway — it lives beside the endpoint it is about, in
+         * the one store NFR-205's deletion already enumerates. What it carries is a moment, an
+         * outcome and the status the endpoint gave; the address is deliberately not in it,
+         * because the screen it is shown on masks the address.
+         */
+        const val KEY_WEBHOOK_LAST_DELIVERY = "webhook.last_delivery"
+
         private const val PREFS_FILE = "secrets"
         private const val KEY_ALIAS = "latch.secrets.v1"
     }

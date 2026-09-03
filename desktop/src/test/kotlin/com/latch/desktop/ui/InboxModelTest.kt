@@ -6,7 +6,7 @@ import com.latch.core.model.InboxReason
 import com.latch.core.model.ItemType
 import com.latch.desktop.capture.DesktopCapture
 import com.latch.desktop.capture.desktopSource
-import com.latch.desktop.inbox.InboxStatus
+import com.latch.core.model.InboxStatus
 import com.latch.parser.Confidence
 import com.latch.parser.DateParser
 import com.latch.parser.ParseContext

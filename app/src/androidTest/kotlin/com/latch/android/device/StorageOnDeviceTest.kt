@@ -19,6 +19,7 @@ import com.latch.data.EncryptedWriteQueueStore
 import com.latch.google.EventWrite
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
+import com.latch.core.model.InboxStatus
 import com.latch.google.ItemDates
 import com.latch.core.model.LatchSettings
 import com.latch.data.PendingWrite
@@ -137,6 +138,92 @@ class StorageOnDeviceTest {
         assertEquals(LocalDateTime.parse("2026-09-01T14:45:00"), inbox.find("capture-1")?.capturedLocal)
     }
 
+    /**
+     * FR-701, NFR-302: a row this build cannot decode is **kept**, and FR-704's count stays
+     * honest by counting it apart rather than by deleting it.
+     *
+     * **This is the one Inbox behaviour no JVM test can reach**, which is why it is here: the
+     * decision is inside `SqliteCaptureInbox`, behind `KeystoreCipher`, and both are throwing
+     * stubs under unit tests. Until 3 Sep 2026 the store *deleted* such a row — losing a
+     * capture that exists nowhere else, which is precisely what FR-703 guarantees an Inbox row
+     * is and what NFR-302 forbids.
+     *
+     * **The fixture creates the real condition rather than a proxy for it.** A row is inserted
+     * straight into the table with a payload the app's own Keystore cipher will refuse; a fake
+     * cipher would test a code path the real store never takes. The database is reached by its
+     * file name, which couples this test to a constant in `:data` — if that name changes this
+     * fails loudly on a missing table rather than passing quietly, which is the direction that
+     * coupling has to fail in.
+     */
+    @Test
+    fun an_undecodable_row_is_kept_and_counted_apart(): Unit = runBlocking {
+        val now = Instant.parse("2026-09-02T09:00:00Z")
+        inbox.add(row("readable", now))
+        plantUnreadableRow("broken", now)
+
+        // Kept: the row is still in the table and the readable one beside it is untouched.
+        assertEquals(listOf("readable"), inbox.all().map { it.id })
+        assertEquals("the unreadable row was deleted", 1, countInboxRows())
+
+        // Counted apart, so FR-704's number still reaches zero.
+        val status = inbox.status(now)
+        assertEquals(1, status.due)
+        assertEquals(1, status.unreadable)
+        assertEquals(1, inbox.pendingCount(now))
+
+        // And it survives being read again — the read must not have quietly cleaned it up.
+        inbox.all()
+        assertEquals("the unreadable row was deleted on a second read", 1, countInboxRows())
+
+        // FR-704 reaches zero over the rows the user *can* act on, with the kept row still there.
+        inbox.discard("readable")
+        assertEquals(0, inbox.status(now).due)
+        assertEquals(1, inbox.status(now).unreadable)
+        assertEquals(1, countInboxRows())
+
+        // NFR-205 still takes everything, including what this build could not read.
+        inbox.deleteAll()
+        assertEquals(0, countInboxRows())
+    }
+
+    /**
+     * Writes a row the app's own cipher cannot open.
+     *
+     * `KeystoreCipher` expects its own envelope; a payload that is not one decrypts to null,
+     * which is exactly the state a record written by another version — or under a key that did
+     * not survive a restore — arrives in.
+     */
+    private fun plantUnreadableRow(id: String, capturedAt: Instant) {
+        val path = context.getDatabasePath("latch.db").absolutePath
+        val db = android.database.sqlite.SQLiteDatabase.openDatabase(
+            path,
+            null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READWRITE,
+        )
+        db.use {
+            it.execSQL(
+                "INSERT OR REPLACE INTO inbox (id, captured_at, snoozed_until, state, payload) " +
+                    "VALUES (?, ?, NULL, ?, ?)",
+                arrayOf(id, capturedAt.toEpochMilli(), "INBOX", "not-a-latch-envelope"),
+            )
+        }
+    }
+
+    private fun countInboxRows(): Int {
+        val path = context.getDatabasePath("latch.db").absolutePath
+        val db = android.database.sqlite.SQLiteDatabase.openDatabase(
+            path,
+            null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+        )
+        return db.use {
+            it.rawQuery("SELECT COUNT(*) FROM inbox", null).use { cursor ->
+                cursor.moveToFirst()
+                cursor.getInt(0)
+            }
+        }
+    }
+
     @Test
     fun a_snoozed_row_leaves_the_count_and_comes_back(): Unit = runBlocking {
         val now = Instant.parse("2026-09-02T09:00:00Z")
@@ -147,6 +234,9 @@ class StorageOnDeviceTest {
         assertEquals(1, inbox.pendingCount(now))
         assertEquals(2, inbox.all().size)
         assertEquals(2, inbox.pendingCount(Instant.parse("2026-09-10T09:00:00Z")))
+
+        // The three numbers apart, which is what makes a kept unreadable row affordable.
+        assertEquals(InboxStatus(due = 1, snoozed = 1, unreadable = 0), inbox.status(now))
     }
 
     @Test

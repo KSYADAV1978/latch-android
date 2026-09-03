@@ -39,12 +39,15 @@ import com.latch.core.model.RoutingMode
 import com.latch.core.model.RoutingRule
 import com.latch.data.AccountDefaults
 import com.latch.webhook.EndpointRefusal
+import com.latch.webhook.WebhookDelivery
+import com.latch.webhook.WebhookResult
 import com.latch.core.model.LatchSettings
 import com.latch.data.RevokeOutcome
 import com.latch.google.TaskList
 import com.latch.google.WritableCalendar
 import java.time.DayOfWeek
 import java.time.Duration
+import java.time.ZoneId
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -70,6 +73,8 @@ fun SettingsScreen(
     bundledHolidays: List<Holiday>,
     endpointMask: String?,
     endpointRefusal: EndpointRefusal?,
+    /** FR-1004b's passive report. Null until a delivery has been attempted. */
+    lastDelivery: WebhookDelivery? = null,
     onBack: () -> Unit,
     onReloadDestinations: () -> Unit,
     onChooseCalendar: (WritableCalendar) -> Unit,
@@ -247,6 +252,7 @@ fun SettingsScreen(
             settings = settings,
             endpointMask = endpointMask,
             refusal = endpointRefusal,
+            lastDelivery = lastDelivery,
             onSetEndpoint = onSetEndpoint,
             onClear = onClearEndpoint,
             onSetEnabled = onSetWebhookEnabled,
@@ -578,6 +584,7 @@ private fun WebhookSection(
     settings: LatchSettings,
     endpointMask: String?,
     refusal: EndpointRefusal?,
+    lastDelivery: WebhookDelivery?,
     onSetEndpoint: (String) -> Unit,
     onClear: () -> Unit,
     onSetEnabled: (Boolean) -> Unit,
@@ -633,5 +640,34 @@ private fun WebhookSection(
             checked = settings.webhookEnabled,
             onCheckedChange = onSetEnabled,
         )
+    }
+
+    // FR-1004b, last: a line below the switch it is about, on a screen the user opened. Nothing
+    // at all until something has been attempted.
+    lastDelivery?.let { Note(deliveryLine(it)) }
+}
+
+/**
+ * FR-1004b's report, in words.
+ *
+ * NFR-402 keeps the phrasing in `strings.xml` and the facts in `:webhook`, which is why this
+ * reads a `WebhookResult` rather than a sentence: the desktop says the same four things in its
+ * own file, and neither client invents an outcome the other cannot express.
+ *
+ * **The status the endpoint gave is shown**, because 404 against 401 is the difference between
+ * a wrong path and a wrong token, and a user who cannot tell them apart has nowhere to start.
+ * The endpoint itself is not, and cannot be: the record carries no address (NFR-203).
+ */
+@Composable
+private fun deliveryLine(delivery: WebhookDelivery): String {
+    val at = DateTimeFormatter.ofPattern("d MMM, HH:mm")
+        .format(delivery.at.atZone(ZoneId.systemDefault()))
+    return when (delivery.result) {
+        WebhookResult.DELIVERED -> stringResource(R.string.settings_webhook_last_ok, at)
+        WebhookResult.ENDPOINT_REFUSED ->
+            stringResource(R.string.settings_webhook_last_refused, delivery.status ?: 0, at)
+        WebhookResult.UNREACHABLE -> stringResource(R.string.settings_webhook_last_unreachable, at)
+        WebhookResult.REFUSED_BEFORE_SENDING ->
+            stringResource(R.string.settings_webhook_last_not_sent, at)
     }
 }

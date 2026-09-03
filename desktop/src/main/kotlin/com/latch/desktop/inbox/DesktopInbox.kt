@@ -1,17 +1,10 @@
 package com.latch.desktop.inbox
 
 import com.latch.core.model.InboxCapture
+import com.latch.core.model.InboxStatus
 import com.latch.desktop.store.WindowsSecrets
 import java.io.File
 import java.time.Instant
-
-/**
- * What is in the Inbox, for FR-704's count.
- *
- * [due] is the count the tray shows: rows the user is being asked to deal with now. A snoozed
- * row is not one of those (FR-702), and neither is a row this build cannot read.
- */
-data class InboxStatus(val due: Int, val snoozed: Int, val unreadable: Int)
 
 /**
  * FR-701 to FR-705 on Windows: the Capture Inbox, on disk, under DPAPI.
@@ -40,9 +33,10 @@ data class InboxStatus(val due: Int, val snoozed: Int, val unreadable: Int)
  * [InboxStatus.due], so FR-704's count still goes down and nothing is thrown away. That is what
  * this store does.
  *
- * The phone's behaviour is left alone and is recorded as owed rather than changed here: it is
- * Android storage under an instrumented suite, and altering what a live device does with a
- * user's held captures is not a side effect this slice should have.
+ * **The phone does this too, as of SRS 1.70.** It was recorded as owed rather than changed in
+ * the slice that wrote this file, because altering what a live device does with a user's held
+ * captures is not a side effect a Windows slice should have. The two stores now follow one
+ * reading and `InboxStatus` is shared.
  */
 class DesktopInbox(
     private val file: File,

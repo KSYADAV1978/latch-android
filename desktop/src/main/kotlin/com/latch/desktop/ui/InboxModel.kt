@@ -2,7 +2,7 @@ package com.latch.desktop.ui
 
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
-import com.latch.desktop.inbox.InboxStatus
+import com.latch.core.model.InboxStatus
 import com.latch.core.model.ItemType
 import com.latch.core.model.agedCaptures
 import com.latch.desktop.capture.DesktopCapture

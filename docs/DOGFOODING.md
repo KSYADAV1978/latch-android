@@ -84,6 +84,10 @@ This is the one that needs time rather than attention.
 - Turn the Quick Settings tile off. It should leave the shade.
 - Turn the share sheet off. Latch will **still appear** in the share sheet and say it is switched
   off — that is documented, not a defect.
+- **Configure a webhook and look at Settings after saving a capture.** There should now be a line
+  saying what happened to the last delivery — accepted, refused with the status your endpoint
+  gave, or unreachable. Until today the phone sent the request and threw the answer away, so a
+  broken endpoint and a working one looked exactly the same.
 
 ### 6. Notifications (only if you want it)
 

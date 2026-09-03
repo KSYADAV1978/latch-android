@@ -1017,7 +1017,8 @@ the application and re-registering the combination afterwards.
 | Client | State |
 |---|---|
 | Windows | **Installed and running**, from `install-local.ps1 -StartWithWindows`, at the commit that adds FR-600. A launch canary was run and is **all that was watched**: a fresh process started, stayed up for eight seconds and wrote nothing to stderr — so the tray installed, the FR-302 sidecar registered, the queue runner started, and FR-1001's settings were read across the newly batched DPAPI bridge. **Nothing was clicked.** Every screen these four slices added is in the human backlog below. |
-| Android | **Not reinstalled, deliberately, and it does not matter for AC-07.** The four slices are Windows-only, and the shared modules moved code rather than changing what it computes: `:parser` is untouched, `TitleDerivation` and `RemoteMetadata` are untouched, `parseContextFor` is what `CaptureActivity` already did inline, and `IndianHolidays.around` is the window `LatchApplication` already composed. So the phone derives byte-identical `source_hash` and `item_key` values to the ones it derived this morning, and the reverse half of AC-07 can still be run against the build that is on it. |
+| Android | **Reinstalled 3 Sep 2026 at the commit that fixes FR-701 and FR-1004b.** `adb install -r` over the previous build; `account_defaults.xml`, `settings.xml`, `secrets.xml`, `write_queue.xml` and `latch.db` all survived, so setup did not run again and nothing was wiped. Launch canary: `MainActivity` reached `topResumedActivity`, no `FATAL EXCEPTION` in logcat. **That is all that was watched** — the instrumented suite was **not** run, because it destroys the app's local data and this phone is in real use. |
+| Android (before that) | **Was not reinstalled for the four Windows slices, and it did not matter for AC-07.** The four slices are Windows-only, and the shared modules moved code rather than changing what it computes: `:parser` is untouched, `TitleDerivation` and `RemoteMetadata` are untouched, `parseContextFor` is what `CaptureActivity` already did inline, and `IndianHolidays.around` is the window `LatchApplication` already composed. So the phone derives byte-identical `source_hash` and `item_key` values to the ones it derived this morning, and the reverse half of AC-07 can still be run against the build that is on it. |
 
 ### The shared parser change of 3 Sep 2026 — installed and device-checked
 
@@ -1224,6 +1225,11 @@ gap in this slice and the first thing to watch.
 
 | Check | What failure looks like | Fixture |
 |---|---|---|
+| **An unreadable Inbox row is kept** | JVM-unreachable and now covered by an instrumented test, which has **not been run on this device** — the suite destroys the app's local data and was not run against a phone in real use. Run it on a throwaway install, or accept losing the Inbox, queue, recipes and settings. Failure is the old behaviour: the row silently gone and the count one lower | `./gradlew :app:connectedDebugAndroidTest` |
+| **FR-704 still reaches zero over a kept row** | With one unreadable row and nothing else, the home screen must show **no** Inbox count at all, and the Inbox screen must say one held capture could not be read. Failure is a count that never goes to zero, which is the objection the old deletion existed to answer | as above |
+| **FR-1004b's report on the phone** | Configure a `https://` bin that answers 404, enable the webhook, save a capture: Settings must say *"your endpoint answered 404"*. Point it at `https://127.0.0.1:9/hook`: *"could not reach your endpoint"*. A working bin: *"accepted"*. Before this, all three showed nothing | a request-bin endpoint |
+| **The report does not follow a removed endpoint** | Remove the endpoint: the last-delivery line goes with it. A line describing a delivery to an address the user has just removed is worse than none | Settings |
+| **AC-19 is unmoved** | A notification capture must still produce **no** request and now also **no** report — a suppressed delivery is not a failed one. Needs FR-208, so it is owed until slice 7 | notification listener |
 | **AC-03** — text with no date | An undated row appears in the Inbox and **nothing** is created in Google Calendar or Tasks. Failure: an item appears in the account, or the sheet reports "Saved" | "Ask about the uniform order" |
 | ~~The database is actually created~~ | **Verified 2 Sep by the instrumented suite.** The database is created on first use and every store round-trips through SQL and the Keystore. |
 | A row survives a **process death** | Still owed: the instrumented tests write and read within one process, so they prove the SQL and the cipher and not the restart. Route a capture to the Inbox, force-stop, reopen: the row is still there with its reason | `adb shell am force-stop com.latch.android` |
@@ -1361,34 +1367,26 @@ JVM-reachable code.** Every filter is tested; nothing that actually reads a noti
 | The Inbox is never reached | A low-confidence notification capture is **saved** with its confidence shown, not routed. That is the permanent narrowing SRS 1.43 records | a vague dated message |
 | NFR-104 | The listener is the only persistent service. Nothing else appears in `adb shell dumpsys activity services com.latch.android` | any state |
 
-### Owed on Android, found while building the Windows webhook (3 Sep 2026)
+### Closed on Android, 3 Sep 2026 (SRS 1.70) — and both were unmet requirements
 
-**FR-1004b's passive report does not exist on Android.** The requirement says a delivery failure
-"shall be reported passively in the Settings screen and shall not raise a blocking error".
-`CaptureSaver.deliverWebhook` wraps the call in `runCatching { }` and **discards the result**, so
-the second half holds and the first has never been built: a user whose endpoint is answering 404
-sees exactly what a user whose endpoint is working sees, which is nothing.
+The two gaps the Windows slices found in the phone are fixed, so the clients no longer differ
+on either. Both are **built and installed and neither has been watched on the device**; the
+checks are in the device backlog below.
 
-Found while building the same requirement on Windows, where it is built. The type it needs —
-`WebhookDelivery`, carrying the instant, the outcome and the status the endpoint gave — is in
-`:webhook` and both clients compile it. What Android needs is a store for the last one and a
-line on the Settings screen; `WebhookSecrets` on the desktop is the shape.
+**FR-701, NFR-302 — an unreadable Inbox row is no longer deleted.** It is kept, carried through
+every read, and counted in `InboxStatus.unreadable` rather than in FR-704's `due`, so the count
+still reaches zero and nothing is thrown away. `InboxStatus` is `:core-model`'s and both stores
+answer with the same three numbers. **The test is instrumented and had to be**: the decision is
+behind `SQLiteOpenHelper` and `KeystoreCipher`, both throwing stubs under JVM unit tests, and
+the fixture plants a row straight into the table with a payload the app's own cipher refuses.
 
-### Owed on Android, found while building the Windows Inbox (3 Sep 2026)
-
-**`SqliteCaptureInbox` deletes an Inbox row it cannot decode, and that row is a capture that
-exists nowhere else.** FR-703 guarantees exactly that: nothing in the Inbox has reached Google.
-The store's own note gives the reason for deleting — keeping it "would mean a count that never
-goes down over a row that can never be opened" — and that reason is right about the *count* and
-not about the *storage*. The Windows client (SRS 1.66) keeps the row and counts it separately,
-so FR-704's number still goes down and nothing is lost; the two clients now differ, and the
-phone is the side that loses data.
-
-Left alone deliberately in that slice: it is Android storage under an instrumented suite, and
-changing what a live device does with a user's held captures is not a side effect a Windows
-slice should have. **The change is to stop deleting and to add an `unreadable` count beside
-`pendingCount`**, mirroring `DesktopInbox` and `WriteQueue`. It needs an instrumented run,
-because `SQLiteOpenHelper` is a throwing stub under JVM unit tests.
+**FR-1004b — the passive report exists.** `CaptureSaver` discarded the delivery result, so the
+requirement's "shall not raise a blocking error" held and its "shall be reported passively in
+the Settings screen" had nothing behind it. The record is `:webhook`'s and shared; the Settings
+screen shows the outcome and the status the endpoint gave. Making it reportable also made it
+testable — the send is a function now, so what this file decides is reachable without a socket,
+and FR-210a is asserted at the same seam: a notification capture reaches the sender **not at
+all**.
 
 ### Slice 9 — the instrumented suite
 

@@ -1,9 +1,8 @@
 package com.latch.desktop.store
 
-import com.latch.google.json.JSONObject
 import com.latch.webhook.WebhookDelivery
-import com.latch.webhook.WebhookResult
-import java.time.Instant
+import com.latch.webhook.decodeDelivery
+import com.latch.webhook.encodeDelivery
 
 /**
  * FR-1004's endpoint and FR-1004b's passive report, on this machine.
@@ -43,25 +42,4 @@ class WebhookSecrets(private val secrets: SecretFile) {
         const val KEY_ENDPOINT: String = "webhook.endpoint"
         const val KEY_LAST_DELIVERY: String = "webhook.last_delivery"
     }
-}
-
-internal fun encodeDelivery(delivery: WebhookDelivery): String = JSONObject()
-    .put("at", delivery.at.toString())
-    .put("result", delivery.result.name)
-    .put("status", delivery.status)
-    .toString()
-
-/**
- * Null where the record is unreadable or from a version this build does not know.
- *
- * Dropped rather than kept, and this is the one webhook record where that is the right way
- * round: it holds no capture. Losing it means the Settings screen says nothing about the last
- * delivery until the next one, which is a smaller cost than showing a result that might be a
- * misread of some other version's record.
- */
-internal fun decodeDelivery(record: String): WebhookDelivery? {
-    val json = runCatching { JSONObject(record) }.getOrNull() ?: return null
-    val at = runCatching { Instant.parse(json.optString("at")) }.getOrNull() ?: return null
-    val result = WebhookResult.entries.firstOrNull { it.name == json.optString("result") } ?: return null
-    return WebhookDelivery(at, result, json.optInt("status", 0).takeIf { it != 0 })
 }

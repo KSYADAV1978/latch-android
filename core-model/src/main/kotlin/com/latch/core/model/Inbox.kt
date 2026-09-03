@@ -103,6 +103,22 @@ data class InboxCapture(
 }
 
 /**
+ * What is in the Capture Inbox, for FR-704's count.
+ *
+ * **Three numbers rather than one, and the third is why this type exists.** FR-704 asks for "an
+ * unobtrusive count of pending inbox items"; [due] is that count, and it is what the user can
+ * act on. [snoozed] rows are not pending on them (FR-702). And [unreadable] rows are ones this
+ * build cannot decode — kept on disk, never deleted, and counted **apart** from [due] so the
+ * number the user sees still goes down while nothing is thrown away.
+ *
+ * That separation is the whole of the reading. Before it, the two halves looked like a choice:
+ * either keep an unreadable row and leave a count that never reaches zero, or delete it and lose
+ * a capture that exists nowhere else — which FR-703 guarantees it is, and which is the one thing
+ * NFR-302 forbids. Counting it separately is neither.
+ */
+data class InboxStatus(val due: Int, val snoozed: Int, val unreadable: Int)
+
+/**
  * FR-705: rows old enough to be worth putting in front of the user again.
  *
  * **Surfaced, never deleted**, which is the requirement's own word and the whole of its point:

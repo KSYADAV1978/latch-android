@@ -5,6 +5,7 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureState
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
+import com.latch.core.model.InboxStatus
 import com.latch.core.model.ItemType
 import java.time.Instant
 import java.time.LocalDate
@@ -34,6 +35,15 @@ interface CaptureInbox {
     /** FR-704: an unobtrusive count. Excludes snoozed rows, because they are not pending on the user. */
     suspend fun pendingCount(now: Instant): Int
 
+    /**
+     * FR-704's count, and what is *not* in it.
+     *
+     * [InboxStatus.unreadable] is the reason this exists beside [pendingCount]: a row this build
+     * cannot decode is kept and must be counted somewhere, and counting it as pending would
+     * leave a number that never reaches zero over a row the user cannot open.
+     */
+    suspend fun status(now: Instant): InboxStatus
+
     suspend fun find(id: String): InboxCapture?
 
     /** FR-702: assign a date, edit, snooze. The whole row is written back. */
@@ -42,7 +52,7 @@ interface CaptureInbox {
     /** FR-702: discard, and what a save does once the item has reached Google. */
     suspend fun discard(id: String)
 
-    /** NFR-205: one action deletes all local data. */
+    /** NFR-205: one action deletes all local data, including the rows this build cannot read. */
     suspend fun deleteAll()
 }
 
@@ -85,13 +95,22 @@ class SqliteCaptureInbox(context: Context) : CaptureInbox {
         )
     }
 
-    override suspend fun all(): List<InboxCapture> = withContext(Dispatchers.IO) { readAll() }
+    override suspend fun all(): List<InboxCapture> = withContext(Dispatchers.IO) { readRows().first }
 
     override suspend fun due(now: Instant): List<InboxCapture> = withContext(Dispatchers.IO) {
-        readAll().filter { it.isDue(now) }
+        readRows().first.filter { it.isDue(now) }
     }
 
-    override suspend fun pendingCount(now: Instant): Int = due(now).size
+    override suspend fun pendingCount(now: Instant): Int = status(now).due
+
+    override suspend fun status(now: Instant): InboxStatus = withContext(Dispatchers.IO) {
+        val (rows, unreadable) = readRows()
+        InboxStatus(
+            due = rows.count { it.isDue(now) },
+            snoozed = rows.count { !it.isDue(now) },
+            unreadable = unreadable,
+        )
+    }
 
     override suspend fun find(id: String): InboxCapture? = withContext(Dispatchers.IO) {
         database.readableDatabase.query(
@@ -102,7 +121,7 @@ class SqliteCaptureInbox(context: Context) : CaptureInbox {
             null,
             null,
             null,
-        ).consume { cursor -> if (cursor.moveToFirst()) decodeRow(cursor.getString(0), cursor.getString(1)) else null }
+        ).consume { cursor -> if (cursor.moveToFirst()) decodeRow(cursor.getString(1)) else null }
     }
 
     override suspend fun discard(id: String) {
@@ -117,8 +136,32 @@ class SqliteCaptureInbox(context: Context) : CaptureInbox {
         }
     }
 
-    /** Oldest first: FR-705 wants an aged capture surfacing rather than sinking under new ones. */
-    private fun readAll(): List<InboxCapture> =
+    /**
+     * The rows this build can read, oldest first, and how many it could not.
+     *
+     * Oldest first because FR-705 wants an aged capture surfacing rather than sinking under new
+     * ones.
+     *
+     * **A row that cannot be read is KEPT, and this is the rule the write queue carries rather
+     * than the one every other store here follows.** Elsewhere an unreadable record is dropped,
+     * and that is right where dropping means "setup runs again" or "a preference is forgotten".
+     * Here it means losing a capture that exists **nowhere else** — FR-703 guarantees precisely
+     * that nothing in the Inbox has reached the user's Google account — which is the one thing
+     * NFR-302 forbids outright, and the same reasoning `EncryptedWriteQueueStore` records for a
+     * queue entry.
+     *
+     * **The objection this replaces was about the count, and it was right about the count.**
+     * Keeping such a row used to mean a number that never goes down over something the user
+     * cannot open, so the row was deleted. Separating the two settles it: the row stays, and it
+     * is counted in [InboxStatus.unreadable] rather than in [InboxStatus.due], so FR-704's
+     * number still reaches zero and nothing is thrown away. The Inbox screen says how many
+     * there are, so they are not a silent gap either.
+     *
+     * A row is unreadable now and unreadable for ever only as far as *this* build knows; the
+     * record carries a leading version precisely so a later one may understand what this one
+     * could not.
+     */
+    private fun readRows(): Pair<List<InboxCapture>, Int> =
         database.readableDatabase.query(
             LatchDatabase.TABLE_INBOX,
             arrayOf("id", "payload"),
@@ -128,30 +171,17 @@ class SqliteCaptureInbox(context: Context) : CaptureInbox {
             null,
             "captured_at ASC",
         ).consume { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    decodeRow(cursor.getString(0), cursor.getString(1))?.let(::add)
-                }
+            val rows = mutableListOf<InboxCapture>()
+            var unreadable = 0
+            while (cursor.moveToNext()) {
+                val capture = cipher.decrypt(cursor.getString(1))?.let(::decodeInboxCapture)
+                if (capture != null) rows += capture else unreadable++
             }
+            rows.toList() to unreadable
         }
 
-    /**
-     * A row that cannot be read is dropped, one row at a time.
-     *
-     * The same rule the queue store follows, and for the weaker version of the same reason: a
-     * record from a later version or one encrypted under a key that did not survive a restore
-     * is unreadable now and unreadable for ever, and keeping it would mean a count that never
-     * goes down over a row that can never be opened. It costs a capture, which is why the
-     * record carries a leading version so that a *readable* older layout is read rather than
-     * discarded.
-     */
-    private fun decodeRow(id: String, payload: String): InboxCapture? {
-        val capture = cipher.decrypt(payload)?.let(::decodeInboxCapture)
-        if (capture == null) {
-            database.writableDatabase.delete(LatchDatabase.TABLE_INBOX, "id = ?", arrayOf(id))
-        }
-        return capture
-    }
+    private fun decodeRow(payload: String): InboxCapture? =
+        cipher.decrypt(payload)?.let(::decodeInboxCapture)
 
     private companion object {
         /**

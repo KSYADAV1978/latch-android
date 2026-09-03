@@ -16,6 +16,7 @@ import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
 import com.latch.data.StoredUndoOffer
 import com.latch.data.UndoOfferStore
+import com.latch.webhook.WebhookDelivery
 import com.latch.webhook.WebhookSender
 import com.latch.data.WriteOperation
 import com.latch.data.WriteQueue
@@ -351,8 +352,24 @@ class CaptureSaver(
      * the life of the process whether or not a webhook was ever sent.
      */
     private val webhookEndpoint: suspend () -> String? = { null },
-    /** FR-1004b: one attempt, best-effort, never blocking the Google write. */
-    private val webhooks: WebhookSender = WebhookSender(),
+    /**
+     * FR-1004b's passive report, written where the endpoint is.
+     *
+     * A function for the same reason [webhookEndpoint] is — this reaches the Keystore — and
+     * separate from it because what it stores is deliberately **not** a secret and carries no
+     * address: the screen that shows it masks the endpoint.
+     */
+    private val recordDelivery: suspend (WebhookDelivery) -> Unit = {},
+    /**
+     * FR-1004b: one attempt, best-effort, never blocking the Google write.
+     *
+     * **A function rather than the class**, so a test can reach what this file actually decides
+     * — which of the sender's answers gets recorded — without a socket. The sender itself is
+     * tested against a real one in `:webhook`; what was untested here, and turned out to be
+     * missing entirely, is that its answer is kept at all.
+     */
+    private val deliverWebhookTo: suspend (String, String) -> WebhookDelivery =
+        WebhookSender()::deliver,
 ) {
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
@@ -675,12 +692,19 @@ class CaptureSaver(
         scope.launch {
             val endpoint = runCatching { webhookEndpoint() }.getOrNull()
             if (!webhookEligible(source, settings().webhookEnabled, endpoint)) return@launch
-            runCatching {
-                webhooks.deliver(
-                    endpoint = requireNotNull(endpoint),
-                    payload = webhookPayloadForChain(items, metadata, body),
+            val delivery = runCatching {
+                deliverWebhookTo(
+                    requireNotNull(endpoint),
+                    webhookPayloadForChain(items, metadata, body),
                 )
-            }
+            }.getOrNull() ?: return@launch
+
+            // FR-1004b: "reported passively in the Settings screen". Until this line the
+            // outcome was discarded, so a user whose endpoint answered 404 saw exactly what a
+            // user whose endpoint was working saw, which is nothing. Recorded rather than
+            // raised: the second half of the same clause forbids a blocking error, and the
+            // capture's own outcome has already been published by the time this runs.
+            runCatching { recordDelivery(delivery) }
         }
     }
 

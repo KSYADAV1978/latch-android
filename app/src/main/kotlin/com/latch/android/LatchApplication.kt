@@ -32,6 +32,8 @@ import com.latch.data.EncryptedAccountDefaultsStore
 import com.latch.data.EncryptedSecretStore
 import com.latch.data.EncryptedSettingsStore
 import com.latch.data.EncryptedWriteQueueStore
+import com.latch.core.model.InboxStatus
+import com.latch.webhook.encodeDelivery
 import com.latch.core.model.LatchSettings
 import com.latch.data.LocalItemIndex
 import com.latch.data.QueueStatus
@@ -305,19 +307,29 @@ class LatchApplication : Application() {
         appScope.launch { _queueStatus.value = writeQueue.status() }
     }
 
-    private val _inboxCount = MutableStateFlow(0)
+    private val _inboxStatus = MutableStateFlow(InboxStatus(0, 0, 0))
 
     /**
      * FR-704: an unobtrusive count of pending Inbox items, and **it shall not nag**. The home
-     * screen draws nothing at all when it is zero, for the same reason the queue count does.
+     * screen draws nothing at all when [InboxStatus.due] is zero, for the same reason the queue
+     * count does.
      *
      * Snoozed rows are excluded (FR-702): a capture the user has put off is not pending on
      * them, and counting it would be the nagging the requirement names.
+     *
+     * **So are rows this build cannot decode**, which is the whole reason this is a status and
+     * not an integer. Such a row is kept rather than deleted — it holds a capture that exists
+     * nowhere else (FR-703) — and counting it as pending would leave a number that never
+     * reaches zero over something the user cannot open. It is counted apart, and the Inbox
+     * screen says how many there are so they are not a silent gap.
      */
-    val inboxCount: StateFlow<Int> = _inboxCount.asStateFlow()
+    val inboxStatus: StateFlow<InboxStatus> = _inboxStatus.asStateFlow()
 
     fun refreshInboxCount() {
-        appScope.launch { _inboxCount.value = inbox.pendingCount(Instant.now()) }
+        appScope.launch {
+            _inboxStatus.value = runCatching { inbox.status(Instant.now()) }
+                .getOrDefault(InboxStatus(0, 0, 0))
+        }
     }
 
     private val _pendingUndo = MutableStateFlow<StoredUndoOffer?>(null)
@@ -439,6 +451,19 @@ class LatchApplication : Application() {
                 runCatching { secrets.get(EncryptedSecretStore.KEY_WEBHOOK_ENDPOINT) }
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
+            },
+            // FR-1004b's passive report. The record format is `:webhook`'s, so this phone and
+            // the desktop store the same three facts under the same names.
+            recordDelivery = { delivery ->
+                runCatching {
+                    secrets.put(
+                        EncryptedSecretStore.KEY_WEBHOOK_LAST_DELIVERY,
+                        encodeDelivery(delivery),
+                    )
+                }
+                // The Settings screen may be open behind the capture window; its own read is
+                // cheap and this is the only thing that changes it from elsewhere.
+                settingsCoordinator.refreshDelivery()
             },
         )
     }

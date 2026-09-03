@@ -4,6 +4,7 @@ import com.latch.core.model.CaptureLayer
 import com.latch.core.model.CaptureState
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxReason
+import com.latch.core.model.InboxStatus
 import com.latch.core.model.ItemType
 import com.latch.desktop.store.reversingSecrets
 import java.io.File
@@ -179,10 +180,11 @@ class DesktopInboxTest {
 
     @Test
     fun `a row this build cannot decrypt is KEPT, not dropped`() {
-        // **The one place this client and the phone deliberately differ**, and the reason is
-        // that an Inbox row is a capture that exists nowhere else — FR-703 guarantees exactly
-        // that. `SqliteCaptureInbox` deletes such a row to keep FR-704's count honest; here the
-        // row stays on disk and the count is kept honest by counting it separately instead.
+        // The rule the write queue carries, and the reason is the same: an Inbox row holds a
+        // capture that exists nowhere else — FR-703 guarantees exactly that — so dropping one
+        // is what NFR-302 forbids. FR-704's count stays honest by counting it *apart* rather
+        // than by deleting it. `SqliteCaptureInbox` does the same as of SRS 1.70; this was the
+        // one place the two clients differed and it is not any more.
         //
         // The fixture creates the real condition: a cipher that refuses one specific value.
         val refusing = reversingSecrets(refuses = setOf("QkFE"))

@@ -1,6 +1,6 @@
 package com.latch.desktop.ui
 
-import com.latch.desktop.inbox.InboxStatus
+import com.latch.core.model.InboxStatus
 import java.awt.Color
 import java.awt.Font
 import java.awt.MenuItem

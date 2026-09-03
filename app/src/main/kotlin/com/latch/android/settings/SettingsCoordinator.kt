@@ -17,6 +17,8 @@ import com.latch.data.SettingsStore
 import com.latch.google.TaskList
 import com.latch.google.TasksApi
 import com.latch.google.WritableCalendar
+import com.latch.webhook.WebhookDelivery
+import com.latch.webhook.decodeDelivery
 import com.latch.webhook.maskedEndpoint
 import com.latch.webhook.validateEndpoint
 import java.time.LocalDate
@@ -81,12 +83,39 @@ class SettingsCoordinator(
     private val _endpointRefusal = MutableStateFlow<EndpointRefusal?>(null)
     val endpointRefusal: StateFlow<EndpointRefusal?> = _endpointRefusal.asStateFlow()
 
+    private val _lastDelivery = MutableStateFlow<WebhookDelivery?>(null)
+
+    /**
+     * FR-1004b: "A delivery failure shall be reported passively in the Settings screen and shall
+     * not raise a blocking error."
+     *
+     * **Passively is the requirement's own word and it governs where this is as much as how it
+     * reads**: a line on a screen the user chose to open, never a dialog and never anything on
+     * the capture sheet, which by the time a delivery finishes is showing an undo the user may
+     * be about to take.
+     *
+     * A **success** is reported as well as a failure, which the requirement does not ask for and
+     * which the failure clause is useless without: a webhook that silently works and one that
+     * silently does nothing look identical, and the second is the state a user needs to notice.
+     */
+    val lastDelivery: StateFlow<WebhookDelivery?> = _lastDelivery.asStateFlow()
+
     fun open() {
         loadDestinations()
+        refreshDelivery()
         scope.launch {
             _endpointMask.value = runCatching {
                 secrets.get(EncryptedSecretStore.KEY_WEBHOOK_ENDPOINT)
             }.getOrNull()?.let(::maskedEndpoint)
+        }
+    }
+
+    /** Also called when a delivery lands, so a Settings screen already open does not go stale. */
+    fun refreshDelivery() {
+        scope.launch {
+            _lastDelivery.value = runCatching {
+                secrets.get(EncryptedSecretStore.KEY_WEBHOOK_LAST_DELIVERY)
+            }.getOrNull()?.let(::decodeDelivery)
         }
     }
 
@@ -209,8 +238,12 @@ class SettingsCoordinator(
     fun clearEndpoint() {
         scope.launch {
             runCatching { secrets.put(EncryptedSecretStore.KEY_WEBHOOK_ENDPOINT, "") }
+            // The report goes with the endpoint it was about. Leaving it would have the screen
+            // describe a delivery to an address the user has just removed.
+            runCatching { secrets.put(EncryptedSecretStore.KEY_WEBHOOK_LAST_DELIVERY, "") }
             _endpointMask.value = null
             _endpointRefusal.value = null
+            _lastDelivery.value = null
         }
         update { it.copy(webhookEnabled = false) }
     }

@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                                     onSnooze = { app.inboxCoordinator.snooze(it) },
                                     onDiscard = app.inboxCoordinator::discard,
                                     saveState = app.captureSaver.state.collectAsState().value,
+                                    unreadable = app.inboxStatus.collectAsState().value.unreadable,
                                 )
 
                                 HomeScreen.RECIPES -> RecipesScreen(
@@ -189,6 +190,7 @@ class MainActivity : ComponentActivity() {
                                     bundledHolidays = app.bundledHolidays(),
                                     endpointMask = app.settingsCoordinator.endpointMask.collectAsState().value,
                                     endpointRefusal = app.settingsCoordinator.endpointRefusal.collectAsState().value,
+                                    lastDelivery = app.settingsCoordinator.lastDelivery.collectAsState().value,
                                     onBack = { screen = HomeScreen.HOME },
                                     onReloadDestinations = app.settingsCoordinator::loadDestinations,
                                     onChooseCalendar = app.settingsCoordinator::chooseCalendar,
@@ -242,7 +244,7 @@ class MainActivity : ComponentActivity() {
                                     queue = app.queueStatus.collectAsState().value,
                                     fellBackFrom = app.destinationFellBack.collectAsState().value,
                                     onAcknowledgeFallback = { app.acknowledgeFallback() },
-                                    inboxCount = app.inboxCount.collectAsState().value,
+                                    inboxCount = app.inboxStatus.collectAsState().value.due,
                                     undoOffer = app.pendingUndo.collectAsState().value,
                                     // FR-806a. The consent screen can only go out from here —
                                     // this is the Activity that attaches the resolution bridge —

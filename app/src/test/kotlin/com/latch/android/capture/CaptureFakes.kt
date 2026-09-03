@@ -8,6 +8,7 @@ import com.latch.google.DuplicateSearch
 import com.latch.google.EventWrite
 import com.latch.google.FailureClass
 import com.latch.core.model.InboxCapture
+import com.latch.core.model.InboxStatus
 import com.latch.google.ItemDates
 import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
@@ -125,7 +126,20 @@ internal class RecordingInbox : CaptureInbox {
 
     override suspend fun due(now: Instant): List<InboxCapture> = all().filter { it.isDue(now) }
 
-    override suspend fun pendingCount(now: Instant): Int = due(now).size
+    override suspend fun pendingCount(now: Instant): Int = status(now).due
+
+    /**
+     * [unreadable] is settable because the count is the *point* of the field: a fake that
+     * always answered zero could not show that FR-704's number still reaches zero while rows
+     * this build cannot decode are kept.
+     */
+    var unreadable: Int = 0
+
+    override suspend fun status(now: Instant): InboxStatus = InboxStatus(
+        due = all().count { it.isDue(now) },
+        snoozed = all().count { !it.isDue(now) },
+        unreadable = unreadable,
+    )
 
     override suspend fun find(id: String): InboxCapture? = rows[id]
 
