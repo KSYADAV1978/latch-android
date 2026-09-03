@@ -456,9 +456,33 @@ holding it. This directly defeats the discipline recorded above — *the count i
 not the screen* — in the one case this file warns about hardest, because the count is identical
 in every branch and only the reason differs.
 
-**The cure is one debug line at the decision**, naming which query answered: source-hash hit,
-item-key fall-through to §7.2 row 3, create, queued, or routed to the Inbox. It is the same
-shape as `LatchTiming` and costs nothing. **Owed, and AC-07's mechanism half waits on it.**
+**Built 3 Sep 2026 (SRS 1.72), installed, and not yet seen firing.** `WriteBasis` in `:google`
+names which row of §7.2's table answered — including, within row 4, whether the key query
+matched nothing or was never asked (SRS 1.25 skips it for a multi-item capture). It is logged
+debug-only under the same guard and the same tag as `LatchTiming`, so one grep gives the whole
+story of a capture:
+
+```
+adb logcat -v time | grep LatchTiming
+I/LatchTiming: content ready, ocr=false, chars=437 in 0ms
+I/LatchTiming: save decision=Duplicate basis=SOURCE_HASH
+```
+
+The line carries **no capture content**, and structurally rather than carefully: its inputs are
+an enum, a boolean and a decision taken through `basisSafeName`. The obvious spelling would
+have leaked — `WriteDecision.Reschedule` holds a `RescheduleMatch` whose `toString()` carries
+the **title stored on the user's own item** — and a test asserts both that the hazard is real
+and that the line avoids it.
+
+`CaptureSaver` still has **no** `android.*` import: it takes a sink defaulting to a no-op and
+`LatchApplication` supplies the logcat one. `android.util.Log` is a throwing stub under JVM
+unit tests, so logging from inside the saver would have broken every save test and cost the
+property that makes them possible.
+
+**Not covered, and named rather than assumed:** the FR-806 drain's own FR-803 check is a second
+site and is unlogged. It needs no basis — the drain has no FR-804 path to be confused with.
+
+**Owed: one more run of the AC-07 reverse capture, to see the line and close the mechanism.**
 
 **Two observations from real use, recorded rather than acted on.**
 

@@ -32,6 +32,7 @@ import com.latch.data.EncryptedAccountDefaultsStore
 import com.latch.data.EncryptedSecretStore
 import com.latch.data.EncryptedSettingsStore
 import com.latch.data.EncryptedWriteQueueStore
+import android.util.Log
 import com.latch.core.model.InboxStatus
 import com.latch.webhook.encodeDelivery
 import com.latch.core.model.LatchSettings
@@ -452,6 +453,19 @@ class LatchApplication : Application() {
                     .getOrNull()
                     ?.takeIf { it.isNotBlank() }
             },
+            /**
+             * §7.2's decision, in logcat, on debug builds only.
+             *
+             * **The same guard and the same tag as `CaptureActivity`'s `LatchTiming` line**, so
+             * one grep tells the whole story of a capture — the content step, then what the
+             * save decided — and so this disappears from a release build exactly as that one
+             * does: `BuildConfig.DEBUG` is a compile-time constant there, R8 removes the branch
+             * and the string with it.
+             *
+             * The line is composed by `saveDecisionLine`, which has no capture content to put
+             * in it. This end supplies only the tag.
+             */
+            logSaveDecision = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
             // FR-1004b's passive report. The record format is `:webhook`'s, so this phone and
             // the desktop store the same three facts under the same names.
             recordDelivery = { delivery ->

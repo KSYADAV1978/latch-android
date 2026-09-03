@@ -36,6 +36,9 @@ import com.latch.google.WriteDecision
 import com.latch.google.isWorthRetrying
 import com.latch.google.itemDatesOf
 import com.latch.google.movesNothing
+import com.latch.google.WriteBasis
+import com.latch.google.basisSafeName
+import com.latch.google.writeBasis
 import com.latch.google.writeDecision
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
@@ -370,6 +373,21 @@ class CaptureSaver(
      */
     private val deliverWebhookTo: suspend (String, String) -> WebhookDelivery =
         WebhookSender()::deliver,
+    /**
+     * Where §7.2's decision goes for diagnosis, as a finished line of text.
+     *
+     * **A no-op by default, and supplied by `LatchApplication`.** This class has no `android.*`
+     * import at all, which is why every branch of a save has a JVM test; `android.util.Log` is
+     * a throwing stub under those tests, so calling it from here would break them *and* cost
+     * the property that makes them possible. The sink keeps the Android call at the edge.
+     *
+     * **It takes a String rather than the decision**, and that is the leak-proofing rather than
+     * a convenience: `WriteDecision.Reschedule` holds a `RescheduleMatch` carrying the title
+     * **stored on the user's item**, so a sink that took the object would be one careless
+     * `toString()` from putting a line of their calendar into logcat. Nothing that reaches here
+     * has content in it to leak.
+     */
+    private val logSaveDecision: (String) -> Unit = {},
 ) {
     private val _state = MutableStateFlow<SaveState>(SaveState.Idle)
     val state: StateFlow<SaveState> = _state.asStateFlow()
@@ -1038,7 +1056,13 @@ class CaptureSaver(
             findReschedule(leader, defaults, metadata)
         }
 
-        return when (val decision = writeDecision(duplicate, reschedule, proposed)) {
+        val decision = writeDecision(duplicate, reschedule, proposed)
+        // Which row of §7.2's table answered, for whoever is reading logcat. `Duplicate` is
+        // reached two ways and they say the same thing on screen — the confusion of 1 Sep 2026,
+        // and the reason AC-07's reverse direction passed on its outcome and not its mechanism.
+        logSaveDecision(saveDecisionLine(writeBasis(duplicate, reschedule, proposed), decision, duplicate.scanCapped))
+
+        return when (decision) {
             WriteDecision.Duplicate -> SaveState.AlreadySaved
 
             WriteDecision.Create ->

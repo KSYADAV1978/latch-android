@@ -66,6 +66,82 @@ fun writeDecision(
 }
 
 /**
+ * **Which row of §7.2's table answered**, for a diagnostic line and nothing else.
+ *
+ * [WriteDecision] says what a save will do; this says *why*, and the difference is the whole
+ * reason it exists. `Duplicate` is reached by two quite different routes — the source hash
+ * matched (row 1), or the hash missed and the key matched a date the item already sits on
+ * (row 3) — and **they produce the identical sentence on screen**. On 1 Sep 2026 an "Already
+ * saved" on Android was traced to the second while FR-803's own query was returning `items=0`
+ * against a hash carried by two events in that very calendar, and on 3 Sep 2026 AC-07's
+ * reverse direction passed on its outcome and could not be closed on its mechanism for exactly
+ * the same reason.
+ *
+ * It carries **no content**: which query answered, and nothing about what was captured. That is
+ * a property of the type rather than of its callers — there is no field here that could leak
+ * one, which is what makes it safe to put in a log.
+ *
+ * Derived from the same two searches `writeDecision` reads, so the two cannot disagree about
+ * what happened; a diagnostic that reported a different story from the code it describes would
+ * be worse than none.
+ */
+enum class WriteBasis {
+    /** Row 1: `latch.source_hash` matched. FR-803 answered and the key was never consulted. */
+    SOURCE_HASH,
+
+    /** Row 3: the hash missed, `latch.item_key` matched, and an update would move nothing. */
+    ITEM_KEY_SAME_DATE,
+
+    /** Row 2: the hash missed, the key matched, and the dates differ. FR-804 has something to ask. */
+    ITEM_KEY_DIFFERENT_DATE,
+
+    /** Row 4: the key query ran and matched nothing. */
+    NO_MATCH,
+
+    /**
+     * Row 4, reached without asking.
+     *
+     * Told apart from [NO_MATCH] because they are different facts about the account: one says
+     * nothing matched, the other says nothing was looked for. SRS 1.25 skips the key query for
+     * a capture producing more than one item, and a diagnosis that could not see the difference
+     * would read a deliberate narrowing as an empty account.
+     */
+    KEY_NOT_CONSULTED,
+}
+
+/** @see WriteBasis */
+fun writeBasis(
+    duplicate: DuplicateSearch,
+    reschedule: RescheduleSearch?,
+    proposed: ItemDates,
+): WriteBasis {
+    if (duplicate.found) return WriteBasis.SOURCE_HASH
+    if (reschedule == null) return WriteBasis.KEY_NOT_CONSULTED
+    val match = reschedule.match ?: return WriteBasis.NO_MATCH
+    return if (movesNothing(match.dates, proposed)) {
+        WriteBasis.ITEM_KEY_SAME_DATE
+    } else {
+        WriteBasis.ITEM_KEY_DIFFERENT_DATE
+    }
+}
+
+/**
+ * The decision's name, with **nothing of the match in it**.
+ *
+ * `WriteDecision.Reschedule` is a data class holding a `RescheduleMatch`, whose own
+ * `toString()` carries the **title stored on the user's item**. Logging the decision object
+ * would therefore put a line of their calendar into logcat, which NFR-202's instinct forbids as
+ * firmly of a log as of an analytics SDK. This is the safe spelling, and it exists so that no
+ * call site has to remember why the obvious one is wrong.
+ */
+val WriteDecision.basisSafeName: String
+    get() = when (this) {
+        WriteDecision.Duplicate -> "Duplicate"
+        WriteDecision.Create -> "Create"
+        is WriteDecision.Reschedule -> "Reschedule"
+    }
+
+/**
  * Whether an update from [existing] to [proposed] would change nothing.
  *
  * The comparison is over exactly the fields an update may modify, which is the precise form
