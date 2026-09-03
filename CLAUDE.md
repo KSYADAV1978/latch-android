@@ -1084,6 +1084,39 @@ twice on the *same* client and confirm it answers "Already saved" to itself. If 
 clients disagree about the text; if it does not, FR-803 is broken on that client and AC-07 is
 not what is wrong.
 
+### What the Windows client still lacks — audited 3 Sep 2026 against the SRS
+
+Read from the source rather than from memory. The order is by how much the absence costs.
+
+**Two are worse than absent, because the client half-implies they exist.**
+
+| Gap | Why it is the sharp end |
+|---|---|
+| **FR-507 — the Event/To-do override** | `PopupModel` computes `canOverride` and `popupModel` accepts `typeOverrides`, and **nothing renders a control for either**. The capability is dead code that reads as done. The badge is drawn inside the checkbox label and cannot be pressed. |
+| **FR-506 row 3 — a time with no day** | The sheet says *"Pick a day for this."* and offers **no way to pick one**. It instructs the user to do something the client cannot do. On the phone this row has suggestion chips and a calendar. |
+
+**Absent, and plainly so.**
+
+| Family | State on Windows |
+|---|---|
+| **FR-1000 Settings** | Nothing. The tray item says "Settings are not built yet." The hotkey, FR-1002's date order, the default duration and reminder, FR-512's threshold and FR-1003's layer toggles all use their defaults and cannot be changed. FR-1002's Option A/B switch does not exist. |
+| **FR-900 destination** | `DesktopSetup` takes the Option B default and says which calendar it chose. No picker (FR-901/902/904), no hidden-calendar badge (FR-903), no routing rules (FR-905), no override-three-times offer (FR-907), and **no FR-908 refresh** — a Latch calendar deleted in Google would not be noticed. |
+| **FR-700 Capture Inbox** | Nothing. An undated capture is saved as an undated to-do instead of being held, which SRS 1.62 records as the deliberate interim reading for this client. FR-512's routing therefore does nothing here. |
+| **FR-600 recipes** | Nothing. `:recipes` is on the classpath and unused. |
+| **FR-1004 webhook** | Nothing, including FR-1004a's payload and FR-1004b's rules. |
+| **NFR-205 disconnect** | Nothing. Signing out forgets the local sign-in and the destination; it does **not** revoke the grant at Google, and there is no "delete everything" action. `oauth2.googleapis.com` is already in `ALLOWED_HOSTS` for it. |
+| **FR-305 MSIX** | Publisher work; needs the Windows SDK. `docs/RELEASE-WINDOWS.md`. |
+| **FR-306 share target** | `[SHOULD]`. Nothing. |
+| **FR-307 Outlook add-in** | `[LATER]` in the SRS. |
+| **FR-110 multiple accounts** | `[SHOULD]`. One account, as on Android. |
+| **NFR-401 accessibility** | Partly by construction — Swing reaches the Java Access Bridge, rows carry accessible names, everything is keyboard-reachable — but never tested with a screen reader, and no contrast or scaling pass. The same gap Android has. |
+
+**Deliberately narrowed rather than missing**, so they are not counted above: no notification capture (FR-208 to FR-212 are Android layers), and the queue drains only while Latch runs.
+
+**What is built and working** — for completeness, since the list above is long: FR-301, FR-302,
+FR-303, FR-304, FR-002's grant, FR-801, FR-802, FR-803, FR-804, FR-806, FR-807, FR-1005, and
+FR-502/509/509a/509b/510/511 through the shared modules.
+
 ### Human pass backlog — Windows
 
 Nothing below has been done by a person. Read each row as *the condition that would make it
