@@ -216,6 +216,7 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-801/802 from Windows — a real write** | 3 Sep 2026 | **Pass.** Two captures written to the live API through the shared `:google` client. Read back: all five §7.2 keys present, `latch.recipe` correctly **absent**, metadata decoding cleanly through `remoteMetadataFromEventProperties`, description carrying the source text, and Google canonicalising the zone this JVM calls `Asia/Calcutta` to `Asia/Kolkata`. The absent-recipe check is the hand-written JSON's `put(name, null)` removes semantics, confirmed against Google rather than against a unit test. |
 | **FR-803 on Windows** | 3 Sep 2026 | **Pass.** The identical capture a second time answered "Already saved. Nothing was written again."; a different message wrote. **On this client that answer can only be the source-hash query**, because the desktop has no FR-804 path to fall through to — which is what Android's did on 1 Sep, and why AC-07 was worth closing here first. |
 | **AC-07 — the same message on phone and PC** | 3 Sep 2026 | **PASS. The oldest open criterion in this record, closed.** The phone captured `Kickoff 8 September 2027 at 9am` on a device weeks earlier. The PC computed `source_hash b3375f4a…` and `item_key f5d2496e…` — **byte-identical to what the phone stored**, verified against the values read back out of Google — and answered "Already saved. Nothing was written again." Evidence is the count and not the message: the calendar held **4 events before and 4 after**, exactly one Kickoff, and FR-803's own query returns exactly **1** match for that hash. Two things make this more than one green run. The identity was derived by *shared compiled code*, so it agrees by construction rather than by luck; and `f5d2496e…` is the same digest the `plain_event` row of `item_key_vectors.tsv` was generated with today, on Windows, from `:wire` — so a vector taken this morning matches an item a phone wrote in August. **The reverse direction — PC first, then phone — is still owed**; it is not the same test, and `docs`' procedure says why. |
+| **FR-503 / SRS 1.62 — a relative word and its gloss are one date** | 3 Sep 2026 | **Pass, on the capture that prompted it.** The NITI Aayog email shared into Latch verbatim (256 chars, `ocr=false`, 0 ms — the synchronous text path, so NFR-102 is undisturbed). The sheet showed **one** candidate, not two: no checkboxes at all, which is how a single-candidate sheet renders, where the same text produced a to-do for the reading day beside an event for the previous one before the change. It read `EVENT`, `2 Sept 2026, 5:30 pm` — the explicit date, not the relative one — with FR-510's line *"2 Sept 2026 has passed. Latch will save a follow-up to-do instead of a dated item."* The developer then pressed Save while this was being watched, and the local index records exactly one new row: a **TASK**, at 12:56:03, which is FR-510's undated follow-up and the expected outcome of the merge. Nothing was queued and nothing crashed. **What this does not cover:** the item was not inspected in Google, and FR-509's title finding is visible in the same screenshot — the sheet showed `In continuation of the trail mail, please find`, which is recorded against FR-509 and deliberately not fixed. |
 | **AC-05 — a screenshot with three dates** | 31 Aug 2026 | **Pass**, on `three-dates-v4.png`. Exactly three dates — `TASK 14 Sept 2026`, `TASK 20 Sept 2027`, `EVENT 1 Oct 2027`, the range correctly one candidate and an Event. Three checkboxes all `checked=true` at open, read from the view hierarchy rather than eyeballed; unticking the middle gave `true,false,true`; the save wrote **two** items, not three; nothing on the unticked date; and a re-capture answered "Already saved", which is Google confirming both landed. **Provenance:** v4 is a *rendered* chat image, not a device screenshot, so the criterion is met by a proxy and is to be re-run if a real screenshot is supplied. **The undo half was not re-run here** and is not silently omitted: it is covered by AC-11's four-item chain undo of 28 Aug. |
 
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
@@ -1006,32 +1007,16 @@ nothing in *every* application on the machine, with no error and nothing to blam
 now waits on the parent's process handle alongside its message queue. Verified by hard-killing
 the application and re-registering the combination afterwards.
 
-### The shared parser changed on 3 Sep 2026 — Android is BUILT, NOT INSTALLED
+### The shared parser change of 3 Sep 2026 — installed and device-checked
 
-A relative word adjacent to an explicit date is now one commitment (SRS 1.62). The change is
-in `:parser`, which both clients compile, so **the phone and the PC will only read that email
-the same way once both are running the new build**.
+A relative word adjacent to an explicit date is now one commitment (SRS 1.62). The change is in
+`:parser`, which both clients compile, so both had to be rebuilt before they would read the same
+email the same way.
 
 | Client | State |
 |---|---|
 | Windows | **Installed and running.** `install-local.ps1` re-run, relaunched from the shortcut. |
-| Android | **APK built, NOT installed.** No device was attached when the change landed — `adb devices` was empty — so nothing was pushed and nothing on the phone has changed. |
-
-The APK is at `app/build/outputs/apk/debug/app-debug.apk` (55.01 MB, universal debug). To
-install it:
-
-    adb install -r app/build/outputs/apk/debug/app-debug.apk
-
-**Until that is done the two clients disagree about this class of capture**, which is worth
-knowing before testing AC-07 with anything containing a relative word: the phone would derive a
-different `item_key` from the same email, because the span it blanks would stop short of
-"today". Captures with no relative word are unaffected.
-
-Once installed it is **installed-not-yet-device-checked**: the fix is JVM-verified by fourteen
-candidate-count tests and a live corpus row, and nobody has watched the phone open that email.
-The check is one line — capture the NITI Aayog email on the phone and confirm **one** row, an
-undated to-do carrying "Originally dated 2 September 2026" rather than a to-do for today beside
-an event for yesterday.
+| Android | **Installed 3 Sep 2026 12:48**, `adb install -r` over the previous build. Account defaults, the FR-803 index, the queue and the settings all survived the upgrade. Launch canary passed: `MainActivity` reached RESUMED, no crash. |
 
 ### Closing AC-07 — the oldest open criterion in this record
 
