@@ -989,6 +989,71 @@ nothing in *every* application on the machine, with no error and nothing to blam
 now waits on the parent's process handle alongside its message queue. Verified by hard-killing
 the application and re-registering the combination afterwards.
 
+### Closing AC-07 — the oldest open criterion in this record
+
+AC-07 reads "capture the same message **on phone and PC**". Its phone half passed on 27 Aug
+2026; the other half has been unclosable since the project began because there was no PC
+client. There is one now. This is the procedure, written before the run so the run cannot be
+graded against whatever it happens to produce.
+
+**What would make this fail, named first.** The PC writes a second item instead of answering
+"Already saved. Nothing was written again." Everything below exists to make that outcome
+possible if the mechanism is broken, and to tell it apart from three ways of passing by
+accident.
+
+**Three ways to pass without meaning it, and the guard against each.**
+
+1. **The PC answers from the wrong query.** On 1 Sep 2026 an "Already saved" on Android was
+   traced to FR-804's `item_key` query falling through to §7.2's decision-table row 3, while
+   FR-803's `source_hash` query was returning `items=0` against a hash carried by two events in
+   that very calendar. The message on screen is identical either way. **Guard:** the desktop
+   has no FR-804 path at all — `DesktopSaver` runs FR-803 and nothing else — so an "Already
+   saved" here can only be the source-hash query. That is a property of this client and is the
+   reason it is worth closing AC-07 on this client first.
+
+2. **The two clients wrote to different calendars, and the PC found its own item.** FR-803's
+   event query is scoped to a calendar id. **Guard:** before the run, confirm the desktop
+   adopted the calendar the phone already made rather than creating a second one named "Latch"
+   — `existingLatchCalendar` is written to do this and `DesktopSetupTest` pins it, but the
+   account is the only place it is true. Check the calendar list in Google Calendar: there must
+   be exactly one Latch calendar.
+
+3. **The text differed, so the hashes differ, and the PC wrote a genuinely new item.** This is
+   the likeliest false failure rather than a false pass, and it is a fixture problem.
+   **Guard:** the message must reach both clients byte-identical. Send it to yourself once and
+   copy it from the same source on both, or type it into a note synced to both. Do **not** hand
+   it between clients through anything that reflows text.
+
+**The capture must be text, not an image.** §7.2 records the OCR hash wobble: the same image
+recognised twice can differ by a character, and the two clients use different recognisers
+entirely — ML Kit and `Windows.Media.Ocr`. A cross-client image capture is *expected* to miss,
+and testing AC-07 with one would produce a failure that proves nothing.
+
+**The run.**
+
+1. Both clients signed in to the same Google account, and the phone's Latch calendar already
+   exists. Confirm exactly one Latch calendar in the account.
+2. On the **phone**: capture `Board review 8 October 2027 at 15:00` and save. Confirm the event
+   is in Google Calendar. Note its `latch.source_hash` if you can see it; you do not need to.
+3. On the **PC**: copy the identical text, press Ctrl+Shift+K, and Save.
+4. **Expected:** the tray says *Already saved. Nothing was written again.*, and Google Calendar
+   still holds **one** Board review event.
+5. Then the reverse, which is not the same test and is the half nobody thinks to run: capture a
+   fresh message on the **PC** first, then the same text on the **phone**. The phone must answer
+   "Already saved" too. FR-803 is symmetric by construction — one query against one index — but
+   the two clients compose that query in code that has only ever been exercised in one
+   direction on a real account.
+
+**What to record.** Whether each direction passed, the number of Board review events in the
+account afterwards (the count is the evidence; the message on screen is not), and which
+calendar they are in. A pass in one direction and a failure in the other is a result worth
+having, not an inconclusive run.
+
+**If it fails.** The first thing to check is the hash, not the code: capture the same text
+twice on the *same* client and confirm it answers "Already saved" to itself. If it does, the
+clients disagree about the text; if it does not, FR-803 is broken on that client and AC-07 is
+not what is wrong.
+
 ### Human pass backlog — Windows
 
 Nothing below has been done by a person. Read each row as *the condition that would make it
