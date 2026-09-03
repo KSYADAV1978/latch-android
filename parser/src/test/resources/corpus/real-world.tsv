@@ -67,3 +67,29 @@ In March, 8 people confirmed	TASK_UNDATED	-	-
 # current year, which inside a range opened one year and closed in another — a 370-day item.
 # Found by running a device checklist text through the parser before the phone saw it.
 Annual maintenance shutdown from September 20 to September 24, 2027	EVENT	2027-09-20	-
+# ---------------------------------------------------------------------------------------------
+# The first real desktop capture, from a work email, 3 Sep 2026. Verbatim.
+#
+# COMMENTED OUT because it does not pass yet, on the same footing as the voice-typing row of
+# SRS 1.21: the text is kept here verbatim so whoever touches the rule has the exact input,
+# and the row is activated by the change that makes it pass rather than by editing it.
+#
+# What it produces today: TWO candidates. "today" resolves against the reading clock, and
+# "2 September, 2026" is taken as a second, separate date. The author wrote "today
+# (2 September, 2026)" as ONE expression — the parenthetical glossing the relative word — and
+# the message was read the day after it was sent, so "today" is stale and the explicit date is
+# the one the writer committed to.
+#
+# What it should produce: one EVENT on the explicit date, the relative word absorbed into its
+# span exactly as a corroborating weekday already is. Under this file's clock of 2026-08-25 the
+# explicit date is in the future, so the expected row is an ordinary Event; on the real capture
+# it was in the past and FR-510 applies, which is a consequence of the merge worth watching.
+#
+#Dear Sir/Ma'am, In continuation of the trail mail, please find attached the updated presentation for virtual meeting to be chaired by CEO, NITI Aayog today (2 September, 2026) at 5.30 PM. Regards, Gitanjali Gupta, Additional Secretary, NITI Aayog, 23096829	EVENT	2026-09-02	17:30
+# ---------------------------------------------------------------------------------------------
+# A guard row, not a date row. An eight-digit telephone number must stay a telephone number:
+# it has no separators, so no rule claims it, and this row exists so that stays true when one
+# is added. Noticed alongside the capture above, where the sender's extension sits two words
+# from a real date.
+NITI Aayog, 23096829	TASK_UNDATED	-	-
+call 23096829 today	TASK_WITH_DUE_DATE	2026-08-25	-
