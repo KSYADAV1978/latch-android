@@ -11,7 +11,10 @@ rem  A bundle is a single file that `git clone` can clone from, so it is a real
 rem  backup rather than a copy of some files: restoring needs nothing but git
 rem  and this one file. Nothing here touches any account or any remote.
 
+rem  `%~dp0` ends with a backslash, which would escape the closing quote of
+rem  "%REPO%" and hand git one long mangled argument. Trimmed once, here.
 set "REPO=%~dp0"
+set "REPO=%REPO:~0,-1%"
 set "DEST=C:\dev\latch-backup"
 
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd-HHmm"') do set "STAMP=%%i"
