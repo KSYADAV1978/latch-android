@@ -34,10 +34,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RescheduleTest {
+
+    private val MOVED_TEMPLATE = "Moved by Latch from %1\$s, on %2\$s."
 
     private val defaults = DesktopDefaults("a@example.com", "cal-1", "Latch", "list-1")
     private val context = ParseContext(now = LocalDateTime.of(2026, 9, 3, 9, 0))
@@ -52,10 +55,24 @@ class RescheduleTest {
         return result to draft.items
     }
 
-    private fun matchAt(start: LocalDateTime, id: String = "ev-existing") = RescheduleMatch(
+    private fun matchAt(
+        start: LocalDateTime,
+        id: String = "ev-existing",
+        body: String = "",
+    ) = RescheduleMatch(
         remoteId = id,
         title = "Project sync",
         dates = ItemDates.Event(start, start.plusHours(1), allDay = false, timeZone = "Asia/Kolkata"),
+        body = body,
+    )
+
+    /** A saver that writes FR-804's move note, with a fixed clock so the sentence is pinned. */
+    private fun notingSaver(calendar: FakeCalendar, tasks: FakeTasks = FakeTasks()) = DesktopSaver(
+        calendar,
+        tasks,
+        "Asia/Kolkata",
+        movedNoteTemplate = "Moved by Latch from %1\u0024s, on %2\u0024s.",
+        today = { java.time.LocalDate.of(2026, 9, 4) },
     )
 
     @Test
@@ -159,6 +176,67 @@ class RescheduleTest {
             LocalDateTime.of(2027, 9, 8, 11, 0),
             (outcome.created.priorDates as ItemDates.Event).start,
         )
+    }
+
+    @Test
+    fun `SRS 1_79 an update writes a note saying where the item came from`() = runTest {
+        // SRS 1.77's finding: a moved item said nowhere that it had moved, and its title still
+        // named the date it moved off. The note is the answer, and this is where it reaches an
+        // account. The condition that would make it fail is the patch carrying dates only,
+        // which is what it did before — and which still compiles, because the parameter has a
+        // default.
+        val calendar = FakeCalendar().apply {
+            rescheduleMatch = RescheduleSearch(
+                matchAt(LocalDateTime.of(2027, 9, 8, 11, 0), body = "Kickoff 8 September 2027 at 9am")
+            )
+        }
+        val (result, items) = itemsFor("Project sync on 9 September 2027 at 11:00")
+        val saver = notingSaver(calendar)
+        val offer = saver.save(DesktopCapture("x"), result, items, defaults, "c") as SaveResult.RescheduleOffered
+
+        val outcome = saver.applyReschedule(offer)
+        assertIs<SaveResult.Updated>(outcome)
+
+        val written = assertNotNull(calendar.patchedBodies["ev-existing"])
+        assertTrue("Moved by Latch from Wed 8 Sep" in written, written)
+        assertTrue("2027, 11:00, on 4 Sep" in written, written)
+        // FR-805's text is provenance and must survive the note being added to it.
+        assertTrue("Kickoff 8 September 2027 at 9am" in written, written)
+    }
+
+    @Test
+    fun `SRS 1_79 the body it replaced is carried for the undo`() = runTest {
+        // The cost SRS 1.77 named: the write is easy and the undo is not. After the patch the
+        // previous body exists nowhere but here.
+        val calendar = FakeCalendar().apply {
+            rescheduleMatch = RescheduleSearch(
+                matchAt(LocalDateTime.of(2027, 9, 8, 11, 0), body = "the original capture")
+            )
+        }
+        val (result, items) = itemsFor("Project sync on 9 September 2027 at 11:00")
+        val saver = notingSaver(calendar)
+        val offer = saver.save(DesktopCapture("x"), result, items, defaults, "c") as SaveResult.RescheduleOffered
+
+        val outcome = saver.applyReschedule(offer) as SaveResult.Updated
+        assertEquals("the original capture", outcome.created.priorBody)
+    }
+
+    @Test
+    fun `SRS 1_79 a client with no wording writes no note and claims no prior body`() = runTest {
+        // The default saver has no template. Null must mean "leave the body alone" rather than
+        // "blank it" — sending an empty description would erase one the user wrote themselves.
+        val calendar = FakeCalendar().apply {
+            rescheduleMatch = RescheduleSearch(
+                matchAt(LocalDateTime.of(2027, 9, 8, 11, 0), body = "do not touch me")
+            )
+        }
+        val (result, items) = itemsFor("Project sync on 9 September 2027 at 11:00")
+        val saver = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata")
+        val offer = saver.save(DesktopCapture("x"), result, items, defaults, "c") as SaveResult.RescheduleOffered
+
+        val outcome = saver.applyReschedule(offer) as SaveResult.Updated
+        assertNull(calendar.patchedBodies["ev-existing"])
+        assertNull(outcome.created.priorBody)
     }
 
     @Test
@@ -320,6 +398,44 @@ class UndoTest {
         assertEquals(RemovalOutcome(1, 1), outcome)
         assertTrue(calendar.deleted.isEmpty(), "an update was undone by deleting the item")
         assertEquals(prior, calendar.patched["ev-existing"])
+    }
+
+    @Test
+    fun `SRS 1_79 an undo takes the move note back off with the dates`() = runTest {
+        // The half SRS 1.77 said would be expensive, and the half that makes the note safe to
+        // write at all: an undo that reverted the move and left "moved from 8 Sep" standing
+        // would leave a false statement in the user's own calendar — worse than the silence it
+        // replaced, because it is confidently wrong rather than merely quiet.
+        val calendar = FakeCalendar()
+        val prior = ItemDates.Event(
+            LocalDateTime.of(2027, 9, 8, 11, 0),
+            LocalDateTime.of(2027, 9, 8, 12, 0),
+            allDay = false, timeZone = "Asia/Kolkata",
+        )
+        val outcome = undoCreated(
+            listOf(
+                CreatedItem.Updated(
+                    ItemType.EVENT, "cal-1", "ev-existing", prior,
+                    priorBody = "the body before the note",
+                )
+            ),
+            calendar, FakeTasks(),
+        )
+        assertEquals(RemovalOutcome(1, 1), outcome)
+        assertEquals(prior, calendar.patched["ev-existing"])
+        assertEquals("the body before the note", calendar.patchedBodies["ev-existing"])
+    }
+
+    @Test
+    fun `SRS 1_79 an undo of an update that wrote no note leaves the body alone`() = runTest {
+        val calendar = FakeCalendar()
+        val prior = ItemDates.Task(java.time.LocalDate.of(2027, 9, 8))
+        val tasks = FakeTasks()
+        undoCreated(
+            listOf(CreatedItem.Updated(ItemType.TASK, "list-1", "task-1", prior)),
+            calendar, tasks,
+        )
+        assertNull(tasks.patchedBodies["task-1"], "an undo blanked a body it never wrote to")
     }
 
     @Test

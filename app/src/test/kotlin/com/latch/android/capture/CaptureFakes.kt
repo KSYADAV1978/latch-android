@@ -276,9 +276,18 @@ internal class RecordingCalendarApi(
         return rescheduleMatch
     }
 
-    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
+    /** FR-804's move note is recorded, not swallowed: a fake that ignored it could not fail. */
+    val patchedBodies = mutableListOf<String?>()
+
+    override suspend fun patchEventDates(
+        calendarId: String,
+        eventId: String,
+        dates: ItemDates.Event,
+        description: String?,
+    ) {
         if (failPatch) throw com.latch.google.GoogleUnreachable("no network", java.io.IOException())
         patched += Triple(calendarId, eventId, dates)
+        patchedBodies += description
     }
 
     override suspend fun listWritableCalendars(): List<WritableCalendar> = emptyList()
@@ -324,9 +333,17 @@ internal class RecordingTasksApi(
         return rescheduleMatch
     }
 
-    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
+    val patchedBodies = mutableListOf<String?>()
+
+    override suspend fun patchTaskDates(
+        taskListId: String,
+        taskId: String,
+        dates: ItemDates.Task,
+        notes: String?,
+    ) {
         if (failPatch) throw com.latch.google.GoogleUnreachable("no network", java.io.IOException())
         patched += Triple(taskListId, taskId, dates)
+        patchedBodies += notes
     }
 
     override suspend fun listTaskLists(): List<TaskList> = emptyList()

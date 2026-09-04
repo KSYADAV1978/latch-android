@@ -157,8 +157,9 @@ internal class GoogleCalendarApi(private val http: GoogleHttp) : CalendarApi {
         calendarId: String,
         eventId: String,
         dates: ItemDates.Event,
+        description: String?,
     ) {
-        http.patch(eventItemUrl(calendarId, eventId), eventDatesBody(dates))
+        http.patch(eventItemUrl(calendarId, eventId), eventDatesBody(dates, description))
     }
 }
 
@@ -256,8 +257,9 @@ internal class GoogleTasksApi(private val http: GoogleHttp) : TasksApi {
         taskListId: String,
         taskId: String,
         dates: ItemDates.Task,
+        notes: String?,
     ) {
-        http.patch(taskItemUrl(taskListId, taskId), taskDatesBody(dates))
+        http.patch(taskItemUrl(taskListId, taskId), taskDatesBody(dates, notes))
     }
 }
 
@@ -559,23 +561,36 @@ internal fun taskItemKeyUrl(taskListId: String, pageToken: String?): String =
  * The `events.patch` body. Start and end and nothing else — no `summary`, no `description`
  * and above all no `extendedProperties`, so §7.2's metadata survives the move untouched.
  */
-internal fun eventDatesBody(dates: ItemDates.Event): JSONObject =
+internal fun eventDatesBody(dates: ItemDates.Event, description: String? = null): JSONObject =
     JSONObject()
         .put("start", eventTimePoint(dates.start, dates.allDay, dates.timeZone))
         .put("end", eventTimePoint(dates.end, dates.allDay, dates.timeZone))
+        // `put(name, null)` removes the key, which is exactly right here: an absent
+        // `description` in a patch means "leave as it is", and that is what a caller passing
+        // null is asking for.
+        .put("description", description)
 
 /**
- * The `tasks.patch` body. `due` alone — sending `notes` would rewrite §7.2's metadata, which
- * on this transport lives inside them.
+ * The `tasks.patch` body.
+ *
+ * **`notes` is sent only when a caller supplies one, and only ever a value composed by
+ * `bodyWithMoveNote`.** This used to send `due` alone, and the reason recorded here was that
+ * "sending `notes` would rewrite §7.2's metadata, which on this transport lives inside them" —
+ * true of a *rewrite*, and the reason FR-804's move note appends above the `[latch]` line
+ * instead of replacing anything. Null still means "leave them untouched", which is what every
+ * caller but the move note passes.
  *
  * A null due is written as an explicit JSON null rather than omitted, because omission in a
- * patch means "leave as it is" and this has to be able to say "clear it".
+ * patch means "leave as it is" and this has to be able to say "clear it". A null *notes* means
+ * the opposite — omit — and the two are deliberately not spelled the same way.
  */
-internal fun taskDatesBody(dates: ItemDates.Task): JSONObject =
-    JSONObject().put(
-        "due",
-        dates.due?.let { "${it}T00:00:00.000Z" } ?: JSONObject.NULL,
-    )
+internal fun taskDatesBody(dates: ItemDates.Task, notes: String? = null): JSONObject =
+    JSONObject()
+        .put(
+            "due",
+            dates.due?.let { "${it}T00:00:00.000Z" } ?: JSONObject.NULL,
+        )
+        .put("notes", notes)
 
 internal fun eventMatchesFrom(page: JSONObject): List<RescheduleMatch> {
     val items = page.optJSONArray("items") ?: return emptyList()
@@ -584,7 +599,7 @@ internal fun eventMatchesFrom(page: JSONObject): List<RescheduleMatch> {
         val entry = items.optJSONObject(index) ?: continue
         val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
         val dates = eventDatesFrom(entry) ?: continue
-        matches += RescheduleMatch(id, dates, entry.optString("summary"))
+        matches += RescheduleMatch(id, dates, entry.optString("summary"), entry.optString("description"))
     }
     return matches
 }
@@ -638,7 +653,12 @@ internal fun taskMatchesFrom(page: JSONObject, itemKey: String): List<Reschedule
         val metadata = remoteMetadataFromTaskNotes(entry.optString("notes")) ?: continue
         if (metadata.itemKey != itemKey) continue
         val id = entry.optString("id").takeIf { it.isNotBlank() } ?: continue
-        matches += RescheduleMatch(id, ItemDates.Task(taskDueFrom(entry)), entry.optString("title"))
+        matches += RescheduleMatch(
+            id,
+            ItemDates.Task(taskDueFrom(entry)),
+            entry.optString("title"),
+            entry.optString("notes"),
+        )
     }
     return matches
 }

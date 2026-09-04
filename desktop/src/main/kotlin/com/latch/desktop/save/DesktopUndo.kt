@@ -52,6 +52,15 @@ sealed interface CreatedItem {
         val containerId: String,
         val remoteId: String,
         val priorDates: ItemDates,
+        /**
+         * The description or notes the item held **before** FR-804's move note was appended.
+         *
+         * Carried for the same reason [priorDates] is, and it became necessary the moment an
+         * update started writing one: an undo that put the dates back and left the note saying
+         * the item had moved would leave a statement in the user's calendar that is no longer
+         * true. Null where the update wrote no note, in which case undo leaves the body alone.
+         */
+        val priorBody: String? = null,
     ) : CreatedItem
 }
 
@@ -116,9 +125,14 @@ suspend fun undoCreated(
                 is CreatedItem.Queued -> queue?.remove(item.queueId) ?: Unit
 
                 // The restore. Never a delete: see CreatedItem.Updated.
+                // The restore. Never a delete, and it puts the **body** back with the dates:
+                // an undo that reverted the move and left FR-804's note saying it had moved
+                // would leave a false statement standing in the user's own calendar.
                 is CreatedItem.Updated -> when (val prior = item.priorDates) {
-                    is ItemDates.Event -> calendar.patchEventDates(item.containerId, item.remoteId, prior)
-                    is ItemDates.Task -> tasks.patchTaskDates(item.containerId, item.remoteId, prior)
+                    is ItemDates.Event ->
+                        calendar.patchEventDates(item.containerId, item.remoteId, prior, item.priorBody)
+                    is ItemDates.Task ->
+                        tasks.patchTaskDates(item.containerId, item.remoteId, prior, item.priorBody)
                 }
             }
             true

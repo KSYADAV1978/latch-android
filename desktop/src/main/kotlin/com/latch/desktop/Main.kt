@@ -464,7 +464,13 @@ object Latch {
     }
 
     private fun saver(zone: String) =
-        DesktopSaver(calendarApi, tasksApi, zone, queue)
+        DesktopSaver(
+            calendarApi,
+            tasksApi,
+            zone,
+            queue,
+            movedNoteTemplate = DesktopStrings.MOVED_NOTE,
+        )
 
     /**
      * What the window shows once a save has answered.

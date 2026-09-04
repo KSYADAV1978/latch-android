@@ -74,8 +74,17 @@ internal class FakeCalendar : CalendarApi {
         return rescheduleMatch
     }
 
-    override suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event) {
+    /** FR-804's move note is recorded, not swallowed: a fake that ignored it could not fail. */
+    val patchedBodies = mutableMapOf<String, String?>()
+
+    override suspend fun patchEventDates(
+        calendarId: String,
+        eventId: String,
+        dates: ItemDates.Event,
+        description: String?,
+    ) {
         patched[eventId] = dates
+        patchedBodies[eventId] = description
     }
 
     override suspend fun deleteEvent(calendarId: String, eventId: String) {
@@ -121,8 +130,16 @@ internal class FakeTasks : TasksApi {
         return rescheduleMatch
     }
 
-    override suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task) {
+    val patchedBodies = mutableMapOf<String, String?>()
+
+    override suspend fun patchTaskDates(
+        taskListId: String,
+        taskId: String,
+        dates: ItemDates.Task,
+        notes: String?,
+    ) {
         patched[taskId] = dates
+        patchedBodies[taskId] = notes
     }
 
     override suspend fun deleteTask(taskListId: String, taskId: String) {

@@ -243,6 +243,15 @@ object DesktopStrings {
     const val OTHER_DATE = "Use"
     const val SAVED = "Saved to Latch."
     const val UPDATED = "Moved. The existing item now sits on the new date."
+
+    /**
+     * FR-804's move note, written into the item itself (SRS 1.79).
+     *
+     * `%1$s` is the date it moved **from** and `%2$s` is today. Where it moved *to* is the item
+     * itself and is on the face of it in any calendar; where it came from exists nowhere else
+     * once the patch has gone through.
+     */
+    const val MOVED_NOTE = "Moved by Latch from %1\$s, on %2\$s."
     const val HELD = "No connection. Held on this machine, and it will be written when there is one."
     const val ALREADY_SAVED = "Already saved. Nothing was written again."
     const val EXPORTED = "Saved a calendar file to your Downloads folder."

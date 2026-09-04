@@ -220,6 +220,38 @@ fun taskNotesWithoutMetadata(notes: String): String =
         .joinToString("\n")
         .trim()
 
+/**
+ * FR-804's move note, placed where it cannot disturb §7.2.
+ *
+ * **Above the `[latch]` line, never after it.** `remoteMetadataFromTaskNotes` reads the *last*
+ * line beginning with the marker, so a note appended below one would still parse — but a
+ * second move would then put a note between two markers, and the invariant "the metadata is
+ * the last line" is worth more than the one it would cost to rely on. On an event there is no
+ * marker and the note simply goes at the end.
+ *
+ * **Each move adds a line rather than replacing one.** An item moved twice has been moved
+ * twice, and SRS 1.18's reading — the description is provenance, not current state — is what
+ * makes accumulating right rather than untidy: this is a record of what happened to the item,
+ * and the current state is the item's own dates.
+ *
+ * Blank content is left blank rather than given a leading newline, and a blank note is a
+ * no-op, so a client that has no wording configured cannot introduce whitespace into a
+ * user's calendar entry.
+ */
+fun bodyWithMoveNote(existing: String, note: String): String {
+    if (note.isBlank()) return existing
+    if (existing.isBlank()) return note
+
+    val lines = existing.lines()
+    val marker = lines.indexOfLast { it.trimStart().startsWith(TASK_MARKER) }
+    if (marker < 0) return existing.trimEnd() + LINE_BREAK + note
+
+    return (lines.subList(0, marker) + note + lines.subList(marker, lines.size))
+        .joinToString(LINE_BREAK)
+}
+
+private const val LINE_BREAK = "\n"
+
 private const val TASK_MARKER = "[latch]"
 private const val FIELD_SEPARATOR = ";"
 

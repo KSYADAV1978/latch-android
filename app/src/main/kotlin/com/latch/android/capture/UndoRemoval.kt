@@ -72,10 +72,13 @@ suspend fun removeCreated(
                 // forgotten here: the item is still in the account, and still Latch's.
                 is CreatedItem.Updated -> when (val prior = item.priorDates) {
                     is ItemDates.Event ->
-                        calendarApi.patchEventDates(item.containerId, item.remoteId, prior)
+                        // The body goes back with the dates: an undo that reverted the move
+                        // and left FR-804's note saying it had moved would leave a false
+                        // statement standing in the user's own calendar.
+                        calendarApi.patchEventDates(item.containerId, item.remoteId, prior, item.priorBody)
 
                     is ItemDates.Task ->
-                        tasksApi.patchTaskDates(item.containerId, item.remoteId, prior)
+                        tasksApi.patchTaskDates(item.containerId, item.remoteId, prior, item.priorBody)
                 }
             }
             removed++

@@ -466,6 +466,9 @@ class LatchApplication : Application() {
              * in it. This end supplies only the tag.
              */
             logSaveDecision = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
+            // FR-804's move note. NFR-402 keeps the wording here and the date formatting in
+            // `:google`, so this phone and the desktop write one sentence into one account.
+            movedNoteTemplate = getString(R.string.moved_note),
             // FR-1004b's passive report. The record format is `:webhook`'s, so this phone and
             // the desktop store the same three facts under the same names.
             recordDelivery = { delivery ->

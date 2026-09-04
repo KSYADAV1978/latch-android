@@ -39,6 +39,8 @@ import com.latch.google.movesNothing
 import com.latch.google.WriteBasis
 import com.latch.google.basisSafeName
 import com.latch.google.writeBasis
+import com.latch.google.movedFromNote
+import com.latch.google.worthNoting
 import com.latch.google.writeDecision
 import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
@@ -48,6 +50,7 @@ import com.latch.wire.RecipeApplication
 import com.latch.wire.expandRecipe
 import com.latch.wire.recipeItems
 import com.latch.wire.RemoteMetadata
+import com.latch.wire.bodyWithMoveNote
 import com.latch.wire.bodyWithNote
 import com.latch.wire.dateSpans
 import com.latch.wire.draftBlocker
@@ -363,6 +366,12 @@ class CaptureSaver(
      * address: the screen that shows it masks the endpoint.
      */
     private val recordDelivery: suspend (WebhookDelivery) -> Unit = {},
+    /**
+     * FR-804's move note, in words. NFR-402: `:google` fixes the date formatting so both
+     * clients say the same thing, and the sentence around it comes from `strings.xml`.
+     */
+    private val movedNoteTemplate: String = "",
+    private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
     /**
      * FR-1004b: one attempt, best-effort, never blocking the Google write.
      *
@@ -901,18 +910,30 @@ class CaptureSaver(
      */
     private suspend fun applyUpdate(standing: PendingOffer) {
         val outcome = try {
+            // FR-804's move note (SRS 1.79). Composed only where there is a date to name: an
+            // undated task has no "from", and a note reading "Moved from  on 4 Sep" is worse
+            // than silence. Null leaves the body untouched, as every other patch does.
+            val note = if (!worthNoting(standing.match.dates)) null else {
+                movedFromNote(movedNoteTemplate, standing.match.dates, today())
+                    .takeIf { it.isNotBlank() }
+                    ?.let { bodyWithMoveNote(standing.match.body, it) }
+            }
+            val priorBody = note?.let { standing.match.body }
+
             val moved = when (val proposed = standing.proposed) {
                 is ItemDates.Event -> {
                     calendarApi.patchEventDates(
                         calendarId = standing.defaults.destinationCalendarId,
                         eventId = standing.match.remoteId,
                         dates = proposed,
+                        description = note,
                     )
                     CreatedItem.Updated(
                         type = ItemType.EVENT,
                         containerId = standing.defaults.destinationCalendarId,
                         remoteId = standing.match.remoteId,
                         priorDates = standing.match.dates,
+                        priorBody = priorBody,
                     )
                 }
 
@@ -921,12 +942,14 @@ class CaptureSaver(
                         taskListId = standing.defaults.taskListId,
                         taskId = standing.match.remoteId,
                         dates = proposed,
+                        notes = note,
                     )
                     CreatedItem.Updated(
                         type = ItemType.TASK,
                         containerId = standing.defaults.taskListId,
                         remoteId = standing.match.remoteId,
                         priorDates = standing.match.dates,
+                        priorBody = priorBody,
                     )
                 }
             }

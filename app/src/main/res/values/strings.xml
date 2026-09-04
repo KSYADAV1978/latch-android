@@ -213,6 +213,13 @@
     <string name="inbox_saving">Saving…</string>
     <string name="inbox_save_failed">Could not save that to Google. It is still here — try again.</string>
 
+    <!-- FR-804's move note, written into the item itself (SRS 1.79). %1$s is the date it
+         moved from; %2$s is today. Where it moved *to* is on the face of the item in any
+         calendar, so restating it would be noise; where it came from exists nowhere else
+         once the patch has gone through. :google fixes the date formatting so this client
+         and the desktop put the same sentence into one account. -->
+    <string name="moved_note">Moved by Latch from %1$s, on %2$s.</string>
+
     <!-- FR-1005: .ics export for any item or chain. -->
     <string name="capture_export_ics">Export .ics</string>
     <string name="ics_share_title">Share this calendar file</string>

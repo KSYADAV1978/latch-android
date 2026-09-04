@@ -58,6 +58,17 @@ sealed interface CreatedItem {
         val containerId: String,
         val remoteId: String,
         val priorDates: ItemDates,
+        /**
+         * The description or notes the item held **before** FR-804's move note was appended.
+         *
+         * Carried for the reason [priorDates] is, and it became necessary the moment an update
+         * started writing a note: an undo that put the dates back and left the note saying the
+         * item had moved would leave a statement in the user's calendar that is no longer
+         * true. Null where no note was written, in which case undo leaves the body untouched —
+         * and null is *not* the same as empty, because sending an empty body would erase a
+         * description the user wrote themselves.
+         */
+        val priorBody: String? = null,
     ) : CreatedItem
 }
 
@@ -206,6 +217,10 @@ internal fun encodeCreatedItem(item: CreatedItem): JSONObject = when (item) {
         .put("container_id", item.containerId)
         .put("remote_id", item.remoteId)
         .put("prior", encodeItemDates(item.priorDates))
+        // Optional and additive, so the record version does not move: an offer stored by an
+        // older build simply has no prior body, which is exactly what its absence means —
+        // that update wrote no note, because the build that made it could not.
+        .putOpt("prior_body", item.priorBody)
 }
 
 internal fun decodeCreatedItem(json: JSONObject): CreatedItem? {
@@ -230,6 +245,7 @@ internal fun decodeCreatedItem(json: JSONObject): CreatedItem? {
                     containerId = json.getString("container_id"),
                     remoteId = json.getString("remote_id"),
                     priorDates = prior,
+                    priorBody = json.optString("prior_body").takeIf { it.isNotBlank() },
                 )
             }
         }

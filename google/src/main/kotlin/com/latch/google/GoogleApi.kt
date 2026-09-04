@@ -171,6 +171,20 @@ data class RescheduleMatch(
      * is a fact about the item, not a failure to read it.
      */
     val title: String,
+    /**
+     * The item's **own** description (event) or notes (task), as they stand in the account.
+     *
+     * Read here for FR-804's move note, and it costs nothing: both searches already fetch the
+     * whole item resource, so this is a field of a response the client was reading anyway
+     * rather than a second request.
+     *
+     * It is the *existing* body and not a composed one, because an update must **append** to
+     * what is there rather than replace it. §7.2's metadata lives inside a task's notes, and
+     * SRS 1.18's reading is that a description is provenance — so overwriting either would
+     * destroy something. It is also what FR-807's undo writes back, and after the patch this
+     * is the only place it still exists.
+     */
+    val body: String = "",
 )
 
 /**
@@ -292,7 +306,20 @@ interface CalendarApi {
      * incidental: §7.2's metadata is written once at insert and no later operation modifies
      * it, so an updated item keeps the `source_hash` of the capture that created it.
      */
-    suspend fun patchEventDates(calendarId: String, eventId: String, dates: ItemDates.Event)
+    /**
+     * [description] is FR-804's move note applied to the item's existing description, or null
+     * to leave the field untouched.
+     *
+     * **Null and empty are different instructions**, which is why this is nullable rather than
+     * defaulted: omitting the key in a patch means "leave as it is", and sending an empty
+     * string would erase a description the user may have written themselves.
+     */
+    suspend fun patchEventDates(
+        calendarId: String,
+        eventId: String,
+        dates: ItemDates.Event,
+        description: String? = null,
+    )
 }
 
 interface TasksApi {
@@ -347,7 +374,20 @@ interface TasksApi {
      * invariant: task metadata lives *in* the notes, so a patch that sent them would rewrite
      * the item's `source_hash` and `item_key` as a side effect of moving its date.
      */
-    suspend fun patchTaskDates(taskListId: String, taskId: String, dates: ItemDates.Task)
+    /**
+     * [notes] is FR-804's move note applied to the item's existing notes, or null to leave
+     * them untouched.
+     *
+     * **§7.2's metadata lives in a task's notes**, so this may only ever be a value composed by
+     * `bodyWithMoveNote`, which inserts above the `[latch]` line and never rewrites it. Sending
+     * anything else here would destroy the item's identity on this transport.
+     */
+    suspend fun patchTaskDates(
+        taskListId: String,
+        taskId: String,
+        dates: ItemDates.Task,
+        notes: String? = null,
+    )
 }
 
 /**

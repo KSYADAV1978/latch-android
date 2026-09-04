@@ -19,11 +19,14 @@ import com.latch.google.TasksApi
 import com.latch.google.WriteDecision
 import com.latch.google.isWorthRetrying
 import com.latch.google.itemDatesOf
+import com.latch.google.movedFromNote
+import com.latch.google.worthNoting
 import com.latch.google.writeDecision
 import com.latch.parser.ParseResult
 import com.latch.wire.RemoteMetadata
 import com.latch.wire.WireCapture
 import com.latch.wire.WireDestination
+import com.latch.wire.bodyWithMoveNote
 import com.latch.wire.bodyWithNote
 import com.latch.wire.dateSpans
 import com.latch.wire.itemKeyOf
@@ -123,6 +126,12 @@ class DesktopSaver(
      */
     private val queue: WriteQueue? = null,
     private val clock: () -> Instant = Instant::now,
+    /**
+     * FR-804's move note, in words. NFR-402: `:google` fixes the date formatting so both
+     * clients say the same thing, and the sentence around it is this client's.
+     */
+    private val movedNoteTemplate: String = "",
+    private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
 ) {
     suspend fun save(
         captured: WireCapture,
@@ -216,9 +225,20 @@ class DesktopSaver(
         val container =
             if (event) offer.pending.defaults.calendarId else offer.pending.defaults.taskListId
 
+        // FR-804's move note (SRS 1.79). Composed only where there is a date to name: an
+        // undated task has no "from", and a note reading "Moved from  on 4 Sep" is worse than
+        // silence. Null leaves the body untouched, which is what every other patch does.
+        val note = if (!worthNoting(offer.match.dates)) null else {
+            movedFromNote(movedNoteTemplate, offer.match.dates, today())
+                .takeIf { it.isNotBlank() }
+                ?.let { bodyWithMoveNote(offer.match.body, it) }
+        }
+
         when (val proposed = offer.proposed) {
-            is ItemDates.Event -> calendar.patchEventDates(container, offer.match.remoteId, proposed)
-            is ItemDates.Task -> tasks.patchTaskDates(container, offer.match.remoteId, proposed)
+            is ItemDates.Event ->
+                calendar.patchEventDates(container, offer.match.remoteId, proposed, note)
+            is ItemDates.Task ->
+                tasks.patchTaskDates(container, offer.match.remoteId, proposed, note)
         }
         SaveResult.Updated(
             CreatedItem.Updated(
@@ -229,6 +249,9 @@ class DesktopSaver(
                 // nowhere else, and an undo has to put them back — FR-807 over an update is a
                 // restore and never a delete.
                 priorDates = offer.match.dates,
+                // Only where a note was actually written. Null tells the undo to leave the
+                // body alone rather than to blank it.
+                priorBody = note?.let { offer.match.body },
             )
         )
     }.getOrElse { failureFor(it) }

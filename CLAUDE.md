@@ -1222,7 +1222,26 @@ it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's m
 NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
 is built and awaiting a person.
 
-### Owed on both clients, found in real use (4 Sep 2026)
+### Built 4 Sep 2026 (SRS 1.79), JVM-verified and HUMAN-OWED on both clients
+
+**FR-804's move note.** An updated item now carries a line saying where it came from — *"Moved
+by Latch from Wed 8 Sep 2027, 11:00, on 4 Sep 2026."* — composed in `:google` so both clients
+word it identically, with the sentence itself coming from each client's strings (NFR-402).
+
+**The safety is the placement.** It goes **above** the `[latch]` line, never after it: §7.2's
+metadata lives inside a task's notes and a note that displaced or followed it would break FR-803
+and FR-804 for that item for ever, silently. Tested by round-tripping the real encoder and
+decoder rather than by inspecting text.
+
+**The undo takes it back off**, which is what makes it safe to write at all — an undo that
+reverted the move and left the note standing would leave a *false* statement in the user's
+calendar. `CreatedItem.Updated` carries the prior body on both clients; Android's persisted
+offer carries it as an optional field, so no record version moved.
+
+**Owed to a person on both clients**: watch a real update write the line, and a real undo take
+it off. **A queued update writes no note** — a recorded narrowing, not a defect.
+
+### The finding this answers (4 Sep 2026)
 
 **A rescheduled item says nowhere that it was rescheduled, and its title still names the date
 it moved off.** After an FR-804 update the calendar held an event dated 8 Sep 2026 titled
