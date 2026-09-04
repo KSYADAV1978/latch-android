@@ -1386,6 +1386,35 @@ fail*, then *the fixture*.
 | ~~**FR-806's Retry now**~~ | **PASS, 4 Sep 2026.** Offered in the tray beside the pending count while the network was off; tapped offline it left the entry queued and lost nothing; tapped after reconnecting it drained within seconds rather than at the next backoff. Both halves matter — a button that only works when it was going to work anyway is not a manual retry. |
 | **NFR-103** | The runtime half is unmeasured, and estimating it is what `docs/RELEASE.md` forbids for the Android bundle for the same reason | a full JDK with `jmods` |
 
+## Business-card capture — Phase A (FR-1200 series, SRS 5.11)
+
+**Approved 4 Sep 2026 (SRS 1.84). Nothing built yet.** The slices, in order, with what each is
+for. FR-1240 and FR-1241 gate **contact-write code**, not the spike, so Slice 0 may begin.
+
+| Slice | Holds | Device pass |
+|---|---|---|
+| **0 — spike** | FR-1240's `clientData` count/size limits, the ZXing figure measured with a real call site, FR-1241's consent wording read off a device | The consent read, and one throwaway contact deleted in the same run |
+| **1 — grammar** | A pure `:cards` module: vCard 2.1/3.0/4.0 and MECARD, its own corpus. Unknown properties dropped, never guessed; an unparseable payload reported unreadable, never partially accepted | — |
+| **2 — identity** | The §7.2 analogue in `:wire`, with conformance vectors as `hash_vectors.tsv` has. FR-1209 as a pure function, and its load-bearing test: two colleagues sharing a switchboard number give **two** identities | — |
+| **3 — the client** | `ContactsApi` in `:google`, `people.googleapis.com` into `ALLOWED_HOSTS` with the guard test naming it. **FR-1208's duplicate search is built before `createContact` is called anywhere** | — |
+| **4 — decode and sheet** | ZXing behind a `QrReader` interface so `:app` never names a ZXing type, as `OcrReader` already does for ML Kit. The editable preview, the account named, FR-1202's explicit choice | — |
+| **5a — the write** | `createContact`, FR-1207's write-once `clientData`, FR-1208's check before it | **Its own pass** |
+| **5b — reversal** | FR-1210's undo, FR-1212's queue with the check re-run at drain | **Its own pass** |
+
+**Why 5a and 5b are separate, and it is method rather than tidiness.** On the date side those two
+mechanisms hid *different* defect classes: FR-803's query returned an empty page carrying a
+`nextPageToken` and wrote duplicates for five days, and the drain ran a check no JVM test could
+reach. One pass covering both would have made a finding hard to attribute to either.
+
+**Phase A ships the shared image only.** The camera is FR-1201a at Phase B (SRS 1.85), and the
+`ACTION_IMAGE_CAPTURE`-versus-CameraX decision is owed with it — the first needs no permission and
+no dependency, the second needs both.
+
+**The open unknown is in Slice 3**: whether `searchContacts` can query `clientData`. If it cannot,
+FR-1208 on a fresh device can consult only the local index, and cross-device duplicate detection
+for contacts is weaker than for calendar — an AC-07-shaped gap to record rather than engineer
+around. To be answered before anything is built on either answer.
+
 ## Device pass backlog
 
 **Everything in this section is JVM-verified and DEVICE-OWED.** It was built in the autonomous
