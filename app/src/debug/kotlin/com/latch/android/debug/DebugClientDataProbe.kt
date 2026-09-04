@@ -90,6 +90,56 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
             // stops resolving until a force-stop — reproduced three times. Until that is
             // understood, the probe is driven one trial at a time with a force-stop between, so
             // the limits can be measured without the answer depending on the defect.
+            // FR-803's index, read from inside the app's own process (SRS 1.92).
+            //
+            // Pulling `latch.db` off the device does not work — `run-as cat` yields a file of
+            // the right length whose `page_count` is zero — so the question is asked here
+            // instead. **A duplicate write shows as two rows with one `source_hash`**: the
+            // primary key is (container_id, remote_id), so a message written twice leaves two
+            // rows, and the index is the only local record of what this device put in the
+            // account. Read-only, and it reads `source_hash` alone — a SHA-256 digest is not
+            // content, which is why NFR-206 lets this column be stored in the clear.
+            if (intent.getStringExtra("index") != null) {
+                val db = runCatching {
+                    android.database.sqlite.SQLiteDatabase.openDatabase(
+                        context.getDatabasePath("latch.db").path,
+                        null,
+                        android.database.sqlite.SQLiteDatabase.OPEN_READONLY,
+                    )
+                }.getOrNull()
+                if (db == null) {
+                    Log.w(TAG, "index: could not open latch.db")
+                } else {
+                    db.rawQuery("SELECT COUNT(*), COUNT(DISTINCT source_hash) FROM written_items", null)
+                        .use { c ->
+                            if (c.moveToFirst()) {
+                                Log.i(TAG, "index: rows=${c.getInt(0)} distinct source_hash=${c.getInt(1)}")
+                            }
+                        }
+                    db.rawQuery(
+                        "SELECT source_hash, item_type, COUNT(*) n FROM written_items " +
+                            "GROUP BY source_hash, item_type HAVING n > 1 ORDER BY n DESC",
+                        null,
+                    ).use { c ->
+                        var found = 0
+                        while (c.moveToNext()) {
+                            found++
+                            // The hash is truncated in the log: it is not content, but there is
+                            // no reason to print more of it than identifies the row.
+                            Log.w(
+                                TAG,
+                                "index: DUPLICATE ${c.getString(0).take(12)}… " +
+                                    "type=${c.getString(1)} written ${c.getInt(2)} times",
+                            )
+                        }
+                        Log.i(TAG, "index: $found source_hash/type pair(s) written more than once")
+                    }
+                    db.close()
+                }
+                Log.i(TAG, "probe finished")
+                return@launch
+            }
+
             // Diagnosis for the POST defect (SRS 1.90). Counts open file descriptors around
             // each request: if a POST leaks a connection, the count climbs and stays up, and
             // `UnknownHostException` is a process out of sockets rather than a name that will
