@@ -7,7 +7,7 @@ import com.google.zxing.DecodeHintType
 import com.google.zxing.NotFoundException
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
-import com.google.zxing.qrcode.QRCodeReader
+import com.google.zxing.multi.qrcode.QRCodeMultiReader
 
 /**
  * FR-1203: the QR codes in an image, decoded on device.
@@ -57,8 +57,9 @@ class ZxingQrReader(private val images: ImageSource) : QrReader {
     override suspend fun readCodes(uri: Uri): QrResult {
         val bitmap = images.decodeBitmap(uri) ?: return QrResult(failure = QrFailure.UNREADABLE_SOURCE)
         return try {
-            decode(bitmap)?.let { QrResult(payloads = listOf(it)) }
-                ?: QrResult(failure = QrFailure.NO_CODE)
+            val payloads = decode(bitmap)
+            if (payloads.isEmpty()) QrResult(failure = QrFailure.NO_CODE)
+            else QrResult(payloads = payloads)
         } finally {
             bitmap.recycle()
         }
@@ -71,7 +72,7 @@ class ZxingQrReader(private val images: ImageSource) : QrReader {
      * ordinary case rather than the difficult one. The cost is time on an image with no code in
      * it, which is a path that ends in a message rather than in a capture.
      */
-    private fun decode(bitmap: Bitmap): String? {
+    private fun decode(bitmap: Bitmap): List<String> {
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)
@@ -80,15 +81,21 @@ class ZxingQrReader(private val images: ImageSource) : QrReader {
         val binary = BinaryBitmap(HybridBinarizer(RGBLuminanceSource(width, height, pixels)))
         val hints = mapOf(DecodeHintType.TRY_HARDER to true)
         return try {
-            QRCodeReader().decode(binary, hints).text?.takeIf { it.isNotBlank() }
+            // **`decodeMultiple`, not `decode`** (SRS 1.100). The single-result reader returns the
+            // first code it finds, which would have made FR-1203's "the app does not choose"
+            // unreachable: `soleContactPayload` and the chooser handle several payloads, and
+            // nothing could ever produce more than one. Found by building the fixture for the
+            // device row rather than by reading the code.
+            QRCodeMultiReader().decodeMultiple(binary, hints)
+                .mapNotNull { it.text?.takeIf { text -> text.isNotBlank() } }
         } catch (notFound: NotFoundException) {
             // An image with no QR code is not a failure worth an exception upward: FR-1202 has
             // the user choosing the card path deliberately, so "no code here" is an answer.
-            null
+            emptyList()
         } catch (malformed: Exception) {
             // ChecksumException, FormatException — a code that is present and damaged. Same
             // answer to the caller: nothing usable was read.
-            null
+            emptyList()
         }
     }
 }
