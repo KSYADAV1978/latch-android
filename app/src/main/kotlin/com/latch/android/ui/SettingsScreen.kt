@@ -88,6 +88,10 @@ fun SettingsScreen(
     onSetEndpoint: (String) -> Unit,
     onClearEndpoint: () -> Unit,
     onSetWebhookEnabled: (Boolean) -> Unit,
+    /** FR-806b: the grant no longer covers this build's scopes. */
+    grantNeedsConsent: Boolean = false,
+    /** FR-1007: re-consent, and nothing else. Never a sign-out. */
+    onSignInAgain: () -> Unit = {},
     /** NFR-205: the single action. */
     onRevokeAndDelete: () -> Unit,
     /**
@@ -258,11 +262,70 @@ fun SettingsScreen(
             onSetEnabled = onSetWebhookEnabled,
         )
 
+        // ----- FR-1007: the account, and a way back to a consent screen -----
+        //
+        // Deliberately **above** the divider that starts NFR-205's danger zone, and not inside
+        // it. These are opposites: this re-runs a grant and touches no stored data, that one
+        // revokes and deletes everything. Putting a re-consent beside a disconnect is how
+        // somebody loses an Inbox they meant to keep, and this project has already recorded what
+        // happens when an act with a consequence sits behind a label that reads as information.
+
+        Section(R.string.settings_account)
+        AccountSection(account, grantNeedsConsent, onSignInAgain)
+
         // ----- NFR-205: revoke access and delete all local data -----
 
         HorizontalDivider()
         Section(R.string.settings_danger)
         DangerZone(onRevokeAndDelete, revokeOutcome)
+    }
+}
+
+/**
+ * FR-1007: the connected account, and a route back to a consent screen.
+ *
+ * **The gap this closes was found by looking for a consent screen and not finding one**
+ * (SRS 1.87). `reauthorize()` existed and worked, and was reachable from exactly one place in the
+ * whole application: a button on the home screen that renders only while a queue entry has
+ * already failed for want of a sign-in. So the only way to re-consent was to lose a capture
+ * first, and discover the button by accident.
+ *
+ * **It is present whatever the queue is doing.** The condition it answers — a grant that no
+ * longer covers what the app asks for — has nothing to do with whether anything is queued, and
+ * §5.11's contacts scope will put every existing user in exactly that state on their next
+ * authorization.
+ *
+ * The action is re-consent and never sign-out. NFR-205's disconnect is a different thing, is
+ * destructive by design, and is below the divider.
+ */
+@Composable
+private fun AccountSection(
+    account: AccountDefaults?,
+    grantNeedsConsent: Boolean,
+    onSignInAgain: () -> Unit,
+) {
+    // The account's own name is not stored — `AccountDefaults.accountId` is a SHA-256 of the
+    // address, deliberately, so the preference key is opaque. What can honestly be shown is that
+    // an account is connected and which calendar its captures go to.
+    Text(
+        text = stringResource(
+            if (account == null) R.string.settings_account_none else R.string.settings_account_connected
+        ),
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    if (grantNeedsConsent) {
+        Text(
+            text = stringResource(R.string.settings_account_needs_consent),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    Text(
+        text = stringResource(R.string.settings_account_sign_in_again_hint),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    TextButton(onClick = onSignInAgain) {
+        Text(stringResource(R.string.settings_account_sign_in_again))
     }
 }
 

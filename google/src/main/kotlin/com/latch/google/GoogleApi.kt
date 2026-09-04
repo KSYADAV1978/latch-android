@@ -208,6 +208,26 @@ interface AuthClient {
 
     /** NFR-205: one action revokes access; setup uses it for nothing else. */
     suspend fun signOut(accountId: String)
+
+    /**
+     * FR-806b: does Google want consent again before this build's scopes can be used?
+     *
+     * **True means consent is required**, and the name says so rather than the doc having to.
+     * The first spelling of this was `grantCoversScopes`, whose truth value is the opposite —
+     * the implementation returned "the grant is fine" while the caller read it as "ask the
+     * user", which is a silent inversion of exactly the kind this project has already paid for
+     * once in `decodeBitmap`. A boolean whose name and meaning disagree is a defect waiting for
+     * a reader. Answering a boolean rather than the authorization
+     * result is the point: the result carries the `PendingIntent` that would present a consent
+     * screen, and returning it here would put an interactive path within reach of a check that
+     * has had no tap. FR-806a says a capture never blocks on an interactive authorization and
+     * this is the same rule applied to a check that runs on its own — so the intent does not
+     * leave the implementation.
+     *
+     * Throws where the check could not be completed at all. `GrantCheck.Unknown` is that case,
+     * and it concludes nothing: a failure here says nothing about the grant.
+     */
+    suspend fun grantNeedsConsent(): Boolean
 }
 
 /**

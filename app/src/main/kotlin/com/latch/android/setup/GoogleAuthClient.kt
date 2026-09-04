@@ -114,6 +114,27 @@ class GoogleAuthClient(
         cachedToken?.let { invalidate(it) }
     }
 
+    /**
+     * FR-806b. Runs the same non-interactive authorize the write path runs, and reports only
+     * whether Google wants consent — the `PendingIntent` is discarded here and never returned,
+     * so no caller can turn this check into a prompt.
+     */
+    override suspend fun grantNeedsConsent(): Boolean {
+        val request = AuthorizationRequest.builder().setRequestedScopes(SCOPES).build()
+        val result = try {
+            client.authorize(request).await()
+        } catch (failure: ApiException) {
+            throw failure.asReadableFailure()
+        }
+        // A grant that already covers the set comes back with a token and no resolution, and
+        // caching it here is free: it is the same token `accessToken()` would have fetched.
+        val needsConsent = result.hasResolution()
+        // A grant that already covers the set comes back with a token, and caching it is free:
+        // it is the same token `accessToken()` would have fetched a moment later.
+        if (!needsConsent) result.accessToken?.let { cachedToken = it }
+        return needsConsent
+    }
+
     // FR-806a: the write path never shows UI. A capture that needs consent is queued.
     override suspend fun accessToken(): String = cachedToken ?: authorize(interactive = false)
 

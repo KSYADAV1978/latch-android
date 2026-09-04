@@ -38,6 +38,8 @@ import com.latch.android.ui.SettingsScreen
 import com.latch.android.ui.LatchTheme
 import com.latch.android.ui.SetupFlow
 import com.latch.core.model.CaptureLayer
+import com.latch.android.settings.SignInPrompt
+import com.latch.android.settings.signInPrompt
 import com.latch.data.QueueStatus
 import com.latch.data.StoredUndoOffer
 import java.time.Duration
@@ -105,6 +107,13 @@ class MainActivity : ComponentActivity() {
         // Asked of the platform each time rather than remembered: the user can revoke it in
         // Android's settings and this app is not told.
         refreshPostPermission()
+        // FR-806b. Silent: it presents nothing and cannot, `grantNeedsConsent()` answering a
+        // boolean and keeping the consent intent to itself. Rate-limited inside, because
+        // onStart fires on every return to the app.
+        //
+        // **This is MainActivity and not the capture path**, which is the other half of why it
+        // is safe: NFR-101 budgets a capture 800 ms and `CaptureActivity` never runs this.
+        latchApplication.checkGrantOnForeground()
     }
 
     override fun onStop() {
@@ -184,6 +193,11 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 HomeScreen.SETTINGS -> SettingsScreen(
+                                    // FR-1007. The same interactive grant the home
+                                    // screen's button runs, reachable on purpose rather
+                                    // than only after a capture has been stranded.
+                                    grantNeedsConsent = app.grantNeedsConsent.collectAsState().value,
+                                    onSignInAgain = { app.reauthorize() },
                                     settings = app.settings.collectAsState().value,
                                     account = configured?.firstOrNull(),
                                     destinations = app.settingsCoordinator.destinations.collectAsState().value,
@@ -242,6 +256,7 @@ class MainActivity : ComponentActivity() {
 
                                 HomeScreen.HOME -> Home(
                                     queue = app.queueStatus.collectAsState().value,
+                                    grantNeedsConsent = app.grantNeedsConsent.collectAsState().value,
                                     fellBackFrom = app.destinationFellBack.collectAsState().value,
                                     onAcknowledgeFallback = { app.acknowledgeFallback() },
                                     inboxCount = app.inboxStatus.collectAsState().value.due,
@@ -282,6 +297,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Home(
     queue: QueueStatus,
+    /**
+     * FR-806b: the grant no longer covers the scopes this build asks for.
+     *
+     * Separate from [QueueStatus.needsSignIn] because it is a different fact — that one is
+     * "entries are held and this is why", this one is "your next capture will be". They coincide
+     * often; the case that separates them is an empty queue and a stale grant, which before
+     * SRS 1.87 put nothing on screen at all.
+     */
+    grantNeedsConsent: Boolean = false,
     /** FR-704: pending Inbox items, drawn only when there are some. */
     inboxCount: Int = 0,
     /** FR-807: an offer that outlived the window that made it. */
@@ -367,9 +391,23 @@ private fun Home(
         // FR-806a. Beside the count, not instead of it: the captures are safe and still
         // waiting, and only the reason they are not moving has changed. This is the one stuck
         // state a user can clear, so it says what to do rather than what went wrong.
-        if (queue.needsSignIn) {
+        // FR-806a and FR-806b reach one button by two routes and do not say the same thing.
+        // `signInPrompt` chooses, so the screen cannot show "to save these" over an empty queue.
+        val prompt = signInPrompt(
+            queueNeedsSignIn = queue.needsSignIn,
+            queueWaiting = queue.waiting,
+            grantNeedsConsent = grantNeedsConsent,
+        )
+        if (prompt != SignInPrompt.NONE) {
             Text(
-                text = stringResource(R.string.home_queue_needs_sign_in),
+                text = stringResource(
+                    when (prompt) {
+                        SignInPrompt.QUEUE_HELD -> R.string.home_queue_needs_sign_in
+                        // FR-806b: nothing has been lost yet, and the sentence says so rather
+                        // than referring to captures that do not exist.
+                        else -> R.string.home_grant_needs_sign_in
+                    }
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )

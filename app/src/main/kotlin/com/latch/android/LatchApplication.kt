@@ -37,6 +37,9 @@ import com.latch.core.model.InboxStatus
 import com.latch.webhook.encodeDelivery
 import com.latch.core.model.LatchSettings
 import com.latch.data.LocalItemIndex
+import com.latch.android.settings.grantCheck
+import com.latch.android.settings.promptAfter
+import com.latch.android.settings.shouldCheckGrant
 import com.latch.data.QueueStatus
 import com.latch.data.RecipeStore
 import com.latch.data.RevokeOutcome
@@ -306,6 +309,42 @@ class LatchApplication : Application() {
      */
     fun refreshQueueStatus() {
         appScope.launch { _queueStatus.value = writeQueue.status() }
+    }
+
+    private val _grantNeedsConsent = MutableStateFlow(false)
+
+    /**
+     * FR-806b: the grant does not cover the scopes this build asks for.
+     *
+     * **A separate fact from `QueueStatus.needsSignIn`, deliberately.** That one says *entries
+     * are held and this is why*; this one says *your next capture will be*. They coincide often
+     * and are not the same, and the case that separates them is the one this requirement was
+     * written for: an empty queue, a grant that has gone stale, and nothing on screen.
+     */
+    val grantNeedsConsent: StateFlow<Boolean> = _grantNeedsConsent.asStateFlow()
+
+    @Volatile
+    private var lastGrantCheckAt: Long? = null
+
+    /**
+     * FR-806b's silent check. Called on foreground; presents nothing.
+     *
+     * **It cannot ask for consent and the shape is what guarantees that**, rather than a comment
+     * asking the next reader not to. `authClient.grantNeedsConsent()` runs the non-interactive
+     * authorize and answers a boolean; the `PendingIntent` that would present a consent screen is
+     * never returned from it, so there is nothing here to be tempted by. FR-806a's rule holds:
+     * the interactive grant is behind FR-1007's Settings action and the home screen's button,
+     * both of which need a tap.
+     */
+    fun checkGrantOnForeground() {
+        val now = System.currentTimeMillis()
+        if (!shouldCheckGrant(lastGrantCheckAt, now)) return
+        lastGrantCheckAt = now
+        appScope.launch {
+            val check = grantCheck(runCatching { authClient.grantNeedsConsent() })
+            // Null is "leave it alone", which is the whole of GrantCheck.Unknown.
+            promptAfter(check)?.let { _grantNeedsConsent.value = it }
+        }
     }
 
     private val _inboxStatus = MutableStateFlow(InboxStatus(0, 0, 0))
@@ -732,6 +771,10 @@ class LatchApplication : Application() {
         appScope.launch {
             runCatching { authClient.signIn() }
                 .onSuccess {
+                    // FR-806b: the grant is good again, so the banner goes now rather than
+                    // waiting for the next foreground check to notice.
+                    _grantNeedsConsent.value = false
+                    lastGrantCheckAt = System.currentTimeMillis()
                     WriteQueueWorker.schedule(this@LatchApplication)
                     refreshQueueStatus()
                 }

@@ -150,6 +150,7 @@
       captures are still safe and still waiting, which is the reassuring half.
     -->
     <string name="home_queue_needs_sign_in">Sign in to Google again to save these. Tap Sign in below; nothing has been lost.</string>
+    <string name="home_grant_needs_sign_in">Latch needs you to sign in to Google again. Until you do, new captures will be held on this phone instead of saved.</string>
     <string name="home_sign_in">Sign in</string>
     <!-- NFR-303: an entry that will not come right on its own says so rather than sitting
          in the count looking like it is still on its way. -->
@@ -229,6 +230,12 @@
     <string name="home_destination_fell_back_ok">Got it</string>
 
     <!-- NFR-205: one action to revoke access and delete all local data. -->
+    <string name="settings_account">Google account</string>
+    <string name="settings_account_connected">Connected to Google.</string>
+    <string name="settings_account_none">Not connected.</string>
+    <string name="settings_account_needs_consent">Google needs you to sign in again before Latch can save anything.</string>
+    <string name="settings_account_sign_in_again_hint">This asks Google for permission again. It does not sign you out, and nothing on this phone is deleted.</string>
+    <string name="settings_account_sign_in_again">Sign in again</string>
     <string name="settings_danger">Disconnect and delete</string>
     <string name="settings_revoke">Disconnect Google and delete everything on this phone</string>
     <string name="settings_revoke_warning">This removes Latch\'s access to your Google account and deletes everything Latch keeps on this phone — your Inbox, anything waiting to be saved, your recipes and your settings. Items already in Google Calendar and Google Tasks are left exactly as they are.</string>
