@@ -617,7 +617,9 @@ object Latch {
                     return@invokeLater
                 }
                 applied = Triple(recipe, chain, result)
-                open.renderChain(recipeChainModel(recipe, chain.planned, chain.selected))
+                // A function of the ticks, not a snapshot of them: the window re-asks on every
+                // change, which is what makes FR-608's deselection stick.
+                open.renderChain({ ticked -> recipeChainModel(recipe, chain.planned, ticked) }, chain.selected)
             }
         }, "latch-recipe-expand").apply { isDaemon = true }.start()
     }

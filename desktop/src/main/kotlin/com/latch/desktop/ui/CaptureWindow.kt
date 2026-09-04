@@ -90,7 +90,16 @@ class CaptureWindow(
      * bridge, and NFR-101 budgets this path 800 ms.
      */
     private var chooser: ((SheetEdits) -> RecipeChooser)? = null
-    private var chain: RecipeChainModel? = null
+    /**
+     * FR-601's chain, as a **function of what is ticked** rather than a fixed model.
+     *
+     * It follows `renderer` and `chooser` for the reason this class states about both: the
+     * window keeps the answers and re-asks for a model whenever they change. Held as a value
+     * instead, `redraw` rebuilt every row from `checked` flags frozen when the recipe was
+     * applied — so unticking a step updated the selection, triggered a redraw, and put a ticked
+     * box straight back. FR-608 was unreachable while the save path was ready to honour it.
+     */
+    private var chainOf: ((Set<Int>) -> RecipeChainModel)? = null
     private var chainSelected: MutableSet<Int> = mutableSetOf()
 
     /**
@@ -156,7 +165,7 @@ class CaptureWindow(
 
         save.addActionListener {
             // FR-601: an applied chain is what gets written, and FR-608's ticks are its own.
-            if (chain != null) onSaveChain(chainSelected.toSet()) else onSave(ticked(), withTypedTitle())
+            if (chainOf != null) onSaveChain(chainSelected.toSet()) else onSave(ticked(), withTypedTitle())
         }
         // FR-304: Enter saves and Escape dismisses, from anywhere in the window.
         dialog.rootPane.defaultButton = save
@@ -200,7 +209,7 @@ class CaptureWindow(
         // FR-601: once a recipe is applied the chain **replaces** the candidate rows rather
         // than sitting beside them. Two lists of things to tick, only one of which would be
         // written, is the shape a confirmation screen exists to avoid.
-        val applied = chain
+        val applied = chainOf?.invoke(chainSelected)
         if (applied != null) {
             rowsPanel.add(chainPanel(applied))
             save.isEnabled = applied.canSave
@@ -221,7 +230,7 @@ class CaptureWindow(
         renderer = render
         edits = SheetEdits()
         chooser = null
-        chain = null
+        chainOf = null
         chainSelected = mutableSetOf()
         selected = initiallyTicked.toMutableSet()
         // FR-511: every row starts ticked, which is what the requirement asks the checkboxes to
@@ -261,10 +270,10 @@ class CaptureWindow(
      * with no way back would make applying a recipe a one-way gesture on a floating window the
      * user may be about to dismiss.
      */
-    fun renderChain(applied: RecipeChainModel?) {
-        chain = applied
-        chainSelected = applied?.rows?.filter { it.checked }?.map { it.index }?.toMutableSet()
-            ?: mutableSetOf()
+    fun renderChain(render: ((Set<Int>) -> RecipeChainModel)?, initiallyTicked: Set<Int> = emptySet()) {
+        chainOf = render
+        // FR-608: every step ticked to begin with, which is what a deselection departs from.
+        chainSelected = initiallyTicked.toMutableSet()
         redraw()
     }
 
