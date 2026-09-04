@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.83 (draft for developer handover)"
+author: "Version 1.84 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.83 — draft for developer handover |
+| Version | 1.84 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -143,6 +143,7 @@ date: "28 August 2026"
 | 1.81 | 4 Sep 2026 | **A moved item cannot be moved back by re-capturing the message it moved off — the mirror of SRS 1.77, found by a fixture that was wrong about a different thing.** An event saved from `Vendor demo 12 November 2027 at 16:00` was updated onto 19 November through FR-804, and the original message was then re-captured expecting a second offer. It answered *"Already saved. Nothing was written again."* and wrote nothing. **This is correct and required.** §7.2 is write-once (SRS 1.18): an update patches dates and touches no metadata, so the item on 19 November still carries the `latch.source_hash` of the *12 November* text, and §7.2's decision table row 1 matches on it before FR-804's key query is ever reached. The device log says so without ambiguity — `save decision=Duplicate basis=SOURCE_HASH`, which is `WriteBasis` (SRS 1.72) earning its keep on the first occasion it has been used to exonerate rather than to convict. **What is worth recording is not a defect but a reading no requirement states.** The sentence is *literally* true — that message was saved — and a user reads it as "the item is where this message says", which after a move it is not. SRS 1.77 recorded that a moved item says nowhere that it moved; this is the same gap seen from the other side, and the two together mean the original message is neither a record of where the item is nor a way of putting it back. **The shape of a fix is known and deliberately not taken here.** It is a sentence, not a write: where a source-hash match's stored dates differ from the dates just parsed, say where the item actually is — "Already saved. Latch moved it to 19 Nov 2027." No new request is needed, because both duplicate queries already parse whole resources; what is needed is for `DuplicateSearch` to stop discarding the dates, which is a widening of a shared type in `:google` and therefore a change both clients take at once. It is left for its own slice rather than folded into a device pass, and FR-804 is where the requirement for it belongs. **The method note is mine.** This is the second fixture in two passes that was already saved before it was used — the first cost an AC-18 webhook check that could not fire. The rule this project states for its own device checks is to name the condition that would make the check fail and confirm the fixture creates it; a reschedule offer requires text never captured *and* a matching `item_key`, and only the second half was reasoned about. The third date is what the check actually needs. |
 | 1.82 | 4 Sep 2026 | **The tray menu, rebuilt after a dogfooding report — and the AWT menu turned out to be the cause of two of the three defects rather than a coincidence.** Reported from real use: the menu is tiny at 200% display scaling, "Recipes" and "Settings" end in a box, and every row looks alike so nothing says which of them do anything. **The first two share one cause.** `java.awt.PopupMenu` is drawn by AWT itself, at a size it chooses, and exposes no font, no renderer and no styling; so it ignored Windows' scaling on a 2880x1920 panel presented at 1440x960, and the font it picked had no glyph for the U+2026 in `Settings…`. Neither is reachable from inside that class, which is why the whole menu moved to `JPopupMenu` rather than being patched: Swing follows the JVM's per-monitor DPI awareness and takes the system menu font, so the ellipsis becomes a decision instead of luck. Evidence that it was AWT and not the machine, gathered before the rewrite rather than after: `Saving…` has rendered correctly in the Swing Inbox throughout. **The cost is one focus quirk, paid deliberately.** A `JPopupMenu` needs an invoker and a tray icon is not a component, so without a focused owner the menu draws and never dismisses; a one-pixel utility window is placed at the pointer, focused, and disposed of when the menu closes. **The third defect was a type problem, so it is fixed in the type.** `TrayItem` is now a sealed interface of `Action`, `Status` and `Separator`, and **being pressable and being an action are separate facts**: a `Status` carries an optional id, so a row can be dimmed as information *and* offer itself with a chevron. That is what the report actually asked for — "3 waiting in the Inbox" had opened the Inbox since the day it was written, and nothing about it suggested a press would. **One consequence is a reading rather than a rendering change**: the account line used to *be* the sign-out button, so an act with a consequence sat behind a label that reads as information. It is inert status now, and `Sign out` is its own action. **`Capture now` is converted rather than relabelled, and that is the substantive change.** It called `clipboard.copySelection()`, which synthesises Ctrl+C to the foreground window — but pressing a tray row *is* the act of defocusing the window holding the selection, and under the new menu the invoker necessarily holds focus, so the keystroke would reach something with no selection, or a terminal, where it is not a copy at all. The row now reads **"Capture copied text"** and reads the clipboard only. That is **FR-213's reading applied to FR-302's client** — Android's tile exists for the same reason, "the supported path for apps where partial text selection is unavailable and the user must use Copy" — and it gives the menu a capture path that works for somebody who has not learnt the hotkey. `capture(copySelectionFirst)` keeps the two apart; the hotkey path is untouched and stays verified. **Left-click opens the same menu as right-click, and two alternatives were rejected with reasons.** Opening the Inbox on left-click was rejected because FR-704 requires zero to be silent, zero is the steady state, and a gesture that opens an empty window is that requirement broken one gesture over. A status flyout was rejected because it would show what the menu's status group already shows, at the cost of a second focus-managed window. Capture-as-primary was rejected for the same defocus reason, and the double-click-to-capture listener went with it. **What a test can hold, it holds**: ordering, grouping, which rows are information and which are offers, that no group is ever empty, and — pinned as a *set* — that `…` is the only non-ASCII character any label relies on, so a third cannot arrive unnoticed and then hide in the "stuck" row that is almost never on screen. The em dash left for exactly that reason. **What no test can hold is most of what was reported**: size at 200%, the glyph on the screen, the dismissal behaviour, and whether the chevron reads as pressable. Those are in the human backlog, named. No dependency; `javax.swing` is in the JDK this project already builds on. |
 | 1.83 | 4 Sep 2026 | **Drafts a new pillar: business-card capture to Google Contacts, as §5.11's FR-1200 series, phased, and awaiting approval.** It is written before any plan on purpose. FR-800's lesson was that an item written into somebody's account before duplicate detection and undo are specified becomes unmanageable, and that cost five days of duplicates in a real calendar and two days of diagnosis; so FR-1208's duplicate check, FR-1209's identity and FR-1210's undo are specified in Phase A, before the first write, rather than after the first demo. **The draft found that a current `[MUST]` forbids the pillar outright**: FR-003 says no scope granting access to Contacts shall be requested. That is listed as the first of eight amendments rather than quietly overwritten, because a requirement reversed without being named is a requirement nobody can later audit — and the same listing catches design principle 2 and NFR-201, both of which say user content reaches Google *only* as a calendar or task entry and would become false the moment a contact was written. **AC-17 moves too**: `people.googleapis.com` is a fourth host in `ALLOWED_HOSTS`, which this specification already records as an AC-17 decision and never a refactor. **Three readings are the substance.** Identity keys on **normalised email and never on a telephone number alone**, because the harms are asymmetric — a duplicate contact is visible and deletable, while a wrong merge silently overwrites one person's details with another's, and a shared switchboard number makes exactly that merge easy between two colleagues. **The card image is never persisted**; this is stronger than the equivalent rule elsewhere in the product, because every other thing Latch handles is the user's own content and a business card is a third party's, held by somebody who never chose this application. And **card-versus-date is always the user's explicit choice**: where a QR decodes as a contact the sheet may say so and offer the path more prominently, but *detection may change what is offered and never what happens*, which is FR-804's rule one surface earlier. **The dependency question was measured rather than argued.** ML Kit's bundled barcode model costs **+20.25 MB** on the universal APK and about **+5.7 MB per device** after ABI splits, on top of the 12.83 MB the OCR models already spend against NFR-103's 40 MB budget. ZXing core returned a **byte-identical** APK — 45,155,590 both times — which is R8 stripping a dependency nothing calls, and is recorded as *not a measurement of ZXing* rather than as a zero: what it does establish is that ZXing adds no native library and no asset, its per-ABI totals being unchanged, so its cost is pure shrunk Java bounded by a 0.5 MB artifact. ZXing is recommended and **neither is adopted**; `docs/DEPENDENCIES.md` wants a measured figure and Phase A's spike owes it one. Phase B sets the classifier corpus at **120 real cards**, a floor chosen to be met rather than to look rigorous, with NFR-502's 113-against-300 standing as the warning. Android only; Windows [LATER] and the extension [NEVER], both recorded so neither is an open question. Nothing is binding: §5.11 is marked DRAFT and no requirement outside it has been altered. |
+| 1.84 | 4 Sep 2026 | **§5.11 is approved and its eight amendments are applied, including the one that reverses a `[MUST]`.** FR-003 no longer forbids a Contacts scope, and **the reversal is written into FR-003 itself** rather than left in this history: a prohibition that quietly stops applying is one nobody can audit, and a reader arriving at FR-003 needs to see that it was changed on purpose. FR-002 gains `.../auth/contacts` as a fifth Sensitive scope; design principle 2 and NFR-201 now say user content reaches Google as a calendar, task **or contact** entry, which they had to, since both would otherwise have become false on the first contact written; FR-1102 and FR-1103 gain their clauses, the second recording that contact data is **the first data this product handles whose subject is not the user** — a distinction Play's Data Safety form does not draw and the developer therefore has to. §8.6 records that verification happens **once**, against the final scope set, which is the whole scheduling reason this pillar is built before FR-1108's gate. `people.googleapis.com` is approved for `ALLOWED_HOSTS` and the change lands in Phase A with the test that names the set; AC-17's wording needed no change, People being Google. **Two conditions came with the approval and are requirements rather than notes.** FR-1240 makes the first spike resolve the `clientData` count and size limits — FR-1207 is unimplementable without them — and enter the *measured* decoder cost in `docs/DEPENDENCIES.md`, explicitly forbidding the §5.11.6 bound from being entered as a measurement. FR-1241 requires the `.../auth/contacts` consent wording to be read off a real device and recorded, because §5.11.6 drafted it as an expectation and **a specification carrying a guess in the voice of a fact is worse than one carrying nothing** — that sentence is what would get quoted into a privacy policy. Both gate contact-write code rather than the spike itself, so Phase A can begin. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -193,7 +194,7 @@ Primary: general consumers in India managing school, family, travel, payment and
 These are binding and should be treated as acceptance criteria in their own right.
 
 1. **Never invent a date.** If no date is found, the item is created undated. The app must never silently default to "today" or any other guess.
-2. **On-device only.** Text and image content is never transmitted to any server operated by the publisher, nor to any third party other than Google, and then only as the finished calendar or task entry. The sole exception is an endpoint the user has explicitly configured themselves under FR-1004, which is disabled by default.
+2. **On-device only.** Text and image content is never transmitted to any server operated by the publisher, nor to any third party other than Google, and then only as the finished calendar, task or contact entry. The sole exception is an endpoint the user has explicitly configured themselves under FR-1004, which is disabled by default.
 3. **No backend.** The publisher operates no server that receives, stores or processes user content.
 4. **Show the destination.** The target calendar is always visible before saving and always changeable in one tap.
 5. **Reversible.** Anything the app creates can be found and undone as a group.
@@ -235,8 +236,9 @@ Each client independently performs: capture, on-device text extraction (OCR wher
 | `.../auth/calendar.calendarlist` | Read the user's calendar list | Sensitive |
 | `.../auth/calendar.calendars` | Create the Latch calendar | Sensitive |
 | `.../auth/tasks` | Create tasks and read task lists | Sensitive |
+| `.../auth/contacts` | Create and update contacts (§5.11, FR-1200 series) | Sensitive |
 
-**FR-003 [MUST]** No scope granting access to Gmail, Drive (except as noted in FR-1006), Contacts or any other Google service shall be requested. The developer shall confirm the minimum sufficient scope set against current Google documentation before submitting for OAuth verification, as scope granularity changes over time.
+**FR-003 [MUST]** No scope granting access to Gmail, Drive (except as noted in FR-1006) or any other Google service shall be requested. **Contacts was removed from this prohibition at v1.84** when §5.11 was approved; the reversal is recorded here rather than only in the revision history, because a prohibition that quietly stops applying is one nobody can audit. The narrowest sufficient scope remains the rule, and §5.11.2 records that the People API offers no create-only alternative. The developer shall confirm the minimum sufficient scope set against current Google documentation before submitting for OAuth verification, as scope granularity changes over time.
 
 ---
 
@@ -866,8 +868,10 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 
 ## 5.11 Business-card capture (FR-1200 series)
 
-> **STATUS: DRAFT, AWAITING APPROVAL.** Nothing in this section is binding and nothing has been
-> planned or built against it. It is written before any plan deliberately: FR-800's lesson was
+> **STATUS: APPROVED 4 Sep 2026, with two conditions on Phase A (FR-1240, FR-1241).** The eight
+> amendments of §5.11.2 were approved as a package and are **applied**; A1 reverses FR-003's
+> prohibition on a Contacts scope and that reversal is recorded in FR-003 itself. Nothing has been
+> planned or built against this section yet. It is written before any plan deliberately: FR-800's lesson was
 > that an item written into somebody's account before duplicate detection and undo were specified
 > becomes an *unmanageable item*, and that lesson cost two days of diagnosis and five days of
 > duplicates in a real calendar. It will not be relearnt on Contacts.
@@ -971,6 +975,18 @@ save. Design principle 4 has no calendar to show here; the account is what it be
 
 **FR-1214 [MUST]** Nothing shall reach Google Contacts for a card the user has not saved. FR-703
 on a third destination.
+
+**FR-1240 [MUST]** Before any contact-write code ships, the first Phase A spike shall
+resolve and record: (a) the People API's documented limits on `clientData` entry count and value
+size, which FR-1207 is unimplementable without; (b) the measured APK cost of the adopted QR
+decoder, entered in `docs/DEPENDENCIES.md` with its justification per NFR-501 — the §5.11.6
+figure is a bound and not a measurement, and shall not be entered as one.
+
+**FR-1241 [MUST]** The consent-screen wording Google actually shows for `.../auth/contacts`
+shall be read off a real consent screen on a device and recorded as a reading before any
+contact-write code ships. §5.11.6 states it as an expectation; a specification that carries a
+guess in the voice of a fact is worse than one that carries nothing, because the guess is what
+gets quoted into a privacy policy.
 
 ### 5.11.4 Phase B — photographed cards (FR-1220 to FR-1224)
 
@@ -1098,6 +1114,13 @@ recorded and rejected on the size alone. **Neither is adopted by this draft.** `
 requires a written justification with measured APK impact, and that entry is owed at adoption,
 with the Phase A figure rather than this bound.
 
+**A5, recorded where the guard is described rather than only in the amendment table.**
+`people.googleapis.com` is approved for `ALLOWED_HOSTS`, making four hosts. The code change
+belongs to Phase A and lands with the test that asserts the set — `GoogleEndpointGuardTest`
+names the hosts explicitly, so a fourth cannot arrive without a diff that says so. AC-17's own
+wording is unchanged and did not need to change: People is Google, and the criterion is "no
+outbound request to any non-Google endpoint".
+
 ### 5.11.7 Other clients
 
 **Android only, and the other two are recorded rather than left open.**
@@ -1158,7 +1181,7 @@ the text and capturing it on a device that has this pillar.
 
 ## 6.2 Privacy and security
 
-**NFR-201 [MUST]** No captured text or image shall be transmitted to any endpoint other than Google's APIs — and then only as the content of a created calendar event or task — with the single exception of an endpoint the user has explicitly configured under FR-1004. In the app's default configuration no such endpoint exists, and no traffic leaves the device except to Google.
+**NFR-201 [MUST]** No captured text or image shall be transmitted to any endpoint other than Google's APIs — and then only as the content of a created calendar event, task or contact — with the single exception of an endpoint the user has explicitly configured under FR-1004. In the app's default configuration no such endpoint exists, and no traffic leaves the device except to Google.
 
 **NFR-202 [MUST]** No analytics SDK shall collect message content, image content, or parsed values. Crash reporting shall be limited to stack traces with no user content, and shall be opt-out.
 
@@ -1424,15 +1447,19 @@ From Android 14, `MediaProjection` requires user consent per session with no reu
 
 The scopes in FR-002 are sensitive and require Google review before general availability. Expect a demo video, a published privacy policy, and domain verification. Budget several weeks and at least one round of correspondence.
 
+**Verification shall be performed once, against the final scope set including `.../auth/contacts`** (v1.84). This is why §5.11 is built before FR-1108's gate rather than after: verifying without Contacts and again with it costs the several weeks twice, and leaves a period in which the published application requests a scope set the review did not cover.
+
+**The consent-screen wording for `.../auth/contacts` is an expectation and not yet a fact.** §5.11.6 drafts it as approximately "See, edit, download and permanently delete your contacts". FR-1240 requires it to be read off a real consent screen on a device and recorded before any contact-write code ships.
+
 ---
 
 # 9. Compliance and publication
 
 **FR-1101 [MUST]** The app shall contain no advertising, no in-app purchase and no paid tier.
 
-**FR-1102 [MUST]** A publicly hosted privacy policy shall be maintained, accurately stating that no user content reaches publisher servers. Where FR-1004 ships, the policy **shall** additionally describe the outbound webhook: that the capability exists, that it is disabled by default, that the destination endpoint is chosen by the user, and that content sent to it leaves the device.
+**FR-1102 [MUST]** A publicly hosted privacy policy shall be maintained, accurately stating that no user content reaches publisher servers. Where FR-1004 ships, the policy **shall** additionally describe the outbound webhook: that the capability exists, that it is disabled by default, that the destination endpoint is chosen by the user, and that content sent to it leaves the device. Where §5.11 ships, the policy **shall** additionally state that contact details captured from a business card are written to the user's own Google Contacts, that the card image is never stored or transmitted (FR-1211), and that no such data reaches a publisher server.
 
-**FR-1103 [MUST]** The Google Play Data Safety declaration shall be completed consistently with NFR-201 and NFR-202. Note that Google's Data Safety form asks about data **transmitted off the device**, not only data reaching publisher servers. If FR-1004 ships, the webhook is therefore very likely to require declaration even though the publisher never receives the data. The corresponding privacy-policy obligation sits in FR-1102. The developer shall confirm the correct treatment against current Play policy before the declaration is filed.
+**FR-1103 [MUST]** The Google Play Data Safety declaration shall be completed consistently with NFR-201 and NFR-202. Note that Google's Data Safety form asks about data **transmitted off the device**, not only data reaching publisher servers. If FR-1004 ships, the webhook is therefore very likely to require declaration even though the publisher never receives the data. The corresponding privacy-policy obligation sits in FR-1102. The developer shall confirm the correct treatment against current Play policy before the declaration is filed. Where §5.11 ships, the declaration **shall** additionally cover contact data. It is the first data this product handles whose subject is **not the user**, which is a distinction Play's form does not draw and the developer therefore has to: what is transmitted is a third party's name and contact details, held by the user, and FR-1211 is the reason no image accompanies them.
 
 **FR-1104 [MUST]** Notification access shall be justified in the Play Console as core functionality, with in-app prominent disclosure.
 
