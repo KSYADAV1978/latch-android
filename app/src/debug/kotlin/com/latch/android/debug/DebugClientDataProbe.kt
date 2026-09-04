@@ -324,6 +324,32 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
 
                 Log.i(TAG, "cards: ${found.size} contact(s) carry a Latch card record")
                 found.forEach { Log.i(TAG, "cards:   $it") }
+                // FR-1207's record, read back off the account. Keys in full; values truncated,
+                // and the two that matter are digests rather than content in any case.
+                found.forEach { name ->
+                    val person = runCatching {
+                        http.get("$BASE/$name?personFields=names,organizations,phoneNumbers,emailAddresses,clientData")
+                    }.getOrNull() ?: return@forEach
+                    val data = person.optJSONArray("clientData")
+                    for (i in 0 until (data?.length() ?: 0)) {
+                        val e = data?.optJSONObject(i) ?: continue
+                        Log.i(TAG, "cards:     ${e.optString("key")} = ${e.optString("value").take(24)}")
+                    }
+                    // The written values themselves, for the rows that ask what Google holds
+                    // rather than merely how many of a thing it holds.
+                    val org = person.optJSONArray("organizations")?.optJSONObject(0)
+                    Log.i(
+                        TAG,
+                        "cards:     title=${org?.optString("title")} orgName=${org?.optString("name")}",
+                    )
+                    Log.i(
+                        TAG,
+                        "cards:     fields names=${person.optJSONArray("names")?.length() ?: 0} " +
+                            "orgs=${person.optJSONArray("organizations")?.length() ?: 0} " +
+                            "phones=${person.optJSONArray("phoneNumbers")?.length() ?: 0} " +
+                            "emails=${person.optJSONArray("emailAddresses")?.length() ?: 0}",
+                    )
+                }
                 if (mode == "purge") {
                     found.forEach { name ->
                         val gone = runCatching { http.delete("$BASE/$name:deleteContact") }.isSuccess
