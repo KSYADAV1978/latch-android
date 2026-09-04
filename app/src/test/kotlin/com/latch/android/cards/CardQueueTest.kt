@@ -76,7 +76,7 @@ class CardQueueTest {
     fun `an entry inside its undo window is not drained`() = runTest {
         // FR-1210 before FR-1212: writing here would turn CardCreated.Queued into a lie.
         val api = FakeContacts()
-        assertEquals(CardDrainOutcome.KEPT, drain(api, queuedAt.plusSeconds(5)))
+        assertEquals(CardDrainOutcome.NOT_READY, drain(api, queuedAt.plusSeconds(5)))
         assertEquals(0, api.searches, "the check ran for an entry that must not be written yet")
         assertTrue(api.stored.isEmpty())
     }
@@ -216,7 +216,11 @@ class HeldCardDrainTest {
         val queue = FakeQueue(listOf(card("a", "Anita", at = now)))
         val report = drainHeldCards(queue, Contacts(), now.plusSeconds(2))
         assertEquals(1, report.kept)
-        assertEquals(1, queue.entries.single().attempts, "an untried entry should not consume the limit")
+        assertEquals(0, queue.entries.single().attempts, "an untried entry consumed the limit")
+
+        // And repeatedly, because the worker really does run more than once in ten seconds.
+        repeat(5) { drainHeldCards(queue, Contacts(), now.plusSeconds(3)) }
+        assertEquals(0, queue.entries.single().attempts, "repeated skips burned the attempt limit")
     }
 
     @Test

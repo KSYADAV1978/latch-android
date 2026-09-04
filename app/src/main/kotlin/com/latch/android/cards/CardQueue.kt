@@ -40,8 +40,18 @@ enum class CardDrainOutcome {
     /** FR-1208 found it already there. The entry goes, and nothing was written. */
     RETIRED,
 
-    /** Not yet — still inside its FR-1210 window, or the network is still down. Entry stays. */
+    /** Tried and failed — the network, or the API. Entry stays and the attempt is counted. */
     KEPT,
+
+    /**
+     * **Not tried at all**, because the entry is still inside its FR-1210 undo window.
+     *
+     * A separate outcome from [KEPT] rather than a shade of it, and the distinction is not
+     * cosmetic: the worker can run several times inside ten seconds, and counting each skip as an
+     * attempt would spend the limit on an entry nothing had yet tried to write — giving up on a
+     * capture that never had a turn.
+     */
+    NOT_READY,
 }
 
 /**
@@ -63,7 +73,7 @@ suspend fun drainCard(
 ): CardDrainOutcome {
     // FR-1210 first: an entry inside its undo window must not be written, or the undo becomes a
     // race between dropping the entry and chasing a contact that has just appeared.
-    if (!cardDrainable(entry.queuedAt, now)) return CardDrainOutcome.KEPT
+    if (!cardDrainable(entry.queuedAt, now)) return CardDrainOutcome.NOT_READY
 
     val hash = sourceHashOf(entry.payload)
     val search = try {
@@ -136,6 +146,8 @@ suspend fun drainHeldCards(
             CardDrainOutcome.WRITTEN -> { queue.retire(held.id); written++ }
             CardDrainOutcome.RETIRED -> { queue.retire(held.id); retired++ }
             CardDrainOutcome.KEPT -> { queue.markAttempted(held.id); kept++ }
+            // Not tried, so not counted. See CardDrainOutcome.NOT_READY.
+            CardDrainOutcome.NOT_READY -> kept++
         }
     }
     return CardDrainReport(written, retired, kept)
