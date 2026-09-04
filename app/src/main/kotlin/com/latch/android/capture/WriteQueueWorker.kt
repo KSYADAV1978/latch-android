@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.latch.android.LatchApplication
+import com.latch.android.cards.drainHeldCards
 import com.latch.google.CalendarApi
 import com.latch.data.QueuedWrite
 import com.latch.google.SignInRequiredException
@@ -47,6 +48,11 @@ class WriteQueueWorker(
             calendarApi = app.calendarApi,
             tasksApi = app.tasksApi,
         )
+        // FR-1212 rides the same worker, the same backoff and the same triggers — see
+        // `CardQueueStore`'s note on why it does not ride the same *record*. Its outcome does not
+        // change this worker's Result: a card that could not be written is retried on the next
+        // pass like anything else, and a date capture must not be held back by one.
+        runCatching { drainHeldCards(app.cardQueue, app.contactsApi) }.getOrNull()
         // FR-806: whatever happened, the count on the home screen is now wrong.
         app.refreshQueueStatus()
         return result

@@ -113,6 +113,9 @@ fun CardScreen(
         when (saveResult) {
             is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
             is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
+            // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
+            // reassuring direction: the account holds nothing yet.
+            is CardSaveResult.Held -> Note(stringResource(R.string.card_held))
             is CardSaveResult.Saved ->
                 Note(
                     stringResource(

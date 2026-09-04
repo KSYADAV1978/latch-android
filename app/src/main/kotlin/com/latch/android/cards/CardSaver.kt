@@ -45,6 +45,15 @@ sealed interface CardSaveResult {
     data object Idle : CardSaveResult
     data object Saving : CardSaveResult
 
+    /**
+     * FR-1212: held on this phone, and written when there is a network.
+     *
+     * A distinct state from [Saved] for the reason the date side keeps `Queued` distinct: the
+     * account holds nothing yet, so saying "saved" would be a lie in the reassuring direction —
+     * and FR-1210's undo drops the entry rather than deleting a contact.
+     */
+    data class Held(val entryId: String) : CardSaveResult
+
     /** [checked] false means FR-1208 could not complete; the item is written and the user is told. */
     data class Saved(val resourceName: String, val checked: Boolean) : CardSaveResult
 
@@ -70,6 +79,12 @@ sealed interface CardSaveResult {
 class CardSaver(
     private val contacts: ContactsApi,
     private val now: () -> Instant = Instant::now,
+    /**
+     * FR-1212. Null where there is nowhere to hold a card, in which case a failure is reported —
+     * **accepting a card and never writing it is worse than declining it**, and a saver with no
+     * queue must not pretend to have one.
+     */
+    private val hold: (suspend (CardDraft, String, String, Instant) -> String)? = null,
 ) {
 
     suspend fun save(draft: CardDraft, payload: String, layer: String): CardSaveResult {
@@ -80,8 +95,9 @@ class CardSaver(
         } catch (failure: Exception) {
             // A check that threw is not a check that found nothing. Writing here would be
             // FR-1208 skipped on the first flaky network, which is how the calendar's duplicates
-            // happened — so the save is reported failed and the user may try again.
-            return CardSaveResult.Failed(permanent = false)
+            // happened — so nothing is written, and the capture is **held** rather than lost.
+            // The check runs again at drain, which is where the question can be answered.
+            return held(draft, payload, layer)
         }
 
         return when (val decision = cardWriteDecision(search)) {
@@ -102,9 +118,23 @@ class CardSaver(
                     )
                     CardSaveResult.Saved(name, checked = decision.checked)
                 } catch (failure: Exception) {
-                    CardSaveResult.Failed(permanent = false)
+                    held(draft, payload, layer)
                 }
             }
         }
+    }
+
+    /**
+     * FR-1212, or an honest failure where there is no queue.
+     *
+     * FR-806's classifier is deliberately not consulted here: every failure that reaches this
+     * point is one the duplicate check will be asked again about at drain, and an entry that can
+     * never drain is dropped by the drain's own attempt limit rather than refused at the door —
+     * where refusing means losing a capture that exists nowhere else.
+     */
+    private suspend fun held(draft: CardDraft, payload: String, layer: String): CardSaveResult {
+        val queue = hold ?: return CardSaveResult.Failed(permanent = false)
+        return runCatching { CardSaveResult.Held(queue(draft, payload, layer, now())) }
+            .getOrElse { CardSaveResult.Failed(permanent = false) }
     }
 }

@@ -1,6 +1,9 @@
 package com.latch.android.cards
 
 import com.latch.core.model.CardDraft
+import com.latch.data.CardQueue
+import com.latch.wire.cardSourceHashOf
+import com.latch.wire.contactIdentityKeys
 import com.latch.google.ContactsApi
 import com.latch.google.contactWriteFor
 import com.latch.wire.CardMetadata
@@ -92,3 +95,53 @@ suspend fun drainCard(
         }
     }
 }
+
+/**
+ * FR-1212: drain every held card that is ready.
+ *
+ * **Oldest first, and one failure does not stop the rest.** A card the network refuses stays and
+ * is tried again; the next entry is still attempted, because a queue that stopped at the first
+ * failure would let one bad entry hold everything behind it — which is the shape SRS 1.24's
+ * per-item marker exists to prevent on the date side.
+ *
+ * **The attempt limit is here rather than at the door.** `CardSaver` holds a card whatever the
+ * failure was, because refusing at save time loses a capture; an entry that can never drain is
+ * given up on *here*, where it has demonstrated that rather than been predicted.
+ */
+suspend fun drainHeldCards(
+    queue: CardQueue,
+    contacts: ContactsApi,
+    now: Instant = Instant.now(),
+    attemptLimit: Int = CARD_ATTEMPT_LIMIT,
+): CardDrainReport {
+    var written = 0
+    var retired = 0
+    var kept = 0
+    for (held in queue.pending()) {
+        if (held.attempts >= attemptLimit) {
+            // Kept, not deleted: the entry holds a capture that exists nowhere else, and the
+            // write queue's own rule is that a given-up entry stays and can be revived.
+            kept++
+            continue
+        }
+        val entry = QueuedCard(
+            id = held.id,
+            draft = held.draft,
+            payload = held.payload,
+            layer = held.layer,
+            queuedAt = held.queuedAt,
+            attempts = held.attempts,
+        )
+        when (drainCard(entry, now, contacts, ::cardSourceHashOf, ::contactIdentityKeys)) {
+            CardDrainOutcome.WRITTEN -> { queue.retire(held.id); written++ }
+            CardDrainOutcome.RETIRED -> { queue.retire(held.id); retired++ }
+            CardDrainOutcome.KEPT -> { queue.markAttempted(held.id); kept++ }
+        }
+    }
+    return CardDrainReport(written, retired, kept)
+}
+
+data class CardDrainReport(val written: Int, val retired: Int, val kept: Int)
+
+/** Eight attempts, as FR-806's queue gives its own entries before it stops. */
+const val CARD_ATTEMPT_LIMIT = 8

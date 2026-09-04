@@ -188,3 +188,71 @@ class CardSaverTest {
         assertEquals(1, api.stored.size)
     }
 }
+
+/** FR-1212's half of the saver: a card that cannot be written is held, not lost. */
+class CardSaverHoldTest {
+
+    private class FailingContacts(private val alsoFailCreate: Boolean = false) : ContactsApi {
+        var created = 0
+        override suspend fun createContact(person: ContactWrite): String {
+            if (alsoFailCreate) throw RuntimeException("create failed")
+            created++
+            return "people/c1"
+        }
+        override suspend fun deleteContact(resourceName: String) = Unit
+        override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch =
+            throw RuntimeException("offline")
+    }
+
+    private val draft = CardDraft(displayName = "Anita Sharma")
+    private val payload = "BEGIN:VCARD\nVERSION:3.0\nFN:Anita Sharma\nEND:VCARD"
+
+    @Test
+    fun `a search that cannot run holds the card rather than losing it`() = runTest {
+        // The offline case. Before FR-1212's store the same condition reported a failure and the
+        // capture went with the sheet.
+        var heldPayload: String? = null
+        val saver = CardSaver(
+            FailingContacts(),
+            now = { Instant.parse("2026-09-04T09:15:00Z") },
+            hold = { _, p, _, _ -> heldPayload = p; "entry-1" },
+        )
+        assertEquals(CardSaveResult.Held("entry-1"), saver.save(draft, payload, "SHARED_IMAGE"))
+        assertEquals(payload, heldPayload, "the payload must be held, since FR-1208 hashes it")
+    }
+
+    @Test
+    fun `a write that fails after a clean check is held too`() = runTest {
+        // The network can go between the check and the insert. Reporting a failure here would
+        // lose a capture that had already been confirmed.
+        val contacts = object : ContactsApi {
+            override suspend fun createContact(person: ContactWrite): String =
+                throw RuntimeException("network went")
+            override suspend fun deleteContact(resourceName: String) = Unit
+            override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
+        }
+        val saver = CardSaver(contacts, hold = { _, _, _, _ -> "entry-2" })
+        assertEquals(CardSaveResult.Held("entry-2"), saver.save(draft, payload, "SHARED_IMAGE"))
+    }
+
+    @Test
+    fun `a saver with no queue reports a failure rather than pretending to hold`() = runTest {
+        // Accepting a card and never writing it is worse than declining it, so a saver without a
+        // queue must not claim one.
+        val saver = CardSaver(FailingContacts())
+        assertEquals(CardSaveResult.Failed(permanent = false), saver.save(draft, payload, "X"))
+    }
+
+    @Test
+    fun `a queue that itself fails is reported, not silently swallowed`() = runTest {
+        val saver = CardSaver(FailingContacts(), hold = { _, _, _, _ -> throw RuntimeException("disk full") })
+        assertEquals(CardSaveResult.Failed(permanent = false), saver.save(draft, payload, "X"))
+    }
+
+    @Test
+    fun `holding writes nothing to the account`() = runTest {
+        val contacts = FailingContacts()
+        CardSaver(contacts, hold = { _, _, _, _ -> "entry-3" }).save(draft, payload, "X")
+        assertEquals(0, contacts.created)
+    }
+}

@@ -2,6 +2,8 @@ package com.latch.android.cards
 
 import com.latch.core.model.CardDraft
 import com.latch.core.model.CardEmail
+import com.latch.data.CardQueue
+import com.latch.data.HeldCard
 import com.latch.google.ContactDuplicateSearch
 import com.latch.google.ContactWrite
 import com.latch.google.ContactsApi
@@ -131,5 +133,106 @@ class CardQueueTest {
             cardSourceHashOf(payload),
             api.stored.values.single().clientData.single { it.first == KEY_CARD_SOURCE_HASH }.second,
         )
+    }
+}
+
+/** FR-1212's loop: what a drain over several held cards does. */
+class HeldCardDrainTest {
+
+    private class FakeQueue(initial: List<HeldCard>) : CardQueue {
+        val entries = initial.toMutableList()
+        override suspend fun enqueue(entry: HeldCard): String {
+            entries += entry; return entry.id
+        }
+        override suspend fun pending(): List<HeldCard> = entries.sortedBy { it.queuedAt }
+        override suspend fun drop(id: String) = entries.removeIf { it.id == id }
+        override suspend fun retire(id: String) = entries.removeIf { it.id == id }
+        override suspend fun markAttempted(id: String): Boolean {
+            val i = entries.indexOfFirst { it.id == id }
+            if (i < 0) return false
+            entries[i] = entries[i].copy(attempts = entries[i].attempts + 1)
+            return true
+        }
+    }
+
+    private class Contacts(val failFor: Set<String> = emptySet()) : ContactsApi {
+        val written = mutableListOf<String>()
+        override suspend fun createContact(person: ContactWrite): String {
+            val name = person.displayName.orEmpty()
+            if (name in failFor) throw RuntimeException("no")
+            written += name
+            return "people/${written.size}"
+        }
+        override suspend fun deleteContact(resourceName: String) = Unit
+        override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
+    }
+
+    private val long_ago = Instant.parse("2026-09-04T09:00:00Z")
+    private val now = Instant.parse("2026-09-04T10:00:00Z")
+
+    private fun card(id: String, name: String, at: Instant = long_ago, attempts: Int = 0) = HeldCard(
+        id = id,
+        payload = "BEGIN:VCARD\nVERSION:3.0\nFN:$name\nEND:VCARD",
+        draft = CardDraft(displayName = name),
+        layer = "SHARED_IMAGE",
+        queuedAt = at,
+        attempts = attempts,
+    )
+
+    @Test
+    fun `every ready entry is written and retired`() = runTest {
+        val queue = FakeQueue(listOf(card("a", "Anita"), card("b", "Ravi")))
+        val contacts = Contacts()
+        val report = drainHeldCards(queue, contacts, now)
+        assertEquals(CardDrainReport(written = 2, retired = 0, kept = 0), report)
+        assertTrue(queue.entries.isEmpty())
+        assertEquals(listOf("Anita", "Ravi"), contacts.written)
+    }
+
+    @Test
+    fun `one failure does not hold up the entries behind it`() = runTest {
+        // A queue that stopped at the first failure would let one bad entry block everything,
+        // which is the shape SRS 1.24's per-item marker prevents on the date side.
+        val queue = FakeQueue(listOf(card("a", "Anita"), card("b", "Ravi"), card("c", "Meera")))
+        val contacts = Contacts(failFor = setOf("Ravi"))
+        val report = drainHeldCards(queue, contacts, now)
+        assertEquals(2, report.written)
+        assertEquals(1, report.kept)
+        assertEquals(listOf("Anita", "Meera"), contacts.written)
+        assertEquals(listOf("b"), queue.entries.map { it.id }, "the failed entry was lost")
+    }
+
+    @Test
+    fun `a kept entry has its attempt counted`() = runTest {
+        val queue = FakeQueue(listOf(card("a", "Anita")))
+        drainHeldCards(queue, Contacts(failFor = setOf("Anita")), now)
+        assertEquals(1, queue.entries.single().attempts)
+    }
+
+    @Test
+    fun `an entry inside its undo window is left alone and not counted as an attempt`() = runTest {
+        // FR-1210 before FR-1212. Counting an attempt here would burn the limit on entries that
+        // were never tried.
+        val queue = FakeQueue(listOf(card("a", "Anita", at = now)))
+        val report = drainHeldCards(queue, Contacts(), now.plusSeconds(2))
+        assertEquals(1, report.kept)
+        assertEquals(1, queue.entries.single().attempts, "an untried entry should not consume the limit")
+    }
+
+    @Test
+    fun `an entry that has run out of attempts is kept, never deleted`() = runTest {
+        // It holds a capture that exists nowhere else. The write queue's own rule is that a
+        // given-up entry stays and can be revived.
+        val queue = FakeQueue(listOf(card("a", "Anita", attempts = CARD_ATTEMPT_LIMIT)))
+        val contacts = Contacts()
+        val report = drainHeldCards(queue, contacts, now)
+        assertEquals(1, report.kept)
+        assertTrue(contacts.written.isEmpty(), "a given-up entry was written anyway")
+        assertEquals(1, queue.entries.size, "a given-up entry was deleted")
+    }
+
+    @Test
+    fun `an empty queue is not an error`() = runTest {
+        assertEquals(CardDrainReport(0, 0, 0), drainHeldCards(FakeQueue(emptyList()), Contacts(), now))
     }
 }

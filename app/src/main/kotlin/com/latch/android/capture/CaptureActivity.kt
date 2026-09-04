@@ -333,8 +333,12 @@ class CaptureActivity : ComponentActivity() {
                         // happened. What decides is what the capture still *holds*.
                         onDismiss = {
                             val dismiss = cardDismiss(
+                                // A held card is finished from the user's point of view: it is
+                                // safe on the phone and the sheet has said so. Sending them back
+                                // to a capture they have dealt with would read as a failure.
                                 saved = cardSave is CardSaveResult.Saved ||
-                                    cardSave is CardSaveResult.AlreadySaved,
+                                    cardSave is CardSaveResult.AlreadySaved ||
+                                    cardSave is CardSaveResult.Held,
                                 unsavedDateCandidates = if (saveState is SaveState.Saved) 0
                                 else result?.candidates?.size ?: 0,
                             )

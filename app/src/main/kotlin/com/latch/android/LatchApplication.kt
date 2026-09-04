@@ -40,6 +40,9 @@ import com.latch.data.LocalItemIndex
 import com.latch.android.settings.grantCheck
 import com.latch.android.settings.promptAfter
 import com.latch.android.settings.shouldCheckGrant
+import com.latch.data.CardQueue
+import com.latch.data.EncryptedCardQueueStore
+import com.latch.data.HeldCard
 import com.latch.data.QueueStatus
 import com.latch.data.RecipeStore
 import com.latch.data.RevokeOutcome
@@ -324,7 +327,22 @@ class LatchApplication : Application() {
      * Held by the application and not by the capture Activity, for `CaptureSaver`'s reason: the
      * capture window closes on a tap outside it, and a write already in flight must still finish.
      */
-    val cardSaver: CardSaver by lazy { CardSaver(contactsApi) }
+    /** FR-1212's store. Its own file and its own Keystore alias; see `CardQueueStore`. */
+    val cardQueue: CardQueue by lazy { EncryptedCardQueueStore(this) }
+
+    val cardSaver: CardSaver by lazy {
+        CardSaver(
+            contacts = contactsApi,
+            // FR-1212: a card that cannot be written is held rather than lost, and the drain
+            // asks FR-1208's question again when there is a network to ask it over.
+            hold = { draft, payload, layer, at ->
+                val id = java.util.UUID.randomUUID().toString()
+                cardQueue.enqueue(
+                    HeldCard(id = id, payload = payload, draft = draft, layer = layer, queuedAt = at),
+                ).also { WriteQueueWorker.schedule(this) }
+            },
+        )
+    }
 
     private val _queueStatus = MutableStateFlow(QueueStatus(waiting = 0, givenUp = 0))
 
