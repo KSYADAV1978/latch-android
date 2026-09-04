@@ -15,6 +15,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
+import com.latch.android.cards.CardDismiss
+import com.latch.android.cards.cardDismiss
 import com.latch.android.cards.CardOffer
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
@@ -325,7 +327,25 @@ class CaptureActivity : ComponentActivity() {
                                 )
                             }
                         },
-                        onDismiss = { cardState = null },
+                        // SRS 1.104. Backing out returned to the capture sheet unconditionally,
+                        // so a user who had just saved a contact from a QR with no dates in it
+                        // was dropped onto an empty capture — reading as though nothing had
+                        // happened. What decides is what the capture still *holds*.
+                        onDismiss = {
+                            val dismiss = cardDismiss(
+                                saved = cardSave is CardSaveResult.Saved ||
+                                    cardSave is CardSaveResult.AlreadySaved,
+                                unsavedDateCandidates = if (saveState is SaveState.Saved) 0
+                                else result?.candidates?.size ?: 0,
+                            )
+                            when (dismiss) {
+                                CardDismiss.CLOSE_CAPTURE -> finish()
+                                CardDismiss.BACK_TO_CAPTURE -> {
+                                    cardState = null
+                                    cardSave = CardSaveResult.Idle
+                                }
+                            }
+                        },
                     )
                 } else if (choosing) {
                     CardChooser(

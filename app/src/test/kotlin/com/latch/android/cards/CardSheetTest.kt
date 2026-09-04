@@ -182,3 +182,28 @@ class CardSheetTest {
         assertNull(soleContactPayload(emptyList()))
     }
 }
+
+/** SRS 1.104: what dismissing the card sheet does, found in use rather than by a test. */
+class CardDismissTest {
+
+    @Test
+    fun `before a save, backing out returns to the dates`() {
+        // Changing your mind about the card must not throw away the capture it came from.
+        assertEquals(CardDismiss.BACK_TO_CAPTURE, cardDismiss(saved = false, unsavedDateCandidates = 0))
+        assertEquals(CardDismiss.BACK_TO_CAPTURE, cardDismiss(saved = false, unsavedDateCandidates = 3))
+    }
+
+    @Test
+    fun `after a save with nothing else in the capture, the whole thing closes`() {
+        // The case that was wrong: a QR on a white sheet has no dates, so the user was returned
+        // to an empty capture sheet after finishing.
+        assertEquals(CardDismiss.CLOSE_CAPTURE, cardDismiss(saved = true, unsavedDateCandidates = 0))
+    }
+
+    @Test
+    fun `after a save with dates still unsaved, the dates are still offered`() {
+        // A photographed flyer can carry a contact code and a date. Saving the contact says
+        // nothing about the date, and closing over it would lose the user's other half.
+        assertEquals(CardDismiss.BACK_TO_CAPTURE, cardDismiss(saved = true, unsavedDateCandidates = 2))
+    }
+}

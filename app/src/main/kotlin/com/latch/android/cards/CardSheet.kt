@@ -127,3 +127,33 @@ fun cardOffer(isImage: Boolean, decodedContactPayloads: Int): CardOffer = when {
  * is a question only the person holding the phone can answer.
  */
 fun soleContactPayload(payloads: List<String>): String? = payloads.singleOrNull()
+
+/**
+ * What dismissing the card sheet should do (SRS 1.104).
+ *
+ * **Found in use, not by a test.** Backing out of the card sheet always returned to the capture
+ * sheet — which is right *before* a save, because the dates are still unsaved and changing your
+ * mind about the card should not throw them away. It is wrong *after* one: the user has finished,
+ * and a dates sheet reappearing reads either as nothing having happened or as a second unsaved
+ * thing. It was worst on the fixture that found it, a QR on a white sheet with no dates in it at
+ * all, where the user was returned to an empty capture.
+ *
+ * The distinction is what the capture still *holds*, not what it is: a photographed flyer can
+ * carry both a contact code and a date, and saving the contact says nothing about the date.
+ */
+enum class CardDismiss {
+    /** Nothing has been written, or dates remain unsaved. Go back to them. */
+    BACK_TO_CAPTURE,
+
+    /** The contact is saved and there is nothing else here. Close the whole capture. */
+    CLOSE_CAPTURE,
+}
+
+fun cardDismiss(saved: Boolean, unsavedDateCandidates: Int): CardDismiss = when {
+    // Before a save the dates are the reason to go back, and so is a card abandoned by mistake.
+    !saved -> CardDismiss.BACK_TO_CAPTURE
+    // Saved, but the capture also holds dates nobody has saved yet — those are a second thing
+    // worth keeping, and closing over them would lose the user's other half.
+    unsavedDateCandidates > 0 -> CardDismiss.BACK_TO_CAPTURE
+    else -> CardDismiss.CLOSE_CAPTURE
+}
