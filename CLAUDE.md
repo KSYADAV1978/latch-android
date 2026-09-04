@@ -294,8 +294,11 @@ where a second client is most likely to drift.
 cause was paging, not the drain — see SRS 1.37 and 1.38. Confirmed by a controlled run: a
 capture queued in aeroplane mode, aeroplane mode off, the drain ran (`Worker result SUCCESS`)
 and **retired the entry without writing** — the count through the app's own client stayed at
-`items=2`, and the device mirror agrees. The account still holds exactly the two Kickoff events
-the original defect produced.
+`items=2`, and the device mirror agrees. The account held exactly the two Kickoff events the
+original defect produced. **That is no longer true and the sentence is left standing with this
+correction rather than edited away**: on 4 Sep 2026 the account held none at 8 Sep 2027 and one
+at 8 Sep 2026, after an FR-804 update moved it. The residue of the 31 Aug defect is gone from
+the account; the diagnosis below is kept because the method in it outlives the fixture.
 
 What follows is kept because it is the diagnosis, and the method in it is worth more than the
 bug.
@@ -1272,7 +1275,7 @@ fail*, then *the fixture*.
 | Launch at sign-in (FR-301) | Not built. See `docs/RELEASE-WINDOWS.md` | |
 | ~~**The queue survives a restart**~~ | **Done, 3 Sep 2026.** One JVM with every HTTPS connection failing held the capture on disk, encrypted; a **second, fresh** JVM read it and drained it to Google; re-capturing the same text then answered "already saved", which is Google's index confirming it landed. | |
 | **AC-10 with the network actually off** | The mechanism is verified, the *trigger* is not. The check above used a bogus proxy, so every request failed as it would offline but the interface stayed up — the connectivity-restored drain is therefore unexercised. Turn the Wi-Fi off, capture, save: the window must say *held*, never *saved*. Turn it on: it should drain within seconds rather than at the next scheduled attempt | the Wi-Fi off |
-| **Pressing Update on a real offer** | **Pressed, 4 Sep 2026 — the first time on this client.** Arose unprompted during the Settings check: the developer re-captured the same text with the **year changed from 2027 to 2026**, was offered the reschedule, pressed **Update**, and the event now sits in 2026. **Two things follow.** FR-804 matched **across a year boundary**, which means the blanked date span covers the year — the property SRS 1.59's `NumericDateRule` defect would have broken for ISO-format dates, seen here holding for a spelled-out one. And the **count is still owed**: this row's own words are "confirm exactly one item moved and none was created", and the message on screen cannot say which. | capture a saved item's text with the date changed |
+| ~~**Pressing Update on a real offer**~~ | **PASS, 4 Sep 2026 — the first time on this client, and the count is the evidence.** Arose unprompted during the Settings check: the same text re-captured with the **year changed from 2027 to 2026** was offered as a reschedule, **Update** was pressed, and afterwards the calendar held **no event at the old date and exactly one at the new** — so one item moved and none was created, which is this row's own wording and is what the message on screen cannot say. **FR-804 matched across a year boundary**, meaning the blanked date span covers the year: the property SRS 1.59's `NumericDateRule` defect would have broken for an ISO-format date, seen holding here for a spelled-out one. |
 | **Pressing Undo** | **Half done, 4 Sep 2026: undo of a create was pressed and removed the item** — the first Undo anyone has pressed on this client, taken during AC-20. Still owed: the ten seconds and the countdown *lapsing* untouched with the save standing, and undo of an **update**, which must put the old date back and delete nothing. | any capture, then Undo |
 | **A half-written chain resumes** | Hard to arrange by hand; the JVM tests pin the logic. The device check is that an ordinary multi-date capture queued offline writes each item exactly once on reconnection | a two-date capture, offline |
 | FR-806's Retry now | With something stuck, the tray offers it and a tap drains. A given-up entry is revived rather than left | pull the network for a long stretch |
