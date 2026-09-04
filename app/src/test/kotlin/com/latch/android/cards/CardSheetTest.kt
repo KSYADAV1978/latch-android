@@ -90,6 +90,53 @@ class CardSheetTest {
     }
 
     @Test
+    fun `blanking the name clears the structured name with it`() {
+        // SRS 1.101, and the fixture is the point. The old test for this used a draft carrying
+        // *only* phones, so `givenName` and `familyName` were already null and it could not have
+        // failed. This card has all three, which is what every real vCard has — and blanking the
+        // one field the sheet shows must clear all of them, or the account receives a name the
+        // user removed.
+        val state = CardSheetState(card, edits = CardEdits(displayName = ""))
+        assertNull(state.edited.givenName)
+        assertNull(state.edited.familyName)
+        assertEquals("", state.edited.displayName)
+    }
+
+    @Test
+    fun `a blanked name on a card with nothing else blocks the save`() {
+        // The device row that failed: name, company, both phones and the email cleared, and Save
+        // stayed live because two invisible name fields still held the parse.
+        val stripped = CardEdits(
+            displayName = "",
+            organisation = "",
+            phones = mapOf(0 to "", 1 to ""),
+            emails = mapOf(0 to ""),
+        )
+        assertEquals(
+            CardSaveBlocker.NOTHING_TO_SAVE,
+            cardSaveBlocker(CardSheetState(card, edits = stripped)),
+            "Save stayed enabled with every visible field cleared",
+        )
+    }
+
+    @Test
+    fun `a corrected name replaces the parse rather than joining it`() {
+        val state = CardSheetState(card, edits = CardEdits(displayName = "A. Sharma"))
+        assertEquals("A. Sharma", state.edited.displayName)
+        // The pair goes, because this code cannot know which word is the family name in an
+        // arbitrary correction and guessing would file somebody under the wrong one.
+        assertNull(state.edited.givenName)
+        assertNull(state.edited.familyName)
+    }
+
+    @Test
+    fun `an untouched name keeps its structure`() {
+        val state = CardSheetState(card, edits = CardEdits(jobTitle = "Director"))
+        assertEquals("Anita", state.edited.givenName)
+        assertEquals("Sharma", state.edited.familyName)
+    }
+
+    @Test
     fun `emptying the last field blocks a save that was allowed a moment ago`() {
         // The blocker is re-asked on every edit. Computed once when the sheet opened, it would
         // be FR-608's frozen ticks one screen over.

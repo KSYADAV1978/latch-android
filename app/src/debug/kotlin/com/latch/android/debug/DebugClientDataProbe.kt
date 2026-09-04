@@ -295,6 +295,45 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
                 return@launch
             }
 
+            // Contacts this app wrote as cards, found by their FR-1207 record rather than by
+            // name — so a card saved with its name cleared is still findable. `--es cards list`
+            // reports them; `--es cards purge` deletes them. It matches on `latch.card.version`
+            // and on nothing else: this must never be able to remove a contact Latch did not
+            // create.
+            intent.getStringExtra("cards")?.let { mode ->
+                var token: String? = null
+                val found = mutableListOf<String>()
+                do {
+                    val page = runCatching {
+                        http.get(
+                            "$BASE/people/me/connections?personFields=names,clientData" +
+                                "&pageSize=1000" + (token?.let { "&pageToken=$it" } ?: "")
+                        )
+                    }.getOrNull() ?: break
+                    val people = page.optJSONArray("connections")
+                    for (i in 0 until (people?.length() ?: 0)) {
+                        val person = people?.optJSONObject(i) ?: continue
+                        val data = person.optJSONArray("clientData")
+                        val isCard = (0 until (data?.length() ?: 0)).any {
+                            data?.optJSONObject(it)?.optString("key") == "latch.card.version"
+                        }
+                        if (isCard) found += person.optString("resourceName")
+                    }
+                    token = page.optString("nextPageToken").takeIf { it.isNotBlank() }
+                } while (token != null)
+
+                Log.i(TAG, "cards: ${found.size} contact(s) carry a Latch card record")
+                found.forEach { Log.i(TAG, "cards:   $it") }
+                if (mode == "purge") {
+                    found.forEach { name ->
+                        val gone = runCatching { http.delete("$BASE/$name:deleteContact") }.isSuccess
+                        Log.i(TAG, "cards: deleted $name ok=$gone")
+                    }
+                }
+                Log.i(TAG, "probe finished")
+                return@launch
+            }
+
             // Sweep only: confirm the account holds no probe contact, creating nothing.
             if (intent.getStringExtra("sweep") != null) {
                 runCatching { sweep(http) }

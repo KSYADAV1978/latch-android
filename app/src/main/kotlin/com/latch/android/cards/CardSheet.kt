@@ -48,6 +48,17 @@ data class CardEdits(
 ) {
     fun applyTo(draft: CardDraft): CardDraft = draft.copy(
         displayName = displayName ?: draft.displayName,
+        // **An edited name replaces the structured pair** (SRS 1.101). The sheet shows *one*
+        // Name field while a draft carries three, so leaving `givenName` and `familyName` alone
+        // meant blanking the visible field cleared nothing: the blocker still saw a name, Save
+        // stayed enabled, and the contact Google received carried the name the user had just
+        // removed. That is the screen showing one thing and the account receiving another.
+        //
+        // Dropping the pair rather than trying to re-split the typed text is the honest answer:
+        // this code cannot know which word is the family name in an arbitrary correction, and
+        // the People API derives its own structure from an unstructured name.
+        givenName = if (displayName != null) null else draft.givenName,
+        familyName = if (displayName != null) null else draft.familyName,
         organisation = organisation ?: draft.organisation,
         jobTitle = jobTitle ?: draft.jobTitle,
         note = note ?: draft.note,
