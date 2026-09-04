@@ -90,6 +90,72 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
             // stops resolving until a force-stop — reproduced three times. Until that is
             // understood, the probe is driven one trial at a time with a force-stop between, so
             // the limits can be measured without the answer depending on the defect.
+            // Diagnosis for the POST defect (SRS 1.90). Counts open file descriptors around
+            // each request: if a POST leaks a connection, the count climbs and stays up, and
+            // `UnknownHostException` is a process out of sockets rather than a name that will
+            // not resolve. If it does not climb, the leak hypothesis is wrong and the recorded
+            // reading has to change.
+            if (intent.getStringExtra("diag") != null) {
+                fun fds() = runCatching { java.io.File("/proc/self/fd").list()?.size ?: -1 }.getOrDefault(-2)
+                fun step(label: String, block: suspend () -> Unit) = label to block
+
+                Log.i(TAG, "diag start fds=${fds()}")
+
+                // **Is the poisoning host-specific or process-wide?** That is the whole of the
+                // date-pillar question: if a failed People request also kills Calendar and Tasks
+                // in the same process, this is a defect in the shipped product rather than a
+                // contacts finding.
+                suspend fun calendar(label: String) {
+                    val r = runCatching {
+                        http.get("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1")
+                    }
+                    Log.i(
+                        TAG,
+                        "diag $label CALENDAR ok=${r.isSuccess} " +
+                            (r.exceptionOrNull()?.let { "${it.javaClass.simpleName}/${it.cause?.javaClass?.simpleName}" } ?: ""),
+                    )
+                }
+                calendar("before")
+                var created: String? = null
+                repeat(3) { round ->
+                    val post = runCatching {
+                        http.post(
+                            "$BASE/people:createContact?personFields=names",
+                            JSONObject().put(
+                                "names",
+                                JSONArray().put(JSONObject().put("givenName", MARKER)),
+                            ),
+                        )
+                    }
+                    Log.i(
+                        TAG,
+                        "diag round=$round POST ok=${post.isSuccess} fds=${fds()} " +
+                            "thread=${Thread.currentThread().name} " +
+                            "interrupted=${Thread.currentThread().isInterrupted} " +
+                            (post.exceptionOrNull()?.let { "${it.javaClass.simpleName}/${it.cause?.javaClass?.simpleName}" } ?: ""),
+                    )
+                    post.getOrNull()?.optString("resourceName")?.let { name ->
+                        created = name
+                        val del = runCatching { http.delete("$BASE/$name:deleteContact") }
+                        Log.i(TAG, "diag round=$round DELETE ok=${del.isSuccess} fds=${fds()}")
+                        if (del.isSuccess) created = null
+                    }
+                    val get = runCatching { http.get("$BASE/people/me?personFields=names") }
+                    Log.i(
+                        TAG,
+                        "diag round=$round GET ok=${get.isSuccess} fds=${fds()} " +
+                            "thread=${Thread.currentThread().name} " +
+                            "interrupted=${Thread.currentThread().isInterrupted}",
+                    )
+                }
+                calendar("after")
+                created?.let { Log.w(TAG, "diag left behind $it") }
+                runCatching { sweep(http) }
+                Log.i(TAG, "diag end fds=${fds()}")
+                Log.i(TAG, "probe finished")
+                return@launch
+            }
+
             // Sweep only: confirm the account holds no probe contact, creating nothing.
             if (intent.getStringExtra("sweep") != null) {
                 runCatching { sweep(http) }

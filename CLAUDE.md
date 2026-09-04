@@ -1394,7 +1394,7 @@ for. FR-1240 and FR-1241 gate **contact-write code**, not the spike, so Slice 0 
 
 | Slice | Holds | Device pass |
 |---|---|---|
-| **0 — spike** | **Two of three done, 4 Sep 2026.** ZXing measured: **+16,384 B** on the APK, **+49,116 B** of dex, **zero native** — against ML Kit barcode's ~+5.7 MB per device. FR-1241 read off a real consent screen: *"See, edit, download and permanently delete contacts"*, with the three-item breakdown behind **See access details**. **FR-1240(a) is NOT closed**: 6 `clientData` entries of 64 characters round-trip intact, and every larger trial was defeated by the POST defect below, so the limits are unmeasured | Done, and the account was verified clean by a second sweep returning zero |
+| ~~**0 — spike**~~ | **DONE, 4 Sep 2026.** ZXing: **+16,384 B** APK, **+49,116 B** dex, **zero native**, against ML Kit barcode's ~+5.7 MB per device. FR-1241 read verbatim: *"See, edit, download and permanently delete contacts"*. **FR-1240(a) answered**: `clientData` stored **intact** at up to **500 entries** and **32 000-character values**; 131 072 refused with `Resource has been exhausted`; **no silent truncation at any size**, which was the dangerous outcome and did not occur. FR-1207 needs ~6 entries of ~70 characters — three orders of magnitude of headroom | Done. Account verified clean by a sweep returning zero |
 | **1 — grammar** | A pure `:cards` module: vCard 2.1/3.0/4.0 and MECARD, its own corpus. Unknown properties dropped, never guessed; an unparseable payload reported unreadable, never partially accepted | — |
 | **2 — identity** | The §7.2 analogue in `:wire`, with conformance vectors as `hash_vectors.tsv` has. FR-1209 as a pure function, and its load-bearing test: two colleagues sharing a switchboard number give **two** identities | — |
 | **3 — the client** | `ContactsApi` in `:google`, `people.googleapis.com` into `ALLOWED_HOSTS` with the guard test naming it. **FR-1208's duplicate search is built before `createContact` is called anywhere** | — |
@@ -1411,16 +1411,26 @@ reach. One pass covering both would have made a finding hard to attribute to eit
 `ACTION_IMAGE_CAPTURE`-versus-CameraX decision is owed with it — the first needs no permission and
 no dependency, the second needs both.
 
-**A defect found by the spike, to be diagnosed in Slice 3 before a `ContactsApi` is written
-on top of it (SRS 1.90).** POSTs to `people.googleapis.com` are unreliable in a way GETs and
-DELETEs are not: across six processes, GET and DELETE succeeded repeatedly, while a POST succeeded
-only as the **first request of a fresh process** and every request after a POST failed with
-`UnknownHostException` until a force-stop. The device resolved the host by `ping` throughout, so
-it is the application, not the network. Leading hypothesis: a leaked keep-alive connection whose
-response body was never drained — an unread `errorStream` on a non-200 is the classic case — so a
-process exhausts its sockets and `getaddrinfo` fails, which is why the symptom names DNS and the
-cause is not DNS. **Latent for Calendar and Tasks**, whose responses are small and mostly succeed,
-which is why it has never been seen.
+**v1.90 recorded a POST defect here. It does not exist (SRS 1.91).** File descriptors were
+counted around every request and stayed flat, the interrupt flag was clean, and `GoogleHttp`'s
+stream handling is correct on inspection. The cause was the probe's own harness: a
+`BroadcastReceiver` returns immediately, the process drops to a cached state and loses network
+mid-run, and Android reports that as `UnknownHostException` — naming DNS for something that is not
+DNS. With `MainActivity` in the foreground the identical sequence gives three POSTs, three DELETEs
+and two Calendar GETs, all successful.
+
+**Any probe that talks to Google must therefore run with the app in the foreground**, or it will
+measure its own backgrounding. That is the operational lesson and it applies to every future
+device instrument in this project.
+
+**What survives is real and is not a bug.** Two contacts were created by POSTs that reported
+`SocketException` — the write reached Google and reading the response did not, so a successful
+write was reported as a failure. It is inherent to HTTP without idempotency keys, it can happen to
+a Calendar or Tasks write on any dropped network, and it is why FR-806's drain re-runs FR-803
+before every insert. **Unestablished**: whether it has ever fired silently on the date pillar. The
+FR-803 index could not be read off the device (`run-as cat` gives a file of the right length whose
+`page_count` is zero); the instrument that would answer it is the account — duplicate Latch items
+sharing one `latch.source_hash`.
 
 **The open unknown is in Slice 3**: whether `searchContacts` can query `clientData`. If it cannot,
 FR-1208 on a fresh device can consult only the local index, and cross-device duplicate detection
