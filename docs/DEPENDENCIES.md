@@ -27,6 +27,8 @@ baselines is not.
 | `com.google.android.gms:play-services-auth` | 22.0.0 | +135 KB | +135 KB | **Approved** |
 | `androidx.room` | 2.8.4 | +36 KB | +36 KB | **Deferred** |
 | `net.zetetic:sqlcipher-android` | 4.18.0 | +7.34 MB | ~2.0 MB (arm64-v8a) | **Rejected** |
+| `com.google.zxing:core` | 3.5.3 | **+17,176 bytes** | **+17,176 bytes** (no native code) | **Approved, now in use** |
+| `com.google.mlkit:barcode-scanning` (bundled) | 17.3.0 | +20.25 MB | ~+5.7 MB (arm64-v8a) | **Rejected** — NFR-103 |
 | `org.jetbrains.kotlin:kotlin-test-junit5` | 2.2.21 | test-only, 0 | test-only, 0 | **Approved** |
 | `org.json:json` | 20260814 | test-only, 0 | test-only, 0 | **Approved** |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-test` | 1.9.0 | test-only, 0 | test-only, 0 | **Approved** |
@@ -45,6 +47,47 @@ largest single item this app will ever ship: they are roughly thirty-six times t
 current app on a universal APK and eleven times it per device.
 
 ## Approved
+
+### ZXing core - QR decoding for business cards (FR-1203, SRS 5.11 Phase A)
+
+**Approved and adopted 4 Sep 2026**, with the figure measured rather than estimated, as FR-1240
+requires before any contact-write code ships.
+
+| Variant | Universal APK | Delta | dex | Native |
+|---|---|---|---|---|
+| Baseline (before) | 45,155,590 B | - | 3,764,444 B | 39.16 MB across four ABIs |
+| `com.google.zxing:core` 3.5.3, **reachable** | 45,172,766 B | **+17,176 B** | +48,392 B | **unchanged** |
+| `com.google.mlkit:barcode-scanning` 17.3.0 | 63.31 MB | +20.25 MB | +0.96 MB | **+19.29 MB** |
+
+**Why the per-device figure equals the universal one.** ZXing core contributes **no native library
+and no asset** - the per-ABI totals are byte-identical to the baseline - so ABI splits change
+nothing about its cost. That is the decisive difference from ML Kit's barcode model, whose 20.25
+MB is 19.29 MB of native code across four ABIs and therefore about **+5.7 MB on the device that
+installs it**, on top of the 12.83 MB the OCR models already spend against NFR-103's 40 MB budget.
+
+**How it was measured, because an earlier figure was wrong in an instructive way.** The first
+attempt added the dependency with no call site and produced a **byte-identical** APK - R8 removes
+what nothing reaches - which is not a measurement of ZXing but a measurement of dead code, and SRS
+1.90 records it as such rather than as a zero. A second attempt used `-keep` rules modelling a
+decode and gave +16,384 B as an upper bound. The figure above is the third and honest one: taken
+with `ZxingQrReader` genuinely called from the capture path, no keep rules, R8 shrinking normally.
+The bound was good to within 800 bytes.
+
+**Why core and not `zxing-android-embedded`.** That artifact carries a camera Activity and a
+capture UI. FR-1201 narrows Phase A to an image the user has already shared, so what is needed is
+a decoder; the UI would be weight for a path this phase does not have.
+
+**Why not ML Kit, given `:ocr` already depends on it.** "Not a new vendor" is a real argument and
+is rejected on size alone: 350 times the cost, against a budget the release APK is already close
+to. It is recorded here rather than left implicit so that a future reader does not re-open it as
+an obvious simplification.
+
+**The obligation this creates.** ZXing core is a single-purpose decoder with no transitive
+dependencies, which is what makes it cheap to carry; it is also unmaintained relative to its
+Android wrappers. `:ocr` holds it behind `QrReader`, and `:app` names no ZXing type - the same
+containment `OcrReader` gives ML Kit - so replacing it is a change to one file.
+
+
 
 ### ML Kit Text Recognition v2, bundled — on-device OCR (FR-215, FR-216, FR-207)
 

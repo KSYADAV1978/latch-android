@@ -211,6 +211,16 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
      * reads the header only and allocates nothing, which is what makes the decision possible
      * before the allocation that could fail.
      */
+    /**
+     * The bitmap loader, exposed so FR-1203's QR decoder can share it (SRS 1.96).
+     *
+     * **Shared rather than copied.** The EXIF rotation this loader applies was a device finding —
+     * an unread orientation tag hands a recogniser a sideways page and it returns nothing at all
+     * (SRS 1.31) — and a second loader would be a second place to get that wrong, in a decoder
+     * whose failure looks identical to "there was no code".
+     */
+    fun imageSource(): ImageSource = ImageSource { uri -> decodeBitmap(uri) }
+
     private fun decodeBitmap(uri: Uri): Bitmap? {
         // `decodeStream` returns **null by contract** when `inJustDecodeBounds` is set: the
         // answer comes back in `options`, not as a bitmap. So the null check here must guard

@@ -65,7 +65,23 @@ sealed interface CaptureContent {
     data class Extracting(val pages: PageProgress? = null) : CaptureContent
 
     /** Everything that is known. [captured] is null where nothing usable arrived. */
-    data class Ready(val captured: CapturedText?) : CaptureContent
+    data class Ready(
+        val captured: CapturedText?,
+        /**
+         * FR-1202: contact payloads decoded from the image, if any.
+         *
+         * **It arrives after the text, never before it.** A QR decode with `TRY_HARDER` on a
+         * full-screen image is not free, and NFR-101 budgets an image capture 2.5 seconds for
+         * the thing the user actually asked for. So the sheet fills with dates first and the
+         * card offer appears a moment later — NFR-102's progressive pattern, applied to a second
+         * kind of content rather than to a slow one.
+         *
+         * Empty means "no contact code found", which is not the same as "not a card": FR-1202
+         * still offers the path, because the user may know it is a card when the decoder does
+         * not.
+         */
+        val cardPayloads: List<String> = emptyList(),
+    ) : CaptureContent
 
     /** FR-215: recognition ran and produced nothing usable. */
     data class Failed(val reason: OcrFailure) : CaptureContent
@@ -441,8 +457,22 @@ class CaptureActivity : ComponentActivity() {
         lifecycleScope.launch {
             val app = application as LatchApplication
             val (result, layer, title) = when (request) {
-                is CaptureRequest.Image ->
+                is CaptureRequest.Image -> {
+                    // FR-1203, off the critical path. Launched before the recognition it will
+                    // outlive, and folded into whatever `content` holds when it finishes — so a
+                    // slow decode delays the card offer and never the dates.
+                    lifecycleScope.launch {
+                        val codes = runCatching { app.qrReader.readCodes(request.uri) }.getOrNull()
+                        val contactPayloads = codes?.payloads.orEmpty()
+                            .filter { looksLikeContactPayload(it) }
+                        if (contactPayloads.isNotEmpty()) {
+                            (content.value as? CaptureContent.Ready)?.let {
+                                content.value = it.copy(cardPayloads = contactPayloads)
+                            }
+                        }
+                    }
                     Triple(app.ocrReader.readImage(request.uri), request.layer, request.preferredTitle)
+                }
 
                 is CaptureRequest.Pdf -> Triple(
                     // NFR-102: the page count reaches the screen as it happens, so a document
@@ -605,4 +635,17 @@ class CaptureActivity : ComponentActivity() {
      * unknown rather than as an error.
      */
     private fun referrerPackage(): String? = referrer?.host?.takeIf { it.isNotBlank() }
+}
+
+/**
+ * FR-1202: is this decoded payload a contact grammar?
+ *
+ * A QR code on printed material is as likely to be a URL or a Wi-Fi credential as a card, and
+ * offering the card path for a Wi-Fi password would be the app guessing. `parseCard` is the
+ * authority on what parses; this is the cheap prefix test that decides whether to ask it.
+ */
+internal fun looksLikeContactPayload(payload: String): Boolean {
+    val text = payload.trimStart()
+    return text.startsWith("BEGIN:VCARD", ignoreCase = true) ||
+        text.startsWith("MECARD:", ignoreCase = true)
 }

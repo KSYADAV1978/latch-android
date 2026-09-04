@@ -21,6 +21,13 @@ dependencies {
     // implementation, not api. Nothing in Ocr.kt's contracts exposes an ML Kit type, which
     // is the point of this module existing: :app sees OcrReader and OcrResult and never a
     // com.google.mlkit class. The blast radius stops at this build file.
+    // FR-1203's QR decode. Core only: `zxing-android-embedded` is a different artifact
+    // carrying a camera Activity, and this app already has the image — it needs a decoder, not
+    // a capture UI. Measured at +16 KB on the release APK with no native code at all, against
+    // ML Kit's bundled barcode model at roughly +5.7 MB per device; `docs/DEPENDENCIES.md`
+    // carries the figures and the reasoning.
+    implementation(libs.zxing.core)
+
     implementation(libs.mlkit.text.recognition.latin)
     implementation(libs.mlkit.text.recognition.devanagari)
 

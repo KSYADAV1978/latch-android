@@ -59,6 +59,8 @@ import com.latch.recipes.recipesFor
 import com.latch.data.revokeGrant
 import com.latch.ocr.MlKitOcrReader
 import com.latch.ocr.OcrReader
+import com.latch.ocr.QrReader
+import com.latch.ocr.ZxingQrReader
 import com.latch.recipes.BuiltInRecipes
 import com.latch.recipes.IndianHolidays
 import java.time.Instant
@@ -292,6 +294,15 @@ class LatchApplication : Application() {
      * process ending releases it, which is the only lifecycle this object has.
      */
     val ocrReader: OcrReader by lazy { MlKitOcrReader(this) }
+
+    /**
+     * FR-1203's decoder, behind `:ocr`'s interface so nothing here names a ZXing type.
+     *
+     * It shares `MlKitOcrReader`'s bitmap decoding rather than owning a second copy: the EXIF
+     * rotation handling there was a device finding (SRS 1.31), and a QR reader with its own
+     * loader would be a second place for that to be got wrong.
+     */
+    val qrReader: QrReader by lazy { ZxingQrReader((ocrReader as MlKitOcrReader).imageSource()) }
 
     private val _queueStatus = MutableStateFlow(QueueStatus(waiting = 0, givenUp = 0))
 
