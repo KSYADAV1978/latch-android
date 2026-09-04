@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.82 (draft for developer handover)"
+author: "Version 1.83 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.82 — draft for developer handover |
+| Version | 1.83 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -142,6 +142,7 @@ date: "28 August 2026"
 | 1.80 | 4 Sep 2026 | **A settings window may not overwrite what its user is part-way through — the fifth instance of this client's recurring shape.** FR-504's month-first preference was set on the desktop and the next capture read `Invoice 05/09` as 5 September anyway. The parser was exonerated first and cheaply: `parseContextFor` with `MONTH_FIRST` resolves that text to 2026-05-09, and `SettingsModelTest` already pins the record round trip and the form. **The stored record then settled it — `day_first_dates` was still `true`, so the preference had never been submitted at all**, and this is a defect in the window rather than in anything that reads a preference. `show` filled every field from disk and cleared the message line on **every** call, and the tray's Settings item calls it whether the window is open or not; so a second click — to check something, or because the window was behind another — silently replaced an unsaved change with what was on disk. Nothing was said, because the sentence that would have said it was cleared by the same call. `fillWebhook` had the shape one field over and was worse for arriving asynchronously off the DPAPI thread: it reset the delivery switch and blanked the endpoint field at whatever moment the store answered, so an edit could be erased *while being typed* with no click at all. **The fix is a division rather than a guard.** `fill` owns the fields the user edits and is called only when a form is genuinely being loaded — a fresh open, or a write that has just completed; `fillWebhook` is now confined to the mask and FR-1004b's passive report, which are read-only and safe to land at any time, and the spent endpoint field is cleared by the write that consumed it. **What makes this the fifth instance and not a fifth unrelated bug**: FR-507's badge, FR-506's date chips, FR-602's rows drawn at four pixels and FR-608's frozen ticks were all *the model is correct, tested and reachable, and the screen shows something else*. Four of the five were found by a person using the client and none by the JVM suite, because on this client the Swing layer is the part no test reaches — which is the same reachability argument this project has already applied twice to Android, and the reason it is recorded as a shape. **The evidence discipline earned its keep here too**: the user's report was "the preference did not take", which reads as a parser or plumbing fault, and reading the record rather than the code separated *never stored* from *stored and ignored* in one step. It also found that the FR-512 threshold is sitting at 90% from an earlier check — a second thing the screen would not have volunteered. **HUMAN-OWED on the desktop**: neither half has been watched, and the check is that a second click on the tray item leaves a changed radio changed. |
 | 1.81 | 4 Sep 2026 | **A moved item cannot be moved back by re-capturing the message it moved off — the mirror of SRS 1.77, found by a fixture that was wrong about a different thing.** An event saved from `Vendor demo 12 November 2027 at 16:00` was updated onto 19 November through FR-804, and the original message was then re-captured expecting a second offer. It answered *"Already saved. Nothing was written again."* and wrote nothing. **This is correct and required.** §7.2 is write-once (SRS 1.18): an update patches dates and touches no metadata, so the item on 19 November still carries the `latch.source_hash` of the *12 November* text, and §7.2's decision table row 1 matches on it before FR-804's key query is ever reached. The device log says so without ambiguity — `save decision=Duplicate basis=SOURCE_HASH`, which is `WriteBasis` (SRS 1.72) earning its keep on the first occasion it has been used to exonerate rather than to convict. **What is worth recording is not a defect but a reading no requirement states.** The sentence is *literally* true — that message was saved — and a user reads it as "the item is where this message says", which after a move it is not. SRS 1.77 recorded that a moved item says nowhere that it moved; this is the same gap seen from the other side, and the two together mean the original message is neither a record of where the item is nor a way of putting it back. **The shape of a fix is known and deliberately not taken here.** It is a sentence, not a write: where a source-hash match's stored dates differ from the dates just parsed, say where the item actually is — "Already saved. Latch moved it to 19 Nov 2027." No new request is needed, because both duplicate queries already parse whole resources; what is needed is for `DuplicateSearch` to stop discarding the dates, which is a widening of a shared type in `:google` and therefore a change both clients take at once. It is left for its own slice rather than folded into a device pass, and FR-804 is where the requirement for it belongs. **The method note is mine.** This is the second fixture in two passes that was already saved before it was used — the first cost an AC-18 webhook check that could not fire. The rule this project states for its own device checks is to name the condition that would make the check fail and confirm the fixture creates it; a reschedule offer requires text never captured *and* a matching `item_key`, and only the second half was reasoned about. The third date is what the check actually needs. |
 | 1.82 | 4 Sep 2026 | **The tray menu, rebuilt after a dogfooding report — and the AWT menu turned out to be the cause of two of the three defects rather than a coincidence.** Reported from real use: the menu is tiny at 200% display scaling, "Recipes" and "Settings" end in a box, and every row looks alike so nothing says which of them do anything. **The first two share one cause.** `java.awt.PopupMenu` is drawn by AWT itself, at a size it chooses, and exposes no font, no renderer and no styling; so it ignored Windows' scaling on a 2880x1920 panel presented at 1440x960, and the font it picked had no glyph for the U+2026 in `Settings…`. Neither is reachable from inside that class, which is why the whole menu moved to `JPopupMenu` rather than being patched: Swing follows the JVM's per-monitor DPI awareness and takes the system menu font, so the ellipsis becomes a decision instead of luck. Evidence that it was AWT and not the machine, gathered before the rewrite rather than after: `Saving…` has rendered correctly in the Swing Inbox throughout. **The cost is one focus quirk, paid deliberately.** A `JPopupMenu` needs an invoker and a tray icon is not a component, so without a focused owner the menu draws and never dismisses; a one-pixel utility window is placed at the pointer, focused, and disposed of when the menu closes. **The third defect was a type problem, so it is fixed in the type.** `TrayItem` is now a sealed interface of `Action`, `Status` and `Separator`, and **being pressable and being an action are separate facts**: a `Status` carries an optional id, so a row can be dimmed as information *and* offer itself with a chevron. That is what the report actually asked for — "3 waiting in the Inbox" had opened the Inbox since the day it was written, and nothing about it suggested a press would. **One consequence is a reading rather than a rendering change**: the account line used to *be* the sign-out button, so an act with a consequence sat behind a label that reads as information. It is inert status now, and `Sign out` is its own action. **`Capture now` is converted rather than relabelled, and that is the substantive change.** It called `clipboard.copySelection()`, which synthesises Ctrl+C to the foreground window — but pressing a tray row *is* the act of defocusing the window holding the selection, and under the new menu the invoker necessarily holds focus, so the keystroke would reach something with no selection, or a terminal, where it is not a copy at all. The row now reads **"Capture copied text"** and reads the clipboard only. That is **FR-213's reading applied to FR-302's client** — Android's tile exists for the same reason, "the supported path for apps where partial text selection is unavailable and the user must use Copy" — and it gives the menu a capture path that works for somebody who has not learnt the hotkey. `capture(copySelectionFirst)` keeps the two apart; the hotkey path is untouched and stays verified. **Left-click opens the same menu as right-click, and two alternatives were rejected with reasons.** Opening the Inbox on left-click was rejected because FR-704 requires zero to be silent, zero is the steady state, and a gesture that opens an empty window is that requirement broken one gesture over. A status flyout was rejected because it would show what the menu's status group already shows, at the cost of a second focus-managed window. Capture-as-primary was rejected for the same defocus reason, and the double-click-to-capture listener went with it. **What a test can hold, it holds**: ordering, grouping, which rows are information and which are offers, that no group is ever empty, and — pinned as a *set* — that `…` is the only non-ASCII character any label relies on, so a third cannot arrive unnoticed and then hide in the "stuck" row that is almost never on screen. The em dash left for exactly that reason. **What no test can hold is most of what was reported**: size at 200%, the glyph on the screen, the dismissal behaviour, and whether the chevron reads as pressable. Those are in the human backlog, named. No dependency; `javax.swing` is in the JDK this project already builds on. |
+| 1.83 | 4 Sep 2026 | **Drafts a new pillar: business-card capture to Google Contacts, as §5.11's FR-1200 series, phased, and awaiting approval.** It is written before any plan on purpose. FR-800's lesson was that an item written into somebody's account before duplicate detection and undo are specified becomes unmanageable, and that cost five days of duplicates in a real calendar and two days of diagnosis; so FR-1208's duplicate check, FR-1209's identity and FR-1210's undo are specified in Phase A, before the first write, rather than after the first demo. **The draft found that a current `[MUST]` forbids the pillar outright**: FR-003 says no scope granting access to Contacts shall be requested. That is listed as the first of eight amendments rather than quietly overwritten, because a requirement reversed without being named is a requirement nobody can later audit — and the same listing catches design principle 2 and NFR-201, both of which say user content reaches Google *only* as a calendar or task entry and would become false the moment a contact was written. **AC-17 moves too**: `people.googleapis.com` is a fourth host in `ALLOWED_HOSTS`, which this specification already records as an AC-17 decision and never a refactor. **Three readings are the substance.** Identity keys on **normalised email and never on a telephone number alone**, because the harms are asymmetric — a duplicate contact is visible and deletable, while a wrong merge silently overwrites one person's details with another's, and a shared switchboard number makes exactly that merge easy between two colleagues. **The card image is never persisted**; this is stronger than the equivalent rule elsewhere in the product, because every other thing Latch handles is the user's own content and a business card is a third party's, held by somebody who never chose this application. And **card-versus-date is always the user's explicit choice**: where a QR decodes as a contact the sheet may say so and offer the path more prominently, but *detection may change what is offered and never what happens*, which is FR-804's rule one surface earlier. **The dependency question was measured rather than argued.** ML Kit's bundled barcode model costs **+20.25 MB** on the universal APK and about **+5.7 MB per device** after ABI splits, on top of the 12.83 MB the OCR models already spend against NFR-103's 40 MB budget. ZXing core returned a **byte-identical** APK — 45,155,590 both times — which is R8 stripping a dependency nothing calls, and is recorded as *not a measurement of ZXing* rather than as a zero: what it does establish is that ZXing adds no native library and no asset, its per-ABI totals being unchanged, so its cost is pure shrunk Java bounded by a 0.5 MB artifact. ZXing is recommended and **neither is adopted**; `docs/DEPENDENCIES.md` wants a measured figure and Phase A's spike owes it one. Phase B sets the classifier corpus at **120 real cards**, a floor chosen to be met rather than to look rigorous, with NFR-502's 113-against-300 standing as the warning. Android only; Windows [LATER] and the extension [NEVER], both recorded so neither is an open question. Nothing is binding: §5.11 is marked DRAFT and no requirement outside it has been altered. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -861,6 +862,265 @@ The reduced confidence is the requirement, not a detail of it: these readings ar
 **FR-1005 [MUST]** The app shall provide `.ics` export for any item or chain.
 
 **FR-1006 [LATER]** Cross-device settings synchronisation via Google Drive `appDataFolder`. Deferred because it adds an OAuth scope; not required for v1.0, as calendar data already syncs through Google.
+
+
+## 5.11 Business-card capture (FR-1200 series)
+
+> **STATUS: DRAFT, AWAITING APPROVAL.** Nothing in this section is binding and nothing has been
+> planned or built against it. It is written before any plan deliberately: FR-800's lesson was
+> that an item written into somebody's account before duplicate detection and undo were specified
+> becomes an *unmanageable item*, and that lesson cost two days of diagnosis and five days of
+> duplicates in a real calendar. It will not be relearnt on Contacts.
+>
+> **Approving this section also approves the eight amendments in §5.11.2**, one of which reverses
+> a current `[MUST]`. They are listed rather than applied for that reason.
+
+### 5.11.1 Why this, why Android, and why before submission
+
+A business card is the same problem this product already solves, one field-type over: information
+that exists only as text or as an image in somebody's hand, which the user must otherwise retype.
+The capture gesture, the on-device parse, the confirmation-before-write and the undo are all
+built; what is new is a grammar, a destination and an identity.
+
+**Built before the Play submission, and that is a scheduling requirement rather than a
+preference.** Adding the People API scope changes the OAuth consent screen, and §8.6 budgets
+"several weeks and at least one round of correspondence" for verification. Verifying twice — once
+without Contacts and once with — costs that twice and leaves a period in which the published app
+asks for a scope set the review did not cover. So the final scope set is settled here, before
+FR-1108's gate is opened.
+
+### 5.11.2 Amendments this section requires
+
+These are stated, not applied. Approving §5.11 approves them together.
+
+| # | Requirement | Amendment | Why it is not a formality |
+|---|---|---|---|
+| A1 | **FR-003** | Remove `Contacts` from the list of services whose scopes shall never be requested. | FR-003 currently **forbids** this pillar in as many words. It is the one amendment that reverses a `[MUST]`, and it is listed first so approval cannot be mistaken for oversight. |
+| A2 | **FR-002** | Add a fifth row: `.../auth/contacts` — create and update contacts — Sensitive. | There is **no narrower scope**: the People API offers no create-only or write-only contacts scope, so the minimum sufficient grant for `people.createContact` is full read/write over the user's contacts. That is a real cost and is recorded as one rather than presented as incidental. FR-003's own instruction to confirm granularity against current Google documentation applies here specifically. |
+| A3 | **Design principle 2** | "…and then only as the finished calendar or task entry" becomes "…calendar, task or contact entry". | Design principles are binding and are read as acceptance criteria in their own right. A new destination for user content that the principle does not name would make the principle false. |
+| A4 | **NFR-201** | Same widening: "the content of a created calendar event, task or contact". | |
+| A5 | **AC-17 / `ALLOWED_HOSTS`** | Add `people.googleapis.com`. | Widening that set is an AC-17 decision and never a refactor — this specification and `CLAUDE.md` both say so. It is the guard every request this app composes passes through, and a fourth host is a change to what AC-17 asserts. |
+| A6 | **FR-1102** | The privacy policy shall state that contact details captured from a card are written to the user's own Google Contacts and reach no publisher server. | |
+| A7 | **FR-1103** | The Data Safety declaration shall cover contact data. | Play's form asks about data **transmitted off the device**, and a contact written to Google is transmitted. It is also the first data this product handles whose subject is **not the user** — see FR-1211's reading. |
+| A8 | **§8.6** | Record that verification is performed **once**, against the scope set including `contacts`. | This is the scheduling reason the pillar is built before submission at all. |
+
+### 5.11.3 Phase A — QR-code cards, end to end (FR-1200 to FR-1214)
+
+Phase A is deliberately the *deterministic* half. A QR payload is a grammar with an answer that is
+right or wrong, so the write path, the identity, the duplicate check and the undo can all be
+settled and verified before any classifier is introduced that can be merely *probably* right.
+
+**FR-1200 [MUST]** The Android app shall capture a business card and create a contact in the
+user's Google Contacts. This capability is Android-only in this revision; see §5.11.7.
+
+**FR-1201 [MUST]** A card capture shall be reachable from an image shared to Latch and from a
+photograph taken within Latch. No new permission shall be requested until the user first chooses
+the camera path.
+
+**FR-1202 [MUST]** Whether a capture is read as a card or as dates shall be an **explicit user
+choice**. The app shall never switch between them on its own. Where a QR code is present and
+decodes as a contact grammar, the app **may** say so and offer the card path more prominently;
+it shall not take it. *Detection may change what is offered. It may never change what happens.*
+This is FR-804's rule — offer, never write — one surface earlier.
+
+**FR-1203 [MUST]** The app shall decode a QR code from the captured image on device, and shall
+present at most one decoded payload for confirmation. Where several codes are present the user
+shall choose; the app shall not pick one.
+
+**FR-1204 [MUST]** The app shall parse vCard 2.1, 3.0 and 4.0, and MECARD, deterministically.
+Recognised properties: `N`/`FN` (name), `ORG`, `TITLE`, `TEL` with its type, `EMAIL` with its
+type, `ADR`, `URL`, `NOTE`. Properties outside that set shall be **ignored rather than guessed
+at**, and a payload that does not parse shall be reported as unreadable rather than partially
+accepted — design principle 1 applied to a field that is not a date: a wrong telephone number is
+the same class of harm as an invented date, and is harder to notice.
+
+**FR-1205 [MUST]** Before any write, a preview shall show every parsed field, and **every field
+shall be editable**. Nothing shall be written without an explicit save.
+
+**FR-1206 [MUST]** The contact shall be created through the People API `people.createContact`.
+
+**FR-1207 [MUST]** Each created contact shall carry a §7.2-analogue metadata record in the
+People API's `clientData`, written **once** and never rewritten: a source hash of the normalised
+card payload, an identity key, the capture instant in UTC, and the capture layer. The write-once
+discipline is SRS 1.18's and is not re-decided here: the record is provenance, not current state,
+and an update shall not rewrite it. The exact key names, and the People API's own limits on
+`clientData` size and count, are **owed before Phase A is planned**.
+
+**FR-1208 [MUST]** Before writing, the app shall search for an existing contact carrying the same
+source hash and, on a match, shall report that the card is already saved and write nothing. This
+is FR-803's requirement on a third transport and is specified **before** the first write for the
+reason §5.11 opens with.
+
+**FR-1209 [MUST]** Contact identity shall key on **normalised email address**. A telephone number
+shall never be sufficient on its own to identify a contact as an existing one. See §5.11.5.
+
+**FR-1210 [MUST]** A card save shall be undoable for not less than ten seconds, on FR-807's
+terms. Undo of a created contact deletes it; undo of an updated contact (Phase C) restores the
+field values read at match time and never deletes the contact.
+
+**FR-1211 [MUST]** The captured image shall never be written to persistent storage. Where a card
+capture is held rather than saved, the row shall hold the **decoded payload** (Phase A) or the
+**recognised text** (Phase B) and not the image. See §5.11.6.
+
+**FR-1212 [MUST]** A card save made with no network shall be held and written on reconnection,
+through FR-806's queue, and shall run FR-1208's duplicate check again at drain. The failure this
+prevents is SRS 1.37's, on a transport where the duplicate is a second copy of a person.
+
+**FR-1213 [MUST]** The preview shall name the account the contact will be created in, before the
+save. Design principle 4 has no calendar to show here; the account is what it becomes.
+
+**FR-1214 [MUST]** Nothing shall reach Google Contacts for a card the user has not saved. FR-703
+on a third destination.
+
+### 5.11.4 Phase B — photographed cards (FR-1220 to FR-1224)
+
+**FR-1220 [MUST]** The photographed-card path shall use the existing `:ocr` module unchanged. A
+card is a screenshot with a different layout; a second recogniser would be a second thing to keep
+in step with FR-215.
+
+**FR-1221 [MUST]** A field classifier shall assign recognised text to the FR-1204 field set. It
+shall be deterministic and shall take its inputs explicitly, on `:parser`'s terms — no clock, no
+locale read at call time — so that every case in its corpus is reproducible.
+
+**FR-1222 [MUST]** The classifier shall be verified against a corpus of **no fewer than 120 real
+cards**, supplied by the developer, with expected field assignments. The number is a floor and
+its reasoning is recorded rather than assumed: NFR-502 asks for 300 real strings for the date
+parser and this specification records that the corpus has stood at 113 for the life of the
+project, so a number is being set here that is small enough to be *met* rather than large enough
+to look rigorous. Cards invented for the corpus shall not count toward it, for NFR-502's reason.
+
+**FR-1223 [MUST]** Recognised text the classifier cannot place shall be **shown** to the user in
+the preview, never silently discarded. A card whose job title was dropped looks identical to a
+card that had none.
+
+**FR-1224 [MUST]** The photographed-card path shall require an explicit edit-or-confirm step and
+shall never save on confidence alone, whatever FR-512's threshold is set to. This is a permanent
+narrowing rather than a phase limitation: the OCR of a name is not checkable by the user *after*
+the fact, because the card is gone and the contact looks plausible.
+
+### 5.11.5 Phase C — signature blocks, and a contact that changed (FR-1230 to FR-1233)
+
+**FR-1230 [MUST]** A text selection shall be capturable as a contact, for the email-signature
+case, through the same explicit choice FR-1202 requires.
+
+**FR-1231 [MUST]** Where a capture matches an existing contact by FR-1209's identity and carries
+different field values, the app shall **offer** to update it, naming the fields that would change
+and their current values, and shall write nothing while the offer stands. This is FR-804 on
+contacts, and it inherits FR-804's readings: no default answer, the existing values quoted from
+what is stored rather than from what was captured, and a multi-field change shown field by field.
+
+**FR-1232 [MUST]** Undo of an update shall restore the previous field values, which after the
+patch exist nowhere else. It shall never delete the contact — the contact was the user's before
+Latch touched it.
+
+**FR-1233 [SHOULD]** Where an update changes employer or job title, the previous value shall be
+visible in the offer. SRS 1.79's move-note has **no analogue here** and one shall not be
+invented: a contact has no provenance field that is not user-visible content, and writing "Latch
+changed this from Acme" into somebody's NOTE would put Latch's bookkeeping into a field the user
+owns.
+
+### 5.11.6 The five questions this draft was required to answer
+
+**1. The scope, and what it adds to the consent screen.**
+`https://www.googleapis.com/auth/contacts`. Google classifies it **Sensitive**, the same tier as
+the four scopes already requested, so it does not move the application into the *restricted* tier
+that requires an independent security assessment. It does add a distinct line to the consent
+screen, worded by Google and approximately "See, edit, download and permanently delete your
+contacts" — **the exact wording and the current tier shall be confirmed against Google's scope
+list before submission**, per FR-003's standing instruction, and this sentence is written as an
+expectation rather than a fact for that reason. There is no narrower alternative; see A2.
+
+**2. What identity keys on.** **Email, normalised. Never phone alone.**
+The reasoning is asymmetric harm. A duplicate contact is visible, obvious and deletable in one
+gesture. A **wrong merge** silently overwrites one person's details with another's, and the user
+finds out when they telephone the wrong person. Telephone numbers make wrong merges easy: a
+switchboard number is shared by everyone at a company, so two colleagues' cards carry an
+identical `TEL`, and identity by phone would fold them into one contact. Email addresses are
+issued per person. So: email is identity; phone is corroboration and may raise a *possible match*
+for the user to decide, never an automatic one. Normalisation is case-folding and whitespace
+trimming only — no provider-specific rules such as stripping dots, which are correct for one
+provider and wrong for the rest. A card with **no** email has no automatic identity at all and is
+always written as a new contact, which is the safe direction: it produces at worst a duplicate.
+
+**3. Is the card image stored anywhere? No — parsed fields only.**
+The instinct is adopted and the reading is recorded, because it is stronger here than elsewhere
+in this product. Every other thing Latch handles is the **user's own** content. A business card
+is a third party's personal data, held by the user, and the person on the card has not chosen
+Latch. Storing their photograph would create, on the user's device, a store of other people's
+identity documents that no requirement asks for and that NFR-205's deletion would then have to
+reach. So: the image is decoded or recognised and discarded, on the pattern `capture()` already
+follows for the temporary file it writes for recognition. What may persist is the minimum needed
+to reproduce the parse for a held capture — the decoded payload or the recognised text — under
+the same encryption as every other Inbox row, deleted with it, and never the image.
+
+**4. Card versus date: how a shared image declares itself.**
+By the user saying so. A shared image opens the existing capture sheet, which carries an explicit
+**"Save as contact"** action; the date reading remains the default because it is the overwhelming
+majority case and a chooser in front of every capture would tax the common path to serve the rare
+one. Where a QR code is present and decodes as a contact grammar, the sheet **says so** and gives
+that action more prominence — which is detection changing what is *offered*. It never changes the
+mode by itself, and there is no heuristic anywhere that reads an image's content to decide which
+kind of capture it is. A separate share target was considered and is **not** adopted in this
+revision: FR-1003 already records that the three share filters sit on one activity and that
+splitting them is owed, so adding a fourth target now would deepen a structure this project has
+already recorded as wanting simplification.
+
+**5. The dependency, measured.**
+Both candidates were added to `:ocr` in turn and `:app:assembleRelease` was measured. Baseline:
+**45,155,590 bytes (43.06 MB)**, universal APK, all four ABIs.
+
+| Candidate | Universal APK | Delta | Per-device (arm64-v8a) delta |
+|---|---|---|---|
+| Baseline | 43.06 MB | — | — |
+| `com.google.mlkit:barcode-scanning:17.3.0` | 63.31 MB | **+20.25 MB** | **≈ +5.7 MB** |
+| `com.google.zxing:core:3.5.3` | 43.06 MB | **+0 bytes** | see below |
+
+The ML Kit figure is real and mostly native: its per-ABI native payload rises from 10.56 MB to
+15.28 MB on `arm64-v8a`, and the four ABIs account for 19.29 MB of the 20.25 MB total, leaving
+roughly 0.96 MB of dex and assets. Since ABI splits ship (`docs/RELEASE.md` records that they are
+the condition NFR-103's per-device reading rests on), the number that matters against NFR-103's
+40 MB budget is **about +5.7 MB per device**, on top of the 12.83 MB the OCR models already cost.
+
+**The ZXing figure is not a measurement of ZXing and must not be read as one.** The APK came back
+**byte-identical** to the baseline — 45,155,590 both times — which is R8 removing a dependency
+nothing calls. What the run *does* establish, and this is the decisive fact rather than the
+headline number, is that ZXing core contributes **no native library and no asset**: the per-ABI
+totals are unchanged. Its cost is therefore pure Java, shrunk to the classes actually reached,
+bounded above by the artifact's own size of roughly 0.5 MB and in practice far less. The exact
+figure requires a call site and shall be measured in Phase A's first spike, before adoption.
+
+**The recommendation is ZXing core**, on three grounds: an order-of-magnitude smaller cost against
+a budget this project is already close to; no second bundled model to keep in step with the OCR
+ones; and it decodes from a bitmap the app already has, needing only a luminance source and a
+binarizer, so no camera UI, no Play services dependency and no second recognition framework. The
+argument *for* ML Kit — that `:ocr` already depends on ML Kit, so it is not a new vendor — is
+recorded and rejected on the size alone. **Neither is adopted by this draft.** `docs/DEPENDENCIES.md`
+requires a written justification with measured APK impact, and that entry is owed at adoption,
+with the Phase A figure rather than this bound.
+
+### 5.11.7 Other clients
+
+**Android only, and the other two are recorded rather than left open.**
+
+**Windows [LATER].** The QR grammar and the field classifier would live in shared modules and the
+desktop could compile them, but there is no People client, no camera path, and `Windows.Media.Ocr`
+reads only installed language packs. It is a later decision, not a never.
+
+**Browser extension [NEVER].** A card is an image in the physical world. An extension has no
+camera and no share sheet, and the signature-block case of FR-1230 is already served by selecting
+the text and capturing it on a device that has this pillar.
+
+### 5.11.8 What is owed before Phase A is planned
+
+- The exact `clientData` key names, and the People API's documented limits on `clientData` count
+  and size. FR-1207 is unimplementable until those are known.
+- Confirmation of the scope's current classification and consent wording (A2, FR-003).
+- Acceptance criteria. Five are needed and are proposed here for numbering on approval: a QR card
+  written end to end and read back with its `clientData` intact; the same card captured twice
+  writing once; an undo removing a created contact; two colleagues' cards sharing a switchboard
+  number producing **two** contacts; and a card capture leaving nothing in Google until save.
+- Whether a held card capture belongs in the FR-700 Inbox or in a store of its own. The Inbox's
+  rows are dated captures and its screen is built around a date; a card has none.
 
 ---
 
