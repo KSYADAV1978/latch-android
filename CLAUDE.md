@@ -1222,6 +1222,24 @@ it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's m
 NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
 is built and awaiting a person.
 
+### Owed on both clients, found in real use (4 Sep 2026)
+
+**A rescheduled item says nowhere that it was rescheduled, and its title still names the date
+it moved off.** After an FR-804 update the calendar held an event dated 8 Sep 2026 titled
+"Kickoff 8 September **2027** at 9am". Three correct behaviours produce it — FR-804 updates
+dates only, FR-509 puts the date in the title verbatim, and SRS 1.18 keeps the description as
+provenance — and **no requirement asks that a user can tell an item was moved**. SRS 1.77 has
+the full reading.
+
+**Do not fix it by re-deriving the title**: that would overwrite an FR-509b correction, the one
+field the user owns outright. The shape is one *appended* line, composed in `:wire` from a
+per-client template, placed above the `[latch]` line on tasks — safe, because
+`remoteMetadataFromTaskNotes` reads the **last** such line.
+
+**The cost is the undo, not the write.** FR-807's undo of an update is a restore, so the note
+must come back off — which means `CreatedItem.Updated` carrying prior notes, a bound §7.1
+deliberately draws, and a queue record version bump on both clients. It is a slice, not a patch.
+
 ### Human pass backlog — Windows
 
 Nothing below has been done by a person. Read each row as *the condition that would make it
