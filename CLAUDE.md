@@ -1394,7 +1394,7 @@ for. FR-1240 and FR-1241 gate **contact-write code**, not the spike, so Slice 0 
 
 | Slice | Holds | Device pass |
 |---|---|---|
-| **0 — spike** | FR-1240's `clientData` count/size limits, the ZXing figure measured with a real call site, FR-1241's consent wording read off a device | The consent read, and one throwaway contact deleted in the same run |
+| **0 — spike** | **Two of three done, 4 Sep 2026.** ZXing measured: **+16,384 B** on the APK, **+49,116 B** of dex, **zero native** — against ML Kit barcode's ~+5.7 MB per device. FR-1241 read off a real consent screen: *"See, edit, download and permanently delete contacts"*, with the three-item breakdown behind **See access details**. **FR-1240(a) is NOT closed**: 6 `clientData` entries of 64 characters round-trip intact, and every larger trial was defeated by the POST defect below, so the limits are unmeasured | Done, and the account was verified clean by a second sweep returning zero |
 | **1 — grammar** | A pure `:cards` module: vCard 2.1/3.0/4.0 and MECARD, its own corpus. Unknown properties dropped, never guessed; an unparseable payload reported unreadable, never partially accepted | — |
 | **2 — identity** | The §7.2 analogue in `:wire`, with conformance vectors as `hash_vectors.tsv` has. FR-1209 as a pure function, and its load-bearing test: two colleagues sharing a switchboard number give **two** identities | — |
 | **3 — the client** | `ContactsApi` in `:google`, `people.googleapis.com` into `ALLOWED_HOSTS` with the guard test naming it. **FR-1208's duplicate search is built before `createContact` is called anywhere** | — |
@@ -1410,6 +1410,17 @@ reach. One pass covering both would have made a finding hard to attribute to eit
 **Phase A ships the shared image only.** The camera is FR-1201a at Phase B (SRS 1.85), and the
 `ACTION_IMAGE_CAPTURE`-versus-CameraX decision is owed with it — the first needs no permission and
 no dependency, the second needs both.
+
+**A defect found by the spike, to be diagnosed in Slice 3 before a `ContactsApi` is written
+on top of it (SRS 1.90).** POSTs to `people.googleapis.com` are unreliable in a way GETs and
+DELETEs are not: across six processes, GET and DELETE succeeded repeatedly, while a POST succeeded
+only as the **first request of a fresh process** and every request after a POST failed with
+`UnknownHostException` until a force-stop. The device resolved the host by `ping` throughout, so
+it is the application, not the network. Leading hypothesis: a leaked keep-alive connection whose
+response body was never drained — an unread `errorStream` on a non-200 is the classic case — so a
+process exhausts its sockets and `getaddrinfo` fails, which is why the symptom names DNS and the
+cause is not DNS. **Latent for Calendar and Tasks**, whose responses are small and mostly succeed,
+which is why it has never been seen.
 
 **The open unknown is in Slice 3**: whether `searchContacts` can query `clientData`. If it cannot,
 FR-1208 on a fresh device can consult only the local index, and cross-device duplicate detection

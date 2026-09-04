@@ -43,6 +43,31 @@
             </intent-filter>
         </receiver>
 
+        <!--
+          FR-1240(a). Google documents no limit on clientData entry count, key length or value
+          length — not in the Person reference, not in the API overview, not anywhere a search
+          reaches — and FR-1207's §7.2 analogue cannot be designed without those numbers. So the
+          limits are measured rather than read.
+
+          It writes to the user's contacts, which nothing else in this project does yet. Each
+          trial creates one contact, reads it back, and deletes it before the next begins; every
+          contact carries a distinctive marker name and a sweep removes any straggler from a run
+          that died half way. It matches on that marker and on nothing else — a looser rule would
+          make this a debug build capable of deleting a user's own contacts.
+
+          What it is looking for is silent truncation rather than an error. An API that refuses
+          an over-large payload is safe. One that accepts 200 entries and stores 50 is not,
+          because §7.2's metadata would go missing from items already in an account and FR-1208
+          would miss them for ever with nothing to report.
+        -->
+        <receiver
+            android:name="com.latch.android.debug.DebugClientDataProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.latch.android.debug.PROBE_CLIENT_DATA" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

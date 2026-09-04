@@ -81,6 +81,12 @@ val ALLOWED_HOSTS = setOf(
     "www.googleapis.com",
     "tasks.googleapis.com",
     "oauth2.googleapis.com",
+    // §5.11's A5, approved with the FR-1200 series (SRS 1.84). The People API is a fourth
+    // destination for user content, so this is an AC-17 decision that was taken deliberately and
+    // recorded, not a line added to make a call compile. AC-17's own wording did not need to
+    // change: People is Google, and the criterion is "no outbound request to any non-Google
+    // endpoint".
+    "people.googleapis.com",
 )
 
 /**

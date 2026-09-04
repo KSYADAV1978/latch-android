@@ -21,6 +21,7 @@ class GoogleEndpointGuardTest {
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
             "https://www.googleapis.com/calendar/v3/calendars",
             "https://tasks.googleapis.com/tasks/v1/users/@me/lists",
+            "https://people.googleapis.com/v1/people:createContact",
         )
         allowed.forEach { assertEquals("https", requireGoogleEndpoint(it).protocol) }
     }
@@ -69,9 +70,23 @@ class GoogleEndpointGuardTest {
 
     @Test
     fun `the allowlist stays small and stays Google`() {
-        // A guard is worth what the list is worth. If this fails, someone widened it — which
-        // may be right, but AC-17 is a sign-off test and the change should be deliberate.
-        assertEquals(3, ALLOWED_HOSTS.size)
+        // A guard is worth what the list is worth. If this fails, someone widened it — which may
+        // be right, but AC-17 is a sign-off test and the change should be deliberate.
+        //
+        // **It names the hosts rather than counting them** (SRS 1.90). A count fails just as
+        // loudly and says nothing about *which* host arrived, so the diff that widens the guard
+        // has to spell out what it is admitting — which is the whole of what makes this an
+        // AC-17 decision rather than a refactor.
+        assertEquals(
+            setOf(
+                "www.googleapis.com",
+                "tasks.googleapis.com",
+                "oauth2.googleapis.com",
+                // §5.11's A5, approved with the FR-1200 series.
+                "people.googleapis.com",
+            ),
+            ALLOWED_HOSTS,
+        )
         assertTrue(ALLOWED_HOSTS.all { it.endsWith(".googleapis.com") })
     }
 }
