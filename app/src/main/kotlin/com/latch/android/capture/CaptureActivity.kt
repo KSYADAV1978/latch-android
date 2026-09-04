@@ -17,6 +17,8 @@ import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
 import com.latch.android.cards.CardDismiss
 import com.latch.android.cards.cardDismiss
+import com.latch.android.cards.CardCreated
+import com.latch.android.cards.undoCardCreated
 import com.latch.android.cards.CardOffer
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
@@ -280,6 +282,15 @@ class CaptureActivity : ComponentActivity() {
                 )
                 var cardState by remember { mutableStateOf<CardSheetState?>(null) }
                 var cardSave by remember { mutableStateOf<CardSaveResult>(CardSaveResult.Idle) }
+                // FR-1210: when the save landed, so the ten seconds are counted from the save
+                // and not from a recomposition.
+                var cardSavedAt by remember { mutableStateOf<Instant?>(null) }
+                var cardUndoing by remember { mutableStateOf(false) }
+                // The window must not close on a stray tap while an undo is on offer.
+                LaunchedEffect(cardSave, cardState) {
+                    cardOfferStanding = cardState != null &&
+                        (cardSave is CardSaveResult.Saved || cardSave is CardSaveResult.Held)
+                }
                 var choosing by remember { mutableStateOf(false) }
 
                 // FR-1203: one payload opens; several ask; none means the user is telling us this
@@ -314,6 +325,31 @@ class CaptureActivity : ComponentActivity() {
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
                         saveResult = cardSave,
+                        savedAt = cardSavedAt,
+                        undoing = cardUndoing,
+                        // FR-1210. What undo does is chosen by what the save did: a written
+                        // contact is deleted, a **held** one has its entry dropped — a delete
+                        // there would ask Google to remove something that was never created,
+                        // succeed against a 404, and leave the card to arrive minutes later.
+                        onUndo = {
+                            cardUndoing = true
+                            app.appScope.launch {
+                                val created = when (val r = cardSave) {
+                                    is CardSaveResult.Saved -> CardCreated.Written(r.resourceName)
+                                    is CardSaveResult.Held -> CardCreated.Queued(r.entryId)
+                                    else -> null
+                                }
+                                if (created != null) {
+                                    undoCardCreated(created, app.contactsApi) { id ->
+                                        app.cardQueue.drop(id)
+                                    }
+                                }
+                                cardUndoing = false
+                                cardSavedAt = null
+                                cardSave = CardSaveResult.Idle
+                                finish()
+                            }
+                        },
                         onSave = {
                             cardSave = CardSaveResult.Saving
                             // On the application's scope, not this Activity's: the capture window
@@ -325,6 +361,7 @@ class CaptureActivity : ComponentActivity() {
                                     payload = sheet.payload,
                                     layer = captured?.layer?.name ?: "SHARED_IMAGE",
                                 )
+                                cardSavedAt = Instant.now()
                             }
                         },
                         // SRS 1.104. Backing out returned to the capture sheet unconditionally,
@@ -659,6 +696,14 @@ class CaptureActivity : ComponentActivity() {
      * The offer itself lives in `CaptureSaver`, which is held by the application — so it
      * also survives the rotation or the recreate that destroys this activity.
      */
+    /**
+     * FR-1210 on the card sheet.
+     *
+     * Held on the Activity rather than passed down, because the card sheet and the window's
+     * touch-outside rule live in different composable scopes and the rule is the Activity's.
+     */
+    private var cardOfferStanding by mutableStateOf(false)
+
     @Composable
     private fun HoldWindowOpenForUndo(saveState: SaveState) {
         val offerIsOpen = (saveState as? SaveState.Saved)?.undo != null
@@ -669,10 +714,15 @@ class CaptureActivity : ComponentActivity() {
         // this point, so the tap costs the whole save and not just the undo.
         val askingAboutReschedule = saveState is SaveState.RescheduleOffered
 
+        // FR-1210 on the card sheet, and it is the same reason: the window closes on a tap
+        // outside it, so an undo offer the user cannot reach is not an offer. Reported from the
+        // device pass, where a stray tap lost the sheet mid-row.
+        val cardOfferOpen = cardOfferStanding
+
         var offerWasOpen by remember { mutableStateOf(false) }
 
-        LaunchedEffect(saveState) {
-            setFinishOnTouchOutside(!offerIsOpen && !askingAboutReschedule)
+        LaunchedEffect(saveState, cardOfferOpen) {
+            setFinishOnTouchOutside(!offerIsOpen && !askingAboutReschedule && !cardOfferOpen)
             when {
                 offerIsOpen -> offerWasOpen = true
                 offerWasOpen && saveState is SaveState.Saved -> finish()

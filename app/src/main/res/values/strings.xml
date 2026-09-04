@@ -81,6 +81,8 @@
     <string name="card_saved_unchecked">Saved to your contacts. Latch could not finish checking whether you already had this card, so there may now be two.</string>
     <string name="card_already_saved">Already saved. Nothing was written again.</string>
     <string name="card_save_failed">Could not save that. Nothing was written — try again.</string>
+    <string name="card_undo">Undo (%1$d)</string>
+    <string name="card_undone">Undone. Nothing was kept.</string>
     <string name="card_save">Save contact</string>
     <string name="card_saving">Saving…</string>
     <string name="card_choose_title">This image has more than one code</string>

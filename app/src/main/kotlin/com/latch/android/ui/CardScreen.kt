@@ -15,6 +15,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.delay
+import java.time.Instant
+import com.latch.android.cards.cardUndoSecondsLeft
+import com.latch.android.cards.cardUndoOffered
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -47,6 +53,10 @@ fun CardScreen(
     onDismiss: () -> Unit,
     /** FR-1206 and FR-1208: what the last save did, or Idle. */
     saveResult: CardSaveResult = CardSaveResult.Idle,
+    /** FR-1210: when the save landed, so the ten seconds can be counted from it. */
+    savedAt: Instant? = null,
+    onUndo: () -> Unit = {},
+    undoing: Boolean = false,
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -108,6 +118,18 @@ fun CardScreen(
             Note(stringResource(R.string.card_nothing_to_save))
         }
 
+        // FR-1210's clock, ticking only while there is something to count — the date sheet's own
+        // shape. A timer left running behind a finished sheet is a wakeup a second for nothing.
+        val counting = savedAt != null &&
+            (saveResult is CardSaveResult.Saved || saveResult is CardSaveResult.Held)
+        val now by produceState(Instant.now(), counting) {
+            while (counting) {
+                value = Instant.now()
+                delay(250)
+            }
+        }
+        val undoOffered = counting && cardUndoOffered(savedAt!!, now)
+
         // FR-1208's answer, said in the words the date side already uses for the same fact, so a
         // user who has seen "Already saved" on a capture reads this the same way.
         when (saveResult) {
@@ -134,11 +156,31 @@ fun CardScreen(
             horizontalArrangement = Arrangement.End,
         ) {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onSave, enabled = blocker == null && !saving && accountLabel != null) {
-                ActionLabel(
-                    stringResource(if (saving) R.string.card_saving else R.string.card_save)
-                )
+
+            // FR-1210. Counting down, because a ten-second offer with no number on it is one the
+            // user cannot judge whether to reach for — and this project has already recorded the
+            // window being missed twice while somebody checked Google first.
+            if (undoOffered) {
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onUndo, enabled = !undoing) {
+                    ActionLabel(
+                        stringResource(
+                            R.string.card_undo,
+                            cardUndoSecondsLeft(savedAt!!, now),
+                        )
+                    )
+                }
+            }
+
+            if (saveResult is CardSaveResult.Idle || saveResult is CardSaveResult.Saving ||
+                saveResult is CardSaveResult.Failed
+            ) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onSave, enabled = blocker == null && !saving && accountLabel != null) {
+                    ActionLabel(
+                        stringResource(if (saving) R.string.card_saving else R.string.card_save)
+                    )
+                }
             }
         }
     }
