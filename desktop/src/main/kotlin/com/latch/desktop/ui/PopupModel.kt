@@ -293,6 +293,29 @@ object DesktopStrings {
 
     // ---- FR-1000, Settings -------------------------------------------------------------------
 
+    // ---- the tray menu (FR-301) ----------------------------------------------------------
+    //
+    // These were inline in `LatchTray` until SRS 1.82, which is this file's own convention
+    // broken in the one surface that is always on screen. NFR-402 is why they are here.
+
+    /**
+     * FR-213's reading on this client: the row reads the **clipboard** and never synthesises a
+     * copy, so the label says "copied" rather than promising a capture of a selection that
+     * pressing a tray row has just defocused.
+     */
+    const val TRAY_CAPTURE = "Capture copied text"
+    const val TRAY_HOTKEY_HINT = "Hotkey: %s"
+    const val TRAY_SIGNED_IN = "Signed in as %s"
+    const val TRAY_NOT_SIGNED_IN = "Not signed in"
+    const val TRAY_NO_CLIENT = "No Google client configured"
+    const val TRAY_SIGN_OUT = "Sign out"
+    const val TRAY_QUEUE_WAITING = "%s waiting to be written"
+    const val TRAY_QUEUE_STUCK = "%s stuck - retry now"
+    const val TRAY_QUEUE_BOTH = "%1 waiting, %2 stuck - retry now"
+    const val TRAY_RECIPES = "Recipes…"
+    const val TRAY_SETTINGS = "Settings…"
+    const val TRAY_QUIT = "Quit Latch"
+
     const val SETTINGS_TITLE = "Latch Settings"
     const val SETTINGS_SAVE = "Save"
     const val SETTINGS_CLOSE = "Close"

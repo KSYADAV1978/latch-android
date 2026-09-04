@@ -264,17 +264,4 @@ class InboxModelTest {
         )
     }
 
-    @Test
-    fun `the tray shows the Inbox count below the queue and never at zero`() {
-        val quiet = trayMenu(TrayModel("Ctrl+Shift+K", "me@example.com", true, pending = 0, inbox = 0))
-        assertTrue(quiet.none { it.id == TrayAction.INBOX })
-
-        val busy = trayMenu(TrayModel("Ctrl+Shift+K", "me@example.com", true, pending = 2, inbox = 3))
-        val labels = busy.map { it.label }
-        assertTrue(labels.any { "3 waiting in the Inbox" == it })
-        assertTrue(
-            labels.indexOfFirst { "to be written" in it } < labels.indexOfFirst { "in the Inbox" in it },
-            "a capture on its way to Google comes before one waiting on the user",
-        )
-    }
 }

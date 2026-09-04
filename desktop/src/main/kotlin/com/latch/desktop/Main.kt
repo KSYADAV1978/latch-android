@@ -249,7 +249,7 @@ object Latch {
         val listener = GlobalHotkey(wanted)
         listener.start { event ->
             when (event) {
-                HotkeyEvent.Pressed -> SwingUtilities.invokeLater(::capture)
+                HotkeyEvent.Pressed -> SwingUtilities.invokeLater { capture(copySelectionFirst = true) }
                 HotkeyEvent.Ready -> Unit
                 is HotkeyEvent.Refused -> SwingUtilities.invokeLater {
                     if (onRefused != null) onRefused(event.code)
@@ -285,7 +285,7 @@ object Latch {
     }
 
     private fun onTrayAction(action: TrayAction) = when (action) {
-        TrayAction.CAPTURE -> SwingUtilities.invokeLater(::capture)
+        TrayAction.CAPTURE -> SwingUtilities.invokeLater { capture(copySelectionFirst = false) }
         TrayAction.INBOX -> SwingUtilities.invokeLater(::openInbox)
         TrayAction.RECIPES -> SwingUtilities.invokeLater(::openRecipes)
         TrayAction.SIGN_IN -> signIn()
@@ -321,8 +321,19 @@ object Latch {
      * 800 ms for text and 2.5 s for an image, and the bridge costs about 570 ms of that on
      * its own — doing it on the event thread would freeze whatever the user was looking at.
      */
-    private fun capture() {
-        clipboard.copySelection()
+    /**
+     * FR-302's capture, and FR-213's reading beside it (SRS 1.82).
+     *
+     * **[copySelectionFirst] is the whole difference between the two entry points.** The hotkey
+     * fires while the user's own window is in front, so synthesising a copy is what reaches the
+     * text they have selected — that is FR-302 as written, and it is verified. A tray row is
+     * pressed *after* that window has lost focus, so the same synthesised Ctrl+C would land
+     * somewhere with no selection, and in a terminal it is not a copy at all. So the tray reads
+     * the clipboard and nothing else, which is exactly FR-213's supported path on Android: the
+     * user copies, then invokes.
+     */
+    private fun capture(copySelectionFirst: Boolean = true) {
+        if (copySelectionFirst) clipboard.copySelection()
         val clip = clipboard.read()
 
         Thread({

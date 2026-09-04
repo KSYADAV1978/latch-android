@@ -1225,6 +1225,29 @@ it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's m
 NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
 is built and awaiting a person.
 
+### The tray menu, rebuilt from a dogfooding report (SRS 1.82, 4 Sep 2026)
+
+**JVM-verified and HUMAN-OWED.** Reported from real use: tiny at 200% scaling, a box where
+`Settings…` should end, and every row looking alike. The first two were one cause —
+`java.awt.PopupMenu` is drawn by AWT at a size it chooses and offers no font, no renderer and no
+styling — so the menu is a Swing `JPopupMenu` now, which follows DPI and takes the system menu
+font. The cost is a one-pixel focused invoker window, because a `JPopupMenu` summoned from a tray
+icon has no owner and would otherwise never dismiss.
+
+**`TrayItem` is sealed — `Action`, `Status`, `Separator` — and pressable is not the same fact as
+action.** A `Status` carries an optional id, so a row can be dimmed as information *and* offer
+itself with a chevron. That was the actual report: "3 waiting in the Inbox" had opened the Inbox
+since the day it was written and nothing said so.
+
+**`Capture now` became `Capture copied text`**, reading the clipboard and never synthesising a
+copy — pressing a tray row *is* the act of defocusing the window holding the selection, and the
+stray Ctrl+C would land in whatever had focus. FR-213's reading, one client over. The hotkey path
+is untouched.
+
+**The human-owed rows are in the Windows backlog below**, and they are most of what was reported:
+size, glyph, dismissal, and whether the chevron reads as pressable. No JVM test reaches any of
+them.
+
 ### The recurring shape on the Windows client — five instances, four found by a person
 
 Every one of these was *the model is correct, tested and reachable, and the screen shows
@@ -1307,6 +1330,12 @@ fail*, then *the fixture*.
 | ~~**The hotkey actually captures**~~ | **PASS, 4 Sep 2026, many times over.** Every capture in the pass — a dozen or more across the webhook, recipe, Inbox, Settings, offline and undo blocks — went through Ctrl+Shift+K over a selection in another application, and each popup carried the text just selected. That also settles the doubt this row was written around: **the 180 ms wait after the synthesised copy was a guess and had never been watched**, and no capture showed a stale clipboard. |
 | ~~**The synthesised copy is a copy**~~ | **PASS, 4 Sep 2026**, in a browser — chosen because the failure there is loud rather than subtle: Ctrl+Shift+C would have opened the developer tools instead of copying. The popup carried the selected text. |
 | ~~**FR-303 from the clipboard**~~ | **PASS, 4 Sep 2026, and it is the first time this path has run at all.** A Win+Shift+S region snip, then the hotkey with nothing selected: the dates in the image were found. FR-303 had only ever been exercised from a file, which is not how anybody uses it. |
+| **The tray menu is readable** (SRS 1.82) | Open the menu at your 200% scaling: the text is the size of any other Windows menu and readable at arm's length. Failure is the old symptom — roughly half size — meaning Swing is not following the display scaling after all | the tray, either button |
+| **No box in any label** | `Settings…` and `Recipes…` end in an ellipsis, not `❑`. Then the row almost nobody sees: with something stuck, `N stuck - retry now` must be clean too — that label is where a glyph defect would hide for months | the tray; and a queued entry for the second half |
+| **The menu dismisses** | Click away from it: it closes. Press Esc: it closes. This is the one thing the Swing menu can get wrong that the AWT one could not — a `JPopupMenu` with no focused owner draws and then stays on screen for ever | the tray |
+| **Status reads as status, and the chevron reads as pressable** | Four groups with rules between them; the hotkey hint and the account line dimmed and inert; the counts dimmed but carrying `›` and opening the Inbox and the retry. Failure is the report that started this: nothing distinguishing what acts from what informs | the tray, with something queued and something in the Inbox |
+| **Both buttons open the menu** | Left-click and right-click both open it, and there is exactly **one** menu — a second, tiny AWT menu appearing beside it would mean `popupMenu` got set again | the tray |
+| **`Capture copied text` actually captures** | Copy some dated text, then press the row: the popup opens on that text. This path has never run. Failure is an empty capture, a stale clipboard, or — the one to watch — a Ctrl+C arriving in whatever window had focus | any dated text, copied first |
 | A machine with no language pack | Says which, and where Windows adds one. Not "that image could not be read" | a machine with the pack removed |
 | ~~**FR-304 keyboard operation**~~ | **PASS, 4 Sep 2026, mouse untouched.** Tab reached every control, Enter completed the capture, Esc dismissed one without saving. The fixture was deliberately an **undated** capture — the button reads *Add to Inbox*, so Enter proves the keyboard path at zero cost to the account. NFR-401's screen-reader half is still owed. |
 | ~~**The popup near a screen edge**~~ | **PASS, 4 Sep 2026.** Pointer in the bottom-right corner, whole popup on screen. The clamping arithmetic was unit-tested; the real screen insets it runs against were not. |
