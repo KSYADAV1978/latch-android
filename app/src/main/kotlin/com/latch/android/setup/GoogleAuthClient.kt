@@ -176,13 +176,19 @@ class GoogleAuthClient(
     }
 
     private companion object {
-        /** FR-002, and nothing else. FR-003 forbids widening this without re-verification. */
-        val SCOPES = listOf(
-            Scope("https://www.googleapis.com/auth/calendar.events"),
-            Scope("https://www.googleapis.com/auth/calendar.calendarlist"),
-            Scope("https://www.googleapis.com/auth/calendar.calendars"),
-            Scope("https://www.googleapis.com/auth/tasks"),
-        )
+        /**
+         * FR-002, and nothing else. FR-003 forbids widening this without re-verification.
+         *
+         * **The contacts scope is here for FR-1241 and for nothing else yet** (SRS 1.86). No
+         * code in this build calls the People API; the scope is requested so the consent screen
+         * Google actually shows for it can be read off a device and recorded, which FR-1241
+         * requires *before* any contact-write code ships. §8.6's reason for taking it now rather
+         * than later is that verification is performed once, against the final scope set.
+         *
+         * It is deliberately last in the list. The consent screen renders these in order, and
+         * the line under examination is easier to identify at the end of one than in the middle.
+         */
+        val SCOPES = LATCH_OAUTH_SCOPES.map(::Scope)
     }
 }
 
@@ -198,3 +204,21 @@ private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { conti
     addOnFailureListener { continuation.resumeWithException(it) }
     addOnCanceledListener { continuation.cancel() }
 }
+
+/**
+ * FR-002's scope set, as strings a JVM test can read (SRS 1.86).
+ *
+ * **It is separated from the `Scope` objects deliberately.** FR-002 is a `[MUST]` that names an
+ * exact list and FR-003 forbids widening it without re-verification, yet until now nothing
+ * asserted what the application actually requests — the list lived inside a private companion of
+ * a class that touches Play services, so no test could reach it. That is the same reachability
+ * argument this project has already applied to the drain's FR-803 check and to `ALLOWED_HOSTS`,
+ * and the same remedy: a fifth scope cannot now arrive without a diff that says so.
+ */
+internal val LATCH_OAUTH_SCOPES = listOf(
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist",
+    "https://www.googleapis.com/auth/calendar.calendars",
+    "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/contacts",
+)
