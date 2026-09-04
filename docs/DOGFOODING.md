@@ -283,6 +283,13 @@ defects** — but do say if one bites in a way this list does not describe.
 - **No calendar picker on the PC.** Everything goes to the Latch calendar the phone made. That
   is deliberate — it is what makes the two machines recognise each other's captures.
 - **No notification capture on the PC** — that is an Android capture layer.
+- **Recipes do not travel between your machines, and neither does the Inbox.** The eight that
+  ship with Latch are on both because they are part of the app; anything *you* build is stored
+  on the machine you built it on, encrypted with a key that never leaves it. Build a recipe on
+  the PC and it will not be on your phone. That is FR-1006 — syncing settings through Google
+  Drive — which is deliberately out of scope for v1.0 because it would need another permission
+  on your Google account. The only thing the two machines share is what is written to your
+  calendar and task list.
 - **The PC's queue only runs while Latch is running.** Queue something with no connection, quit,
   and it waits until you open Latch again. It is held, not lost — but the phone would have
   written it in the background.
