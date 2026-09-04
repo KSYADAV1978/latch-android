@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.88 (draft for developer handover)"
+author: "Version 1.89 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.88 — draft for developer handover |
+| Version | 1.89 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -149,6 +149,7 @@ date: "28 August 2026"
 
 | 1.87 | 4 Sep 2026 | **The application has no route to re-consent that a user could take on purpose, and that is a defect §5.11's approval turns from latent into live.** Found by looking for a consent screen and not finding one: adding a fifth scope to the request should make the next authorization ask for consent, and opening Latch produced nothing at all. Nothing was broken. **The application authorizes lazily**, so opening it asks for no token; and of the two paths that can present a consent screen, setup is complete and never runs again, while the home screen's Sign in button renders **only while a queue entry has already failed for want of one**. `reauthorize()` is reachable from that one place and nowhere else. So the sequence a user actually experiences is: make a capture, watch it fail to save, wait for a background drain to fail as well, and only then discover a button. **The information was available at launch and was withheld until a capture had been stranded.** **A2 makes this everybody's problem rather than a developer's.** Adding `.../auth/contacts` to a published application invalidates every existing user's grant on the next authorization, and their route back would be that same accidental discovery. Two requirements answer it, and they answer different halves. **FR-1007** puts a **Google account** entry in Settings with a **Sign in again** action — re-consent, explicitly *not* sign-out, because NFR-205's disconnect is destructive by design and offering it beside this problem is how somebody loses an Inbox they meant to keep; and present regardless of queue state, the condition having nothing to do with the queue. **FR-806b** makes the "sign in again" state depend on a **silent non-interactive check on foreground** rather than on a failed drain, so the banner precedes the loss instead of reporting it. **FR-806a is not weakened and the wording says so**: the check presents no UI, nothing interactive happens without a tap, and `authNextStep` already distinguishes "resolution required" from "token in hand" without showing anything. One narrowing is stated rather than left to be discovered — a check that fails for any *other* reason sets nothing at all, because "your grant is insufficient" and "the aeroplane mode you switched on" must not produce the same sentence. **Ships before Play submission**, on the developer's instruction, since the amendment that makes it necessary ships at the same time. |
 | 1.88 | 4 Sep 2026 | **FR-1241 is answered, and the guess it replaces was wrong in the direction that matters.** §5.11.6 drafted the consent wording as one line, approximately "See, edit, download and permanently delete your contacts", and marked it an expectation rather than a fact — which is why FR-1241 required it to be read off a device before any contact-write code shipped. Read on 4 Sep 2026, Google shows a grouped contacts card carrying **three separate permissions**: *See your Google Contacts*, *Edit your Google Contacts*, **and *Delete your Google Contacts***. **The third line is the finding.** Latch has no requirement that deletes a contact — FR-1210's undo removes one this application created seconds earlier and nothing else — yet the user is asked to permit deletion of their contacts, because §5.11.2's A2 recorded that the People API offers no create-only or write-only alternative. A2 wrote that down as a cost in the abstract; **this is what the cost looks like to the person being asked**, and it is worse than the draft imagined. FR-1102 therefore gains a clause: the privacy policy shall state that Latch creates and updates contacts and never deletes one it did not itself create, because the policy is the only place a user can learn that the application does not use a permission they had to grant it. **Provenance is recorded rather than glossed**: the wording was read from the screen and relayed rather than transcribed character for character, so what is established is the substance — three permissions, including deletion — and the exact rendering is to be quoted from `myaccount.google.com`, which shows an application's granted permissions **non-destructively** and was the instrument nobody thought to use before spending a consent screen on the question. That is worth more than this row: **the consent screen is consumed by being answered, and the account's permissions page is not.** |
+| 1.89 | 4 Sep 2026 | **Corrects v1.88, which recorded FR-1241's reading wrongly and drew a conclusion from it.** The consent screen shows **one** line — *"See, edit, download and permanently delete contacts"* — which is the draft's expectation off by the single word "your". The three-item list v1.88 recorded is what appears behind **See access details**: a disclosure of the same grant, not a second one. §5.11.6 is corrected in place because it is specification; v1.88 stands here because it is history, and a row edited away is a row nobody can audit. **The error is instructive and is not the developer's**, though it was the developer who volunteered the correction. v1.88 recorded the provenance carefully — "read from the screen and relayed rather than transcribed character for character" — and then, in the same row, asserted that the draft was "wrong in a way that matters" and built a conclusion on it. **Writing down that evidence is weak does not make it strong enough to conclude from**, and the question that would have caught it — *where on the screen is this line?* — was never asked. That is this project's own rule about fixtures, applied to a reading instead of a test and missed. **The finding survives and is stronger.** "Permanently delete" is on the **primary** line rather than folded into a detail view, so it is among the first things a user reads about Latch, and Latch has no requirement that deletes a contact — FR-1210's undo removes one this application created seconds earlier and nothing else. FR-1102's clause therefore stands unchanged and is better justified than when it was written: the policy is the only place a user can learn that the application does not use the most alarming permission it asks for. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -1095,10 +1096,33 @@ owns.
 `https://www.googleapis.com/auth/contacts`. Google classifies it **Sensitive**, the same tier as
 the four scopes already requested, so it does not move the application into the *restricted* tier
 that requires an independent security assessment. It does add a distinct line to the consent
-screen, worded by Google and approximately "See, edit, download and permanently delete your
-contacts" — **the exact wording and the current tier shall be confirmed against Google's scope
-list before submission**, per FR-003's standing instruction, and this sentence is written as an
-expectation rather than a fact for that reason. There is no narrower alternative; see A2.
+screen. There is no narrower alternative; see A2.
+
+**FR-1241 is answered** (v1.89). Read off a real consent screen on 4 Sep 2026, Google shows
+**one** line:
+
+> See, edit, download and permanently delete contacts
+
+Expanding **See access details** on the same screen breaks that into three items — *See your
+Google Contacts*, *Edit your Google Contacts*, *Delete your Google Contacts* — which is a
+disclosure of the same grant and not a second one. The expectation drafted here was right, off by
+the single word "your"; v1.88 briefly recorded the opposite, having been given the expanded view
+without being told it was the expanded view, and is corrected in the revision history.
+
+**The finding is "permanently delete", and it is on the primary line** rather than folded into a
+detail view — among the first things a user reads about Latch. Latch has no requirement that
+deletes a contact: FR-1210's undo removes one *this application created seconds earlier*, and
+nothing else. The user is asked to permit permanent deletion because A2 recorded that the People
+API offers no create-only or write-only alternative. A2 wrote that down as a cost in the abstract;
+this is what the cost looks like on the screen where consent is given, and FR-1102 carries the
+clause that answers it.
+
+**Provenance, because this sentence ends up in a privacy policy.** The line above is the
+developer's verbatim reading. `myaccount.google.com` shows an application's granted permissions
+**non-destructively** and at any time, and FR-1102's text shall be quoted from there rather than
+from this section — a consent screen is consumed by being answered; a permissions page is not.
+The **tier** is still an expectation and shall be confirmed against Google's scope list before
+submission, per FR-003's standing instruction.
 
 **2. What identity keys on.** **Email, normalised. Never phone alone.**
 The reasoning is asymmetric harm. A duplicate contact is visible, obvious and deletable in one
