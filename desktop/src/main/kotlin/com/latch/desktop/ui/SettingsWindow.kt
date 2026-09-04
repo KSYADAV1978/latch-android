@@ -119,10 +119,22 @@ class SettingsWindow(
         ButtonGroup().apply { add(dayFirst); add(monthFirst) }
     }
 
+    /**
+     * Open the window, or bring it forward if it is already open.
+     *
+     * **An already-open window keeps what the user has typed** (SRS 1.80). Filling on every
+     * call meant a second click on the tray item replaced unsaved edits with what was on disk
+     * and cleared the message line with them — so a changed date order, or a Save that had just
+     * been refused for a reason still on screen, vanished with nothing said. The user's evidence
+     * was that the preference "did not take"; the preference was never submitted.
+     *
+     * Re-reading the record here is also what `fill` is for after a successful save, which
+     * `saveSettings` does explicitly. This path is only ever "show me Settings".
+     */
     fun show(settings: DesktopSettings) {
-        fill(formOf(settings))
-        message.text = ""
         if (!frame.isVisible) {
+            fill(formOf(settings))
+            message.text = ""
             frame.pack()
             frame.setLocationRelativeTo(null)
             frame.isVisible = true
@@ -131,13 +143,24 @@ class SettingsWindow(
         frame.requestFocus()
     }
 
-    /** FR-1004, NFR-203, FR-1004b: the mask, the switch and the passive report. */
-    fun fillWebhook(mask: String, enabled: Boolean, delivery: String?) {
+    /**
+     * FR-1004, NFR-203, FR-1004b: the mask and the passive report.
+     *
+     * **It touches nothing the user can be part-way through** (SRS 1.80). This runs on every
+     * tray click and after every delivery, off the DPAPI thread, so it may land at any moment —
+     * including while somebody is typing an endpoint or has just moved the switch. Both of those
+     * belong to `fill`, which is called when a form is genuinely being (re)loaded: a fresh open,
+     * or a write that has just happened.
+     */
+    fun fillWebhook(mask: String, delivery: String?) {
         endpointMask.text = mask
-        webhookEnabled.isSelected = enabled
-        endpoint.text = ""
         lastDelivery.text = delivery.orEmpty()
         lastDelivery.isVisible = delivery != null
+    }
+
+    /** The typed endpoint has been consumed by a store write, so the field is spent. */
+    fun clearEndpointEntry() {
+        endpoint.text = ""
     }
 
     fun fill(form: SettingsForm) {

@@ -771,9 +771,8 @@ object Latch {
     private fun refreshWebhook(window: SettingsWindow) {
         Thread({
             val mask = endpointLine(runCatching { webhookSecrets.endpoint() }.getOrNull())
-            val enabled = runCatching { settingsStore.read().shared.webhookEnabled }.getOrDefault(false)
             val last = deliveryText(runCatching { webhookSecrets.lastDelivery() }.getOrNull())
-            SwingUtilities.invokeLater { window.fillWebhook(mask, enabled, last) }
+            SwingUtilities.invokeLater { window.fillWebhook(mask, last) }
         }, "latch-webhook-read").apply { isDaemon = true }.start()
     }
 
@@ -796,6 +795,7 @@ object Latch {
             SwingUtilities.invokeLater {
                 settingsWindow?.let {
                     it.say(if (stored) DesktopStrings.WEBHOOK_SAVED else DesktopStrings.SETTINGS_WRITE_FAILED)
+                    if (stored) it.clearEndpointEntry()
                     refreshWebhook(it)
                 }
             }
@@ -813,6 +813,7 @@ object Latch {
             SwingUtilities.invokeLater {
                 settingsWindow?.let {
                     it.say(DesktopStrings.WEBHOOK_CLEARED)
+                    it.clearEndpointEntry()
                     it.fill(com.latch.desktop.ui.formOf(settingsStore.read()))
                     refreshWebhook(it)
                 }

@@ -1222,6 +1222,28 @@ it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's m
 NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
 is built and awaiting a person.
 
+### The recurring shape on the Windows client — five instances, four found by a person
+
+Every one of these was *the model is correct, tested and reachable, and the screen shows
+something else*: FR-507's badge, FR-506's date chips, FR-602's eight built-ins drawn four pixels
+tall, FR-608's frozen ticks, and now (SRS 1.80) a Settings window that replaced an unsaved edit
+with what was on disk whenever the tray item was clicked a second time — and cleared the message
+line that would have explained it, in the same call. `fillWebhook` had the shape one field over
+and was worse for landing asynchronously off the DPAPI thread. `fill` now owns the fields a user
+edits and runs only on a fresh open or after a write; `fillWebhook` is confined to the mask and
+FR-1004b's report.
+
+**Swing is the part of this client no JVM test reaches**, which is the reachability argument this
+project has already applied twice on Android. Until something covers it, a control that has not
+been pressed by a person is not verified, whatever the model tests say.
+
+**And read the store, not the code, when a preference "does not take".** FR-504's failure looked
+like a parser or plumbing fault; `day_first_dates` in `%LOCALAPPDATA%\Latch\secrets.dat` was
+still `true`, which separated *never stored* from *stored and ignored* in one step — and found in
+passing that the FR-512 threshold was sitting at 90% from an earlier check.
+
+**HUMAN-OWED**: a second click on the tray item must leave a changed radio changed.
+
 ### Built and verified on Windows, 4 Sep 2026 (SRS 1.79) — Android owed
 
 **FR-804's move note.** An updated item now carries a line saying where it came from — *"Moved
