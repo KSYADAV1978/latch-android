@@ -27,6 +27,7 @@ import com.latch.android.cards.soleContactPayload
 import com.latch.android.ui.CardChooser
 import com.latch.android.ui.CardScreen
 import com.latch.cards.CardParse
+import com.latch.cards.classifyCard
 import com.latch.cards.parseCard
 import com.latch.android.LatchApplication
 import com.latch.android.R
@@ -312,9 +313,27 @@ class CaptureActivity : ComponentActivity() {
                             if (state == null) cardMessage = R.string.card_unreadable
                             else cardState = state
                         }
-                        // Phase A reads QR codes only. FR-1201a's camera and Phase B's photographed
-                        // card are not built, and saying so is better than a dead control.
-                        else -> cardMessage = R.string.card_no_code
+                        // FR-1220: no code, so read the card off the photograph instead. The
+                        // recognised text is already here — `:ocr` ran it for the dates — so this
+                        // costs nothing beyond the classification, and reusing it is the reason
+                        // FR-1220 says to use `:ocr` unchanged.
+                        else -> {
+                            val recognised = captured?.text?.lines().orEmpty()
+                            val classified = classifyCard(recognised)
+                            if (classified.draft.isEmpty) {
+                                cardMessage = R.string.card_no_code
+                            } else {
+                                cardState = CardSheetState(
+                                    parsed = classified.draft,
+                                    // No payload: FR-1208's hash comes from the recognised text
+                                    // for this path, which SRS 1.30 records as wobblier than a
+                                    // decoded one — the same image recognised twice can differ.
+                                    payload = captured?.text.orEmpty(),
+                                    unplaced = classified.unplaced,
+                                    fromPhoto = true,
+                                )
+                            }
+                        }
                     }
                 }
 

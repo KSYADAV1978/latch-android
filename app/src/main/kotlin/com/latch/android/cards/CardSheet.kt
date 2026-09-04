@@ -24,6 +24,22 @@ data class CardSheetState(
     val payload: String = "",
     /** FR-1205: every field is editable, so every field can differ from what was parsed. */
     val edits: CardEdits = CardEdits(),
+    /**
+     * FR-1223: lines the classifier could not place, shown rather than dropped.
+     *
+     * Empty for a QR card, where the grammar says which field each value belongs to. Non-empty
+     * only on the photographed path, where a card whose tagline vanished looks identical to one
+     * that never had it.
+     */
+    val unplaced: List<String> = emptyList(),
+    /**
+     * FR-1224: this draft was read off a photograph, not decoded from a grammar.
+     *
+     * **It changes what the sheet says and never what the save does.** A photographed card is a
+     * guess about somebody else's layout; the user is told so, and asked to check, because the
+     * card is gone afterwards and a plausible wrong name is not checkable from the contact.
+     */
+    val fromPhoto: Boolean = false,
 ) {
     /** What the sheet displays and what a save would write. */
     val edited: CardDraft get() = edits.applyTo(parsed)

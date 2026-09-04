@@ -98,6 +98,19 @@ fun CardScreen(
                 }
             }
 
+            // FR-1224. Said above the fields rather than below them: it is a reason to read what
+            // follows, and a caution underneath the thing it cautions about is one nobody reads.
+            if (state.fromPhoto) {
+                Note(stringResource(R.string.card_from_photo))
+            }
+
+            // FR-1223: what the classifier could not place. Shown, never dropped — a card whose
+            // job title vanished looks exactly like a card that never had one.
+            if (state.unplaced.isNotEmpty()) {
+                Note(stringResource(R.string.card_unplaced))
+                state.unplaced.forEach { Note("  $it") }
+            }
+
             if (draft.addresses.isNotEmpty()) {
                 Note(draft.addresses.joinToString("\n"))
             }
