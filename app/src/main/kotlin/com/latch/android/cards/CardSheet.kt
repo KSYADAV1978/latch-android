@@ -14,6 +14,14 @@ import com.latch.core.model.CardPhone
 data class CardSheetState(
     /** What the grammar read. Never shown directly — [edited] is. */
     val parsed: CardDraft,
+    /**
+     * The decoded payload this was parsed from.
+     *
+     * **Carried because FR-1208's hash is taken from the payload and not from the draft.** Two
+     * encoders can order one person's fields differently; the same physical card scanned twice
+     * gives the same payload, and §7.2 already records what a hash that can wobble costs.
+     */
+    val payload: String = "",
     /** FR-1205: every field is editable, so every field can differ from what was parsed. */
     val edits: CardEdits = CardEdits(),
 ) {

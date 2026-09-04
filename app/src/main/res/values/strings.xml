@@ -74,6 +74,10 @@
     <string name="card_destination_loading">Checking which account this will go to…</string>
     <string name="card_never_deletes">Latch only adds and updates contacts. It never deletes one.</string>
     <string name="card_nothing_to_save">There is no name, number or email here yet. Add one to save this.</string>
+    <string name="card_saved">Saved to your contacts.</string>
+    <string name="card_saved_unchecked">Saved to your contacts. Latch could not finish checking whether you already had this card, so there may now be two.</string>
+    <string name="card_already_saved">Already saved. Nothing was written again.</string>
+    <string name="card_save_failed">Could not save that. Nothing was written — try again.</string>
     <string name="card_save">Save contact</string>
     <string name="card_saving">Saving…</string>
     <string name="card_choose_title">This image has more than one code</string>

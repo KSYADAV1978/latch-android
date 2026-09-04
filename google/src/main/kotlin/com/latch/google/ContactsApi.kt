@@ -131,3 +131,27 @@ suspend fun findContactByHashPaged(
 data class ContactPage(val contacts: List<ContactRow>, val nextPageToken: String? = null)
 
 data class ContactRow(val resourceName: String, val clientData: List<Pair<String, String>>)
+
+/**
+ * FR-1206: a confirmed draft and its FR-1207 record, as the People API wants them.
+ *
+ * **In `:google` because it needs both sides** — `CardDraft` through `:wire`'s dependency on
+ * `:core-model`, and `ContactWrite` from here. Putting it in a client would be the mapping that
+ * decides what Google receives living somewhere a second client could not compile.
+ */
+fun contactWriteFor(
+    draft: com.latch.core.model.CardDraft,
+    clientData: List<Pair<String, String>>,
+): ContactWrite = ContactWrite(
+    givenName = draft.givenName?.takeIf { it.isNotBlank() },
+    familyName = draft.familyName?.takeIf { it.isNotBlank() },
+    displayName = draft.displayName?.takeIf { it.isNotBlank() },
+    organisation = draft.organisation?.takeIf { it.isNotBlank() },
+    jobTitle = draft.jobTitle?.takeIf { it.isNotBlank() },
+    phones = draft.phones.map { it.number to it.type },
+    emails = draft.emails.map { it.address to it.type },
+    addresses = draft.addresses,
+    urls = draft.urls,
+    note = draft.note?.takeIf { it.isNotBlank() },
+    clientData = clientData,
+)

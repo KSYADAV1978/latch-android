@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
 import com.latch.android.cards.CardOffer
+import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardOffer
 import com.latch.android.cards.soleContactPayload
@@ -288,6 +289,7 @@ class CaptureActivity : ComponentActivity() {
                     decodedContactPayloads = payloads.size,
                 )
                 var cardState by remember { mutableStateOf<CardSheetState?>(null) }
+                var cardSave by remember { mutableStateOf<CardSaveResult>(CardSaveResult.Idle) }
                 var choosing by remember { mutableStateOf(false) }
 
                 // FR-1203: one payload opens; several ask; none means the user is telling us this
@@ -308,10 +310,20 @@ class CaptureActivity : ComponentActivity() {
                         state = sheet,
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
-                        // Slice 5a owns the write. Until then the sheet is reachable, editable
-                        // and deliberately inert: FR-800's lesson is that the write comes after
-                        // the duplicate check and the undo, not before the screen looks finished.
-                        onSave = {},
+                        saveResult = cardSave,
+                        onSave = {
+                            cardSave = CardSaveResult.Saving
+                            // On the application's scope, not this Activity's: the capture window
+                            // closes on a tap outside it and a write in flight must still finish.
+                            // `CaptureSaver` is held for the same reason.
+                            app.appScope.launch {
+                                cardSave = app.cardSaver.save(
+                                    draft = sheet.edited,
+                                    payload = sheet.payload,
+                                    layer = captured?.layer?.name ?: "SHARED_IMAGE",
+                                )
+                            }
+                        },
                         onDismiss = { cardState = null },
                     )
                 } else if (choosing) {
@@ -711,4 +723,4 @@ internal fun looksLikeContactPayload(payload: String): Boolean {
  * otherwise be tempting to open the screen and let the user fill it in.
  */
 internal fun cardStateFor(payload: String): CardSheetState? =
-    (parseCard(payload) as? CardParse.Parsed)?.let { CardSheetState(parsed = it.draft) }
+    (parseCard(payload) as? CardParse.Parsed)?.let { CardSheetState(parsed = it.draft, payload = payload) }

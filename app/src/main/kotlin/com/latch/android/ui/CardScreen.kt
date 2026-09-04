@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.cards.CardEdits
 import com.latch.android.cards.CardSaveBlocker
+import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardSaveBlocker
 
@@ -44,8 +45,10 @@ fun CardScreen(
     onEdit: (CardEdits) -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
-    saving: Boolean = false,
+    /** FR-1206 and FR-1208: what the last save did, or Idle. */
+    saveResult: CardSaveResult = CardSaveResult.Idle,
 ) {
+    val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
     val blocker = cardSaveBlocker(state)
 
@@ -103,6 +106,22 @@ fun CardScreen(
 
         if (blocker == CardSaveBlocker.NOTHING_TO_SAVE) {
             Note(stringResource(R.string.card_nothing_to_save))
+        }
+
+        // FR-1208's answer, said in the words the date side already uses for the same fact, so a
+        // user who has seen "Already saved" on a capture reads this the same way.
+        when (saveResult) {
+            is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
+            is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
+            is CardSaveResult.Saved ->
+                Note(
+                    stringResource(
+                        // A write made without an answer says so. SRS 5.8's rule reaching a
+                        // screen: a scan that gave up must not be reported as a clean check.
+                        if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
+                    )
+                )
+            else -> Unit
         }
 
         // FlowRow for the reason the capture sheet uses one: a clipped action label is a silent

@@ -38,14 +38,14 @@ class CardSheetTest {
     fun `editing a field changes what would be written and not what was parsed`() {
         // The correction has to travel beside the parse rather than over it: FR-509b's shape,
         // where a typo fixed must not make an item unmatchable.
-        val state = CardSheetState(card, CardEdits(jobTitle = "Director of Sourcing"))
+        val state = CardSheetState(card, edits = CardEdits(jobTitle = "Director of Sourcing"))
         assertEquals("Director of Sourcing", state.edited.jobTitle)
         assertEquals("Head of Sourcing", state.parsed.jobTitle, "the parse was overwritten")
     }
 
     @Test
     fun `a phone can be corrected in place`() {
-        val state = CardSheetState(card, CardEdits(phones = mapOf(0 to "+91 98200 99999")))
+        val state = CardSheetState(card, edits = CardEdits(phones = mapOf(0 to "+91 98200 99999")))
         assertEquals(listOf("+91 98200 99999", "+91 22 2345 6789"), state.edited.phones.map { it.number })
         // The type survives a correction to the number: a mobile edited is still a mobile.
         assertEquals("CELL", state.edited.phones.first().type)
@@ -55,7 +55,7 @@ class CardSheetTest {
     fun `blanking a phone removes it rather than writing an empty one`() {
         // A card often carries a fax nobody wants. Clearing the field is how the user says so,
         // and an empty phoneNumbers entry would put a blank row on their contact.
-        val state = CardSheetState(card, CardEdits(phones = mapOf(1 to "  ")))
+        val state = CardSheetState(card, edits = CardEdits(phones = mapOf(1 to "  ")))
         assertEquals(listOf("+91 98200 12345"), state.edited.phones.map { it.number })
     }
 
@@ -63,7 +63,7 @@ class CardSheetTest {
     fun `blanking an email removes it, and with it the identity it carried`() {
         // FR-1209 keys on email, so this is not only a display change: a card saved with its
         // address cleared has no automatic identity and will be written as new.
-        val state = CardSheetState(card, CardEdits(emails = mapOf(0 to "")))
+        val state = CardSheetState(card, edits = CardEdits(emails = mapOf(0 to "")))
         assertTrue(state.edited.emails.isEmpty())
     }
 
@@ -97,7 +97,7 @@ class CardSheetTest {
         assertNull(cardSaveBlocker(CardSheetState(one)))
         assertEquals(
             CardSaveBlocker.NOTHING_TO_SAVE,
-            cardSaveBlocker(CardSheetState(one, CardEdits(phones = mapOf(0 to "")))),
+            cardSaveBlocker(CardSheetState(one, edits = CardEdits(phones = mapOf(0 to "")))),
         )
     }
 

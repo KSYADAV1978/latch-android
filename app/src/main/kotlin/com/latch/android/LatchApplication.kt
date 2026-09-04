@@ -58,6 +58,10 @@ import com.latch.google.googleTasksApi
 import com.latch.recipes.recipesFor
 import com.latch.data.revokeGrant
 import com.latch.ocr.MlKitOcrReader
+import com.latch.android.cards.CardSaver
+import com.latch.google.ContactsApi
+import com.latch.google.ContactsRest
+import com.latch.google.GoogleHttp
 import com.latch.ocr.OcrReader
 import com.latch.ocr.QrReader
 import com.latch.ocr.ZxingQrReader
@@ -79,7 +83,14 @@ import kotlinx.coroutines.launch
  */
 class LatchApplication : Application() {
 
-    private val appScope = CoroutineScope(SupervisorJob())
+    /**
+     * Work that must outlive the window that started it.
+     *
+     * A capture sheet closes on a tap outside it, so a write in flight would be cancelled with
+     * it — which is why `CaptureSaver` is held here and why FR-1206's card save runs on this
+     * scope rather than on the Activity's.
+     */
+    val appScope = CoroutineScope(SupervisorJob())
 
     /**
      * `by lazy`, not a property initializer. A property initializer runs inside the
@@ -303,6 +314,17 @@ class LatchApplication : Application() {
      * loader would be a second place for that to be got wrong.
      */
     val qrReader: QrReader by lazy { ZxingQrReader((ocrReader as MlKitOcrReader).imageSource()) }
+
+    /** FR-1206: the People client, through the same guard and token provider as everything else. */
+    val contactsApi: ContactsApi by lazy { ContactsRest(GoogleHttp(authClient)) }
+
+    /**
+     * FR-1206 and FR-1208.
+     *
+     * Held by the application and not by the capture Activity, for `CaptureSaver`'s reason: the
+     * capture window closes on a tap outside it, and a write already in flight must still finish.
+     */
+    val cardSaver: CardSaver by lazy { CardSaver(contactsApi) }
 
     private val _queueStatus = MutableStateFlow(QueueStatus(waiting = 0, givenUp = 0))
 
