@@ -1,0 +1,29 @@
+# Golden vectors for SRS 5.11's FR-1207 and FR-1209 - the contacts analogue of
+# metadata/hash_vectors.tsv, and it exists for the same reason.
+#
+# THIS FILE IS A CROSS-CLIENT CONFORMANCE SUITE. Prose will not hold two codebases
+# byte-identical; a digest will. A client deriving a different source_hash cannot see
+# what another client wrote (FR-1208); one deriving a different identity key would
+# offer to update the wrong person (FR-1231).
+#
+# Pure ASCII on purpose, so no editor can normalise a case away. In the payload column
+# \n stands for a newline and \r for a carriage return; both must be
+# expanded before hashing. Writing this file caught an em dash in its own header, which
+# is the constraint working.
+#
+# The dotted/undotted pair is deliberate and MUST hash differently: dot-stripping is
+# right for one provider and wrong for every mail server that treats dots as
+# significant, where applying it merges two colleagues into one contact.
+#
+# An empty identity_key is a real answer and not a gap: a card with no email has no
+# automatic identity and is always written as a new contact.
+#
+# name	payload	source_hash	normalised_email	identity_key
+plain_vcard	BEGIN:VCARD\nVERSION:3.0\nFN:Anita Sharma\nEMAIL:anita@northwind.example\nEND:VCARD	29c89a705f0402e0e806bde34adb0a64fbcc0737f47f8cf9f1fed235a46d8f40	anita@northwind.example	1b5a514f36cf8cf63627f052a823f00e7cbea9b4d2043b203e63897d36b9e7de
+crlf_vcard	BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Anita Sharma\r\nEMAIL:anita@northwind.example\r\nEND:VCARD	29c89a705f0402e0e806bde34adb0a64fbcc0737f47f8cf9f1fed235a46d8f40	anita@northwind.example	1b5a514f36cf8cf63627f052a823f00e7cbea9b4d2043b203e63897d36b9e7de
+folded_adr	BEGIN:VCARD\nVERSION:3.0\nFN:Long\nADR:;;221B Baker Street\n and more;London;;NW1 6XE;UK\nEMAIL:long@example.com\nEND:VCARD	7974204889a30afe893fde5b5c68d214deddbdc8ddcac02b80828505e1ccb0b7	long@example.com	1802ec298f53f147a65309c0183547d86ab988dffc76ed6fe8bba8390df7e5fb
+mecard	MECARD:N:Doe,John;TEL:+15550100;EMAIL:john@example.com;;	2531c694c6c7423c58bdf3e75fdf7fe75af4fc5648d250c0a1570b63f77a40d5	john@example.com	855f96e983f1f8e8be944692b6f719fd54329826cb62e98015efee8e2e071dd4
+no_email	MECARD:N:Rao,Sunita;TEL:+919820012345;;	0024c612bfdbd71ede30cc425cd7a583b92149048a31395f53c04018cc6f1889		
+upper_email	BEGIN:VCARD\nVERSION:3.0\nFN:X\nEMAIL:Anita.Sharma@Example.COM\nEND:VCARD	a3f655c7f232c4bfd7bb5ded7721c63bd1a92eef5c1258044d89e3d1ac17915d	anita.sharma@example.com	6ec02e29b3108c247489ceeb8ddfa0aea6afdca24c064effcb89f59d1ff09c3f
+dotted	BEGIN:VCARD\nVERSION:3.0\nFN:X\nEMAIL:a.b@northwind.example\nEND:VCARD	00cb2924d2f9a2c775a9ce43981443f9721faeddf394e31f52eef911a2878fa5	a.b@northwind.example	1b2adf25877ca69342e6e838a2a1331cecda82e96049808293f67d53289422cd
+undotted	BEGIN:VCARD\nVERSION:3.0\nFN:X\nEMAIL:ab@northwind.example\nEND:VCARD	bf4211b71024691538965440abeecdeef1e484167506fa03171483637f9bbaa4	ab@northwind.example	c240102a8963250d48c8aea00198bd665f8fa01b40e1f6d22df9691f9ba13cdb
