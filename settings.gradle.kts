@@ -65,3 +65,7 @@ include(":recipes")
 include(":data")
 include(":ocr")
 include(":desktop")
+// FR-1204: the business-card grammar (SRS 5.11, Phase A). Pure Kotlin, no Android, no network —
+// a QR payload is a string with a right answer, and the FR-800 lesson is that the deterministic
+// half is settled before anything reaches an account.
+include(":cards")
