@@ -90,6 +90,95 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
             // stops resolving until a force-stop — reproduced three times. Until that is
             // understood, the probe is driven one trial at a time with a force-stop between, so
             // the limits can be measured without the answer depending on the defect.
+            // Slice 3's open unknown: can `searchContacts` find a contact by its `clientData`?
+            // FR-1208's whole shape depends on the answer, so it is asked before a client is
+            // written on top of an assumption.
+            if (intent.getStringExtra("search") != null) {
+                val marker = MARKER
+                val email = "probe.$marker@example.invalid".lowercase()
+                val secret = "latchprobesecret1234"
+
+                val created = runCatching {
+                    http.post(
+                        "$BASE/people:createContact?personFields=names,emailAddresses,clientData",
+                        JSONObject()
+                            .put("names", JSONArray().put(JSONObject().put("givenName", marker)))
+                            .put("emailAddresses", JSONArray().put(JSONObject().put("value", email)))
+                            .put(
+                                "clientData",
+                                JSONArray().put(JSONObject().put("key", "latch.card.source_hash").put("value", secret)),
+                            ),
+                    )
+                }
+                val name = created.getOrNull()?.optString("resourceName")
+                Log.i(TAG, "search: created ok=${created.isSuccess} $name")
+
+                // Google documents that searchContacts needs a warm-up request before the
+                // index will answer. Asked for explicitly so a miss cannot be blamed on it.
+                runCatching { http.get("$BASE/people:searchContacts?query=&readMask=names") }
+                kotlinx.coroutines.delay(4_000)
+
+                for ((label, query) in listOf(
+                    "by email" to email,
+                    "by clientData value" to secret,
+                    "by name" to marker,
+                )) {
+                    val r = runCatching {
+                        http.get("$BASE/people:searchContacts?query=$query&readMask=names,emailAddresses,clientData&pageSize=10")
+                    }
+                    val results = r.getOrNull()?.optJSONArray("results")
+                    val n = results?.length() ?: 0
+                    val carriesClientData = (0 until n).any {
+                        results?.optJSONObject(it)?.optJSONObject("person")?.optJSONArray("clientData") != null
+                    }
+                    Log.i(
+                        TAG,
+                        "search: $label -> ok=${r.isSuccess} results=$n clientDataInResult=$carriesClientData " +
+                            (r.exceptionOrNull()?.message?.take(120) ?: ""),
+                    )
+                }
+
+                // **Index lag, or search that does not work?** The zeros above could be either,
+                // and the answer decides FR-1208's whole shape. So the same query is run against
+                // a contact that has existed for a long time: one of the user's own, taken from
+                // connections.list and **never logged** — this is their real contact list, and
+                // NFR-206's instinct applies to a diagnostic as much as to a feature.
+                val existing = runCatching {
+                    http.get("$BASE/people/me/connections?personFields=names&pageSize=25&sortOrder=LAST_MODIFIED_DESCENDING")
+                }.getOrNull()?.optJSONArray("connections")
+                var probed = 0
+                var found = 0
+                for (index in 0 until (existing?.length() ?: 0)) {
+                    val given = existing?.optJSONObject(index)?.optJSONArray("names")
+                        ?.optJSONObject(0)?.optString("givenName").orEmpty()
+                    if (given.length < 4 || !given.all { it.isLetter() }) continue
+                    probed++
+                    val hit = runCatching {
+                        http.get("$BASE/people:searchContacts?query=$given&readMask=names&pageSize=5")
+                    }.getOrNull()?.optJSONArray("results")?.length() ?: 0
+                    if (hit > 0) found++
+                    if (probed >= 3) break
+                }
+                Log.i(TAG, "search: existing contacts probed=$probed found=$found")
+
+                // And the fallback: does connections.list return clientData at all?
+                val conn = runCatching {
+                    http.get("$BASE/people/me/connections?personFields=names,clientData&pageSize=5")
+                }
+                val list = conn.getOrNull()
+                Log.i(
+                    TAG,
+                    "search: connections.list ok=${conn.isSuccess} " +
+                        "total=${list?.optInt("totalItems", -1)} " +
+                        "hasNextPage=${!list?.optString("nextPageToken").isNullOrBlank()}",
+                )
+
+                name?.let { runCatching { http.delete("$BASE/$it:deleteContact") } }
+                runCatching { sweep(http) }
+                Log.i(TAG, "probe finished")
+                return@launch
+            }
+
             // FR-803's index, read from inside the app's own process (SRS 1.92).
             //
             // Pulling `latch.db` off the device does not work — `run-as cat` yields a file of
