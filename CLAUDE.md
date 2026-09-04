@@ -1222,7 +1222,7 @@ it FR-1002's Option A/B switch, FR-305's MSIX, FR-306's share target, FR-110's m
 NFR-205's disconnect, and NFR-401 tested with a screen reader. Everything else in the audit above
 is built and awaiting a person.
 
-### Built 4 Sep 2026 (SRS 1.79), JVM-verified and HUMAN-OWED on both clients
+### Built and verified on Windows, 4 Sep 2026 (SRS 1.79) — Android owed
 
 **FR-804's move note.** An updated item now carries a line saying where it came from — *"Moved
 by Latch from Wed 8 Sep 2027, 11:00, on 4 Sep 2026."* — composed in `:google` so both clients
@@ -1238,8 +1238,15 @@ reverted the move and left the note standing would leave a *false* statement in 
 calendar. `CreatedItem.Updated` carries the prior body on both clients; Android's persisted
 offer carries it as an optional field, so no record version moved.
 
-**Owed to a person on both clients**: watch a real update write the line, and a real undo take
-it off. **A queued update writes no note** — a recorded narrowing, not a defect.
+**Watched on Windows the day it was built.** A real update wrote *"Moved by Latch from Mon 6 Mar
+2028, 11:00, on 4 Sep 2026."* into the event's description with the original captured text still
+above it, and a real Undo put the date back **and took the note off**. That second half is the
+one SRS 1.77 called the expensive part and the one that makes the note safe to write at all: an
+undo that reverted the move and left the line standing would put a *false* statement in the
+user's calendar, which is worse than the silence it replaced.
+
+**Owed on Android**, where the same shared code runs and nobody has watched it. **A queued
+update writes no note** — a recorded narrowing, not a defect.
 
 ### The finding this answers (4 Sep 2026)
 
@@ -1313,6 +1320,7 @@ fail*, then *the fixture*.
 | ~~**The queue survives a restart**~~ | **Done, 3 Sep 2026.** One JVM with every HTTPS connection failing held the capture on disk, encrypted; a **second, fresh** JVM read it and drained it to Google; re-capturing the same text then answered "already saved", which is Google's index confirming it landed. | |
 | ~~**AC-10 with the network actually off**~~ | **PASS, 4 Sep 2026 — the trigger, not just the mechanism.** Wi-Fi genuinely off: the window said **held**, never "saved", which is the distinction the Queued state exists for. Latch was then **quit entirely and restarted** with the entry still showing in the tray, and on reconnecting it drained **within seconds** rather than at the next scheduled attempt. The 3 Sep run used a bogus proxy, so every request failed as it would offline while the interface stayed up — the connectivity-restored path was unexercised until now. Afterwards `queue.dat` is **absent**: the queue drained empty and removed its own file. |
 | ~~**Pressing Update on a real offer**~~ | **PASS, 4 Sep 2026 — the first time on this client, and the count is the evidence.** Arose unprompted during the Settings check: the same text re-captured with the **year changed from 2027 to 2026** was offered as a reschedule, **Update** was pressed, and afterwards the calendar held **no event at the old date and exactly one at the new** — so one item moved and none was created, which is this row's own wording and is what the message on screen cannot say. **FR-804 matched across a year boundary**, meaning the blanked date span covers the year: the property SRS 1.59's `NumericDateRule` defect would have broken for an ISO-format date, seen holding here for a spelled-out one. |
+| ~~**FR-804's move note** (SRS 1.79)~~ | **PASS on Windows, 4 Sep 2026, the day it was built.** An update wrote *"Moved by Latch from Mon 6 Mar 2028, 11:00, on 4 Sep 2026."* into the event's description, with FR-805's original captured text still above it — so the note appended rather than displaced. A second run undone inside the ten seconds put the date back **and removed the note**, which is the half SRS 1.77 named as the real cost and the half without which the note would be worse than the silence it replaced. **Owed on Android**, same shared code, unwatched. |
 | ~~**Pressing Undo**~~ | **PASS, 4 Sep 2026, on all three halves.** Undo of a **create** removed the item (taken during AC-20). A lapse was **watched**: the countdown ran out untouched, the window closed itself, and the save stood. And undo of an **update** put the old date back and **deleted nothing** — the single most consequential untested path on this client, because `priorDates` captured at match time is the only place those values still exist after the patch, and a delete there would be data loss on an item the user owned before Latch touched it. |
 | **A half-written chain resumes** | Hard to arrange by hand; the JVM tests pin the logic. The device check is that an ordinary multi-date capture queued offline writes each item exactly once on reconnection | a two-date capture, offline |
 | FR-806's Retry now | With something stuck, the tray offers it and a tap drains. A given-up entry is revived rather than left | pull the network for a long stretch |
