@@ -119,6 +119,8 @@ dependencies {
     // where it comes from — the transitive route also does not reach the unit tests.
     implementation(project(":google"))
     implementation(project(":parser"))
+    // FR-1204: the business-card grammar (SRS 5.11, Phase A).
+    implementation(project(":cards"))
     implementation(project(":recipes"))
     implementation(project(":data"))
     // FR-1004. Separate from :google on purpose — see webhook/build.gradle.kts.

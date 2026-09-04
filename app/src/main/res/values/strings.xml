@@ -63,6 +63,27 @@
     </plurals>
     <!-- FR-506 row 3, per row: this one cannot be saved, but its neighbours still can. -->
     <string name="capture_row_needs_date">No day for this time yet — this one cannot be saved.</string>
+    <!-- FR-1200 series: business-card capture (SRS 5.11). -->
+    <string name="card_title">Save as a contact</string>
+    <string name="card_field_name">Name</string>
+    <string name="card_field_organisation">Company</string>
+    <string name="card_field_title">Job title</string>
+    <string name="card_field_phone">Phone</string>
+    <string name="card_field_email">Email</string>
+    <string name="card_destination">Will be added to your contacts in %s.</string>
+    <string name="card_destination_loading">Checking which account this will go to…</string>
+    <string name="card_never_deletes">Latch only adds and updates contacts. It never deletes one.</string>
+    <string name="card_nothing_to_save">There is no name, number or email here yet. Add one to save this.</string>
+    <string name="card_save">Save contact</string>
+    <string name="card_saving">Saving…</string>
+    <string name="card_choose_title">This image has more than one code</string>
+    <string name="card_choose_body">Latch will not guess which one you meant. Pick the one to open.</string>
+    <string name="card_choose_option">Open code %1$d</string>
+    <!-- FR-1202: the action on the capture sheet. Two labels, because a detected card and an
+         image that merely might be one are different offers. -->
+    <string name="capture_card_detected">This looks like a contact card — save as contact</string>
+    <string name="capture_card_available">Save as contact instead</string>
+
     <string name="capture_dismiss">Close</string>
     <string name="capture_save">Save</string>
     <string name="capture_saving">Saving…</string>

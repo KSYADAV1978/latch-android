@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
+import com.latch.android.cards.CardOffer
 import com.latch.android.capture.CapturedText
 import com.latch.wire.DateSuggestion
 import com.latch.android.capture.DestinationState
@@ -123,6 +124,16 @@ fun CaptureScreen(
     onUpdateExisting: () -> Unit = {},
     /** FR-804: the user wants a separate item instead. */
     onCreateNew: () -> Unit = {},
+    /**
+     * FR-1202: whether this capture may be read as a business card, and how loudly to say so.
+     *
+     * **Detection changes what is offered and never what happens.** `CardOffer.DETECTED` puts the
+     * action first and names what was found; `AVAILABLE` offers it quietly, because the user may
+     * know an image is a card when the decoder does not; `NONE` shows nothing at all, which is
+     * every text capture — there is no image to be a card.
+     */
+    cardOffer: CardOffer = CardOffer.NONE,
+    onSaveAsContact: () -> Unit = {},
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
     /**
@@ -388,6 +399,22 @@ fun CaptureScreen(
             ) {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
+                }
+                // FR-1202. **First in the row when a card was detected**, and an ordinary
+                // TextButton when it was not: the two states have to be tellable apart on the
+                // screen, or "detection changes what is offered" is a sentence with nothing
+                // behind it. It never changes the mode — the dates are still what Save writes.
+                if (cardOffer != CardOffer.NONE) {
+                    Spacer(Modifier.width(8.dp))
+                    if (cardOffer == CardOffer.DETECTED) {
+                        Button(onClick = onSaveAsContact) {
+                            ActionLabel(stringResource(R.string.capture_card_detected))
+                        }
+                    } else {
+                        TextButton(onClick = onSaveAsContact) {
+                            ActionLabel(stringResource(R.string.capture_card_available))
+                        }
+                    }
                 }
                 // FR-1005. Shown only where there is something to export, which is anything
                 // the sheet could draft.
@@ -1139,7 +1166,7 @@ private fun whenLine(candidate: DatedCandidate): String {
  * width instead, so the row runs out of space before the word does.
  */
 @Composable
-private fun ActionLabel(text: String) {
+internal fun ActionLabel(text: String) {
     // softWrap = false stops the label breaking one syllable per line; the FlowRow around it
     // is what stops it being clipped instead. Ellipsis rather than Clip so that if a
     // translation ever does overflow both, it reads as truncated rather than as a shorter

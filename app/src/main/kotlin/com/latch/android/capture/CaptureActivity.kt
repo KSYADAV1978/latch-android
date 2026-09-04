@@ -15,6 +15,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
+import com.latch.android.cards.CardOffer
+import com.latch.android.cards.CardSheetState
+import com.latch.android.cards.cardOffer
+import com.latch.android.cards.soleContactPayload
+import com.latch.android.ui.CardChooser
+import com.latch.android.ui.CardScreen
+import com.latch.cards.CardParse
+import com.latch.cards.parseCard
 import com.latch.android.LatchApplication
 import com.latch.android.R
 import com.latch.android.ui.CaptureScreen
@@ -271,7 +279,51 @@ class CaptureActivity : ComponentActivity() {
                     }
                 }
 
+                // FR-1202. The offer is a function of what the capture is and what the decoder
+                // found — computed here and passed down, so the screen renders it and decides
+                // nothing.
+                val payloads = (captureContent as? CaptureContent.Ready)?.cardPayloads.orEmpty()
+                val offer = cardOffer(
+                    isImage = request is CaptureRequest.Image,
+                    decodedContactPayloads = payloads.size,
+                )
+                var cardState by remember { mutableStateOf<CardSheetState?>(null) }
+                var choosing by remember { mutableStateOf(false) }
+
+                // FR-1203: one payload opens; several ask; none means the user is telling us this
+                // image is a card the decoder could not read, which is Phase B's path and not
+                // built, so it says so rather than opening an empty sheet.
+                val openCard = {
+                    val sole = soleContactPayload(payloads)
+                    if (sole == null) {
+                        if (payloads.size > 1) choosing = true
+                    } else {
+                        cardState = cardStateFor(sole)
+                    }
+                }
+
+                val sheet = cardState
+                if (sheet != null) {
+                    CardScreen(
+                        state = sheet,
+                        accountLabel = account?.let { if (destinations == null) null else "Google" },
+                        onEdit = { cardState = sheet.copy(edits = it) },
+                        // Slice 5a owns the write. Until then the sheet is reachable, editable
+                        // and deliberately inert: FR-800's lesson is that the write comes after
+                        // the duplicate check and the undo, not before the screen looks finished.
+                        onSave = {},
+                        onDismiss = { cardState = null },
+                    )
+                } else if (choosing) {
+                    CardChooser(
+                        payloads = payloads,
+                        onChoose = { chosen -> choosing = false; cardState = cardStateFor(chosen) },
+                        onDismiss = { choosing = false },
+                    )
+                } else {
                 CaptureScreen(
+                    cardOffer = offer,
+                    onSaveAsContact = openCard,
                     captured = captured,
                     result = result,
                     route = route,
@@ -428,6 +480,7 @@ class CaptureActivity : ComponentActivity() {
                     extractingPages = (captureContent as? CaptureContent.Extracting)?.pages,
                     ocrFailure = (captureContent as? CaptureContent.Failed)?.reason,
                 )
+                }
             }
         }
     }
@@ -649,3 +702,13 @@ internal fun looksLikeContactPayload(payload: String): Boolean {
     return text.startsWith("BEGIN:VCARD", ignoreCase = true) ||
         text.startsWith("MECARD:", ignoreCase = true)
 }
+
+/**
+ * FR-1204 into FR-1205: a decoded payload becomes a sheet, or nothing.
+ *
+ * A payload that does not parse produces no sheet at all rather than an empty one — the
+ * requirement's "reported unreadable, not partially accepted", at the seam where it would
+ * otherwise be tempting to open the screen and let the user fill it in.
+ */
+internal fun cardStateFor(payload: String): CardSheetState? =
+    (parseCard(payload) as? CardParse.Parsed)?.let { CardSheetState(parsed = it.draft) }
