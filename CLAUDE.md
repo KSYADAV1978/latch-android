@@ -1174,6 +1174,17 @@ not what is wrong.
 
 Read from the source rather than from memory. The order is by how much the absence costs.
 
+**A third of the same shape, found by opening the window (SRS 1.75, 4 Sep 2026).** FR-602's
+eight built-in recipes were rendered **four pixels tall** and the Recipes window read as empty:
+each row clamped its `maximumSize` to `preferredSize.height` *before its children were added*,
+so it read an empty container's height, and the parent `BoxLayout` honours that. The model was
+never wrong — all eight were built and added — which is exactly what makes this class invisible:
+every JVM test passes and an audit of the module against the SRS finds the capability present.
+The fix removes the ordering rather than guarding it, since Swing layout ordering is not
+JVM-reachable: the row builder takes its children as a parameter and adds them before clamping.
+The other six clamps in this client are on text fields, whose preferred height is intrinsic, and
+are correct.
+
 **The two that were worse than absent are fixed (SRS 1.65, 3 Sep 2026).** FR-507's badge is a
 button that flips the row and states §8.1's cost before the press; FR-506 row 3 has Today /
 Tomorrow / In a week and a date spinner, with nothing pre-selected. `SheetEdits` moved into

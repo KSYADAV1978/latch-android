@@ -118,25 +118,46 @@ class RecipesWindow(
         message.text = text
     }
 
-    private fun rowFor(recipe: Recipe): JPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 2)).apply {
-        alignmentX = JComponent.LEFT_ALIGNMENT
-        maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
-        add(JLabel(recipe.name).apply { font = font.deriveFont(Font.BOLD, 12f) })
-        add(
-            JLabel(recipeOrigin(recipe, stored)).apply {
-                font = font.deriveFont(Font.ITALIC, 11f)
-                foreground = java.awt.Color(0x55, 0x55, 0x55)
+    private fun rowFor(recipe: Recipe): JPanel = listRow(
+        buildList {
+            add(JLabel(recipe.name).apply { font = font.deriveFont(Font.BOLD, 12f) })
+            add(
+                JLabel(recipeOrigin(recipe, stored)).apply {
+                    font = font.deriveFont(Font.ITALIC, 11f)
+                    foreground = java.awt.Color(0x55, 0x55, 0x55)
+                }
+            )
+            add(small(DesktopStrings.RECIPE_EDIT) { edit(recipe) })
+            add(small(DesktopStrings.RECIPE_DUPLICATE) { onDuplicate(recipe) })
+            // FR-603's delete is two actions behind one button — removing the user's own, and
+            // restoring a shipped one they had edited — so the button says which it is.
+            val label = deleteLabelFor(recipe, stored)
+            if (label == DesktopStrings.RECIPE_RESTORE || !recipe.builtIn) {
+                add(small(label) { onDelete(recipe) })
             }
-        )
-        add(small(DesktopStrings.RECIPE_EDIT) { edit(recipe) })
-        add(small(DesktopStrings.RECIPE_DUPLICATE) { onDuplicate(recipe) })
-        // FR-603's delete is two actions behind one button — removing the user's own, and
-        // restoring a shipped one they had edited — so the button says which it is.
-        val label = deleteLabelFor(recipe, stored)
-        if (label == DesktopStrings.RECIPE_RESTORE || !recipe.builtIn) {
-            add(small(label) { onDelete(recipe) })
         }
-    }
+    )
+
+    /**
+     * One row of the list, clamped to its own content — **after that content exists**.
+     *
+     * The ordering is the whole of this function, and it is why the children arrive as a
+     * parameter rather than being added by the caller. Clamping an *empty* container reads
+     * `preferredSize.height` as the layout's vertical gap, and the parent is a `BoxLayout` on
+     * the Y axis, which honours `maximumSize` — so every row drew about four pixels tall and
+     * the Recipes window rendered as blank with all eight built-ins present in the model.
+     *
+     * Found by opening it (4 Sep 2026). It is the shape SRS 1.65 already records for this
+     * client's badge — a capability the model computes and the screen does not show — and the
+     * ordering is not reachable from a JVM test, so the hazard is removed rather than guarded:
+     * a caller cannot add children after the clamp because it does not add them at all.
+     */
+    private fun listRow(children: List<JComponent>): JPanel =
+        JPanel(FlowLayout(FlowLayout.LEFT, 8, 2)).apply {
+            alignmentX = JComponent.LEFT_ALIGNMENT
+            children.forEach { add(it) }
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
 
     private fun small(label: String, action: () -> Unit) = JButton(label).apply {
         font = font.deriveFont(Font.PLAIN, 11f)
