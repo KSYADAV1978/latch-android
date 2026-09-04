@@ -134,6 +134,13 @@ fun CaptureScreen(
      */
     cardOffer: CardOffer = CardOffer.NONE,
     onSaveAsContact: () -> Unit = {},
+    /**
+     * FR-1202: why the card action did nothing, where it did nothing.
+     *
+     * A control that silently declines is indistinguishable from a broken one — which is exactly
+     * how it read on the device before SRS 1.100.
+     */
+    cardMessage: Int? = null,
     /** FR-213: the tile path reached the clipboard and found nothing in it. */
     fromEmptyClipboard: Boolean = false,
     /**
@@ -400,7 +407,9 @@ fun CaptureScreen(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.capture_dismiss))
                 }
-                // FR-1202. **First in the row when a card was detected**, and an ordinary
+                cardMessage?.let { Note(stringResource(it)) }
+
+        // FR-1202. **First in the row when a card was detected**, and an ordinary
                 // TextButton when it was not: the two states have to be tellable apart on the
                 // screen, or "detection changes what is offered" is a sentence with nothing
                 // behind it. It never changes the mode — the dates are still what Save writes.

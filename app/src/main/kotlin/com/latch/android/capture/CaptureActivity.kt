@@ -74,23 +74,7 @@ sealed interface CaptureContent {
     data class Extracting(val pages: PageProgress? = null) : CaptureContent
 
     /** Everything that is known. [captured] is null where nothing usable arrived. */
-    data class Ready(
-        val captured: CapturedText?,
-        /**
-         * FR-1202: contact payloads decoded from the image, if any.
-         *
-         * **It arrives after the text, never before it.** A QR decode with `TRY_HARDER` on a
-         * full-screen image is not free, and NFR-101 budgets an image capture 2.5 seconds for
-         * the thing the user actually asked for. So the sheet fills with dates first and the
-         * card offer appears a moment later — NFR-102's progressive pattern, applied to a second
-         * kind of content rather than to a slow one.
-         *
-         * Empty means "no contact code found", which is not the same as "not a card": FR-1202
-         * still offers the path, because the user may know it is a card when the decoder does
-         * not.
-         */
-        val cardPayloads: List<String> = emptyList(),
-    ) : CaptureContent
+    data class Ready(val captured: CapturedText?) : CaptureContent
 
     /** FR-215: recognition ran and produced nothing usable. */
     data class Failed(val reason: OcrFailure) : CaptureContent
@@ -140,6 +124,10 @@ class CaptureActivity : ComponentActivity() {
 
         // Text is resolved before the first frame, as it always was. Only an OCR capture
         // starts as Extracting and arrives later.
+        // FR-1203's decode result, held apart from the recognition it runs beside — see the
+        // Image branch below for why this is not a field on CaptureContent.
+        val cardPayloads = MutableStateFlow<List<String>>(emptyList())
+
         val content = MutableStateFlow<CaptureContent>(
             when (request) {
                 is CaptureRequest.Ready -> CaptureContent.Ready(request.captured.copy(appId = referrer))
@@ -148,7 +136,7 @@ class CaptureActivity : ComponentActivity() {
             }
         )
         if (request is CaptureRequest.Image || request is CaptureRequest.Pdf) {
-            extract(request, referrer, content, openedAt)
+            extract(request, referrer, content, cardPayloads, openedAt)
         } else {
             logContentReady(openedAt, content.value)
         }
@@ -283,7 +271,7 @@ class CaptureActivity : ComponentActivity() {
                 // FR-1202. The offer is a function of what the capture is and what the decoder
                 // found — computed here and passed down, so the screen renders it and decides
                 // nothing.
-                val payloads = (captureContent as? CaptureContent.Ready)?.cardPayloads.orEmpty()
+                val payloads by cardPayloads.collectAsState()
                 val offer = cardOffer(
                     isImage = request is CaptureRequest.Image,
                     decodedContactPayloads = payloads.size,
@@ -295,12 +283,25 @@ class CaptureActivity : ComponentActivity() {
                 // FR-1203: one payload opens; several ask; none means the user is telling us this
                 // image is a card the decoder could not read, which is Phase B's path and not
                 // built, so it says so rather than opening an empty sheet.
+                // **A tap must never do nothing** (SRS 1.100). The first version fell through
+                // silently when there was no payload, or when one was found and would not parse —
+                // and a control that does nothing is indistinguishable from a broken one, which
+                // is how rows 3 and 4 of the device pass failed for a reason that had nothing to
+                // do with what they were testing.
+                var cardMessage by remember { mutableStateOf<Int?>(null) }
                 val openCard = {
+                    cardMessage = null
                     val sole = soleContactPayload(payloads)
-                    if (sole == null) {
-                        if (payloads.size > 1) choosing = true
-                    } else {
-                        cardState = cardStateFor(sole)
+                    when {
+                        payloads.size > 1 -> choosing = true
+                        sole != null -> {
+                            val state = cardStateFor(sole)
+                            if (state == null) cardMessage = R.string.card_unreadable
+                            else cardState = state
+                        }
+                        // Phase A reads QR codes only. FR-1201a's camera and Phase B's photographed
+                        // card are not built, and saying so is better than a dead control.
+                        else -> cardMessage = R.string.card_no_code
                     }
                 }
 
@@ -336,6 +337,7 @@ class CaptureActivity : ComponentActivity() {
                 CaptureScreen(
                     cardOffer = offer,
                     onSaveAsContact = openCard,
+                    cardMessage = cardMessage,
                     captured = captured,
                     result = result,
                     route = route,
@@ -517,24 +519,27 @@ class CaptureActivity : ComponentActivity() {
         request: CaptureRequest,
         referrer: String?,
         content: MutableStateFlow<CaptureContent>,
+        /** FR-1203's decode result, independent of [content] — see the Image branch. */
+        cardPayloads: MutableStateFlow<List<String>>,
         openedAt: Long,
     ) {
         lifecycleScope.launch {
             val app = application as LatchApplication
             val (result, layer, title) = when (request) {
                 is CaptureRequest.Image -> {
-                    // FR-1203, off the critical path. Launched before the recognition it will
-                    // outlive, and folded into whatever `content` holds when it finishes — so a
-                    // slow decode delays the card offer and never the dates.
+                    // FR-1203, off NFR-101's critical path.
+                    //
+                    // **Its own flow, not a field on `CaptureContent.Ready`** (SRS 1.100). The
+                    // first version folded the payloads into whatever `content` held when the
+                    // decode finished — and a QR decode of a card is *quicker* than ML Kit on the
+                    // same image, so it finished while `content` was still `Extracting` and the
+                    // `as?` dropped the result on the floor. Every card was then offered as
+                    // AVAILABLE with nothing behind it. The ordering is removed rather than
+                    // guarded: two independent results, neither waiting on the other.
                     lifecycleScope.launch {
                         val codes = runCatching { app.qrReader.readCodes(request.uri) }.getOrNull()
-                        val contactPayloads = codes?.payloads.orEmpty()
+                        cardPayloads.value = codes?.payloads.orEmpty()
                             .filter { looksLikeContactPayload(it) }
-                        if (contactPayloads.isNotEmpty()) {
-                            (content.value as? CaptureContent.Ready)?.let {
-                                content.value = it.copy(cardPayloads = contactPayloads)
-                            }
-                        }
                     }
                     Triple(app.ocrReader.readImage(request.uri), request.layer, request.preferredTitle)
                 }

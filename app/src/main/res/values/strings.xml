@@ -64,6 +64,8 @@
     <!-- FR-506 row 3, per row: this one cannot be saved, but its neighbours still can. -->
     <string name="capture_row_needs_date">No day for this time yet — this one cannot be saved.</string>
     <!-- FR-1200 series: business-card capture (SRS 5.11). -->
+    <string name="card_no_code">Latch found no contact code in this image. Reading a photographed card is not built yet — only QR codes.</string>
+    <string name="card_unreadable">There is a code in this image, but Latch could not read a contact out of it.</string>
     <string name="card_title">Save as a contact</string>
     <string name="card_field_name">Name</string>
     <string name="card_field_organisation">Company</string>
