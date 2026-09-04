@@ -1242,7 +1242,8 @@ like a parser or plumbing fault; `day_first_dates` in `%LOCALAPPDATA%\Latch\secr
 still `true`, which separated *never stored* from *stored and ignored* in one step — and found in
 passing that the FR-512 threshold was sitting at 90% from an earlier check.
 
-**HUMAN-OWED**: a second click on the tray item must leave a changed radio changed.
+**Verified 4 Sep 2026**: with Settings open, a second click on the tray item left the changed
+radio changed and the confidence field as typed. The fix is watched, not just built.
 
 ### Built and verified on Windows, 4 Sep 2026 (SRS 1.79) — Android owed
 
@@ -1325,7 +1326,7 @@ fail*, then *the fixture*.
 | ~~**NFR-203's mask**~~ | **PASS, 4 Sep 2026**, on the screen *and* at rest: masked in Settings, and neither the host nor the path appears in `secrets.dat`. The mask alone does not prove the second — a client could mask perfectly and still write the URL to disk in the clear. |
 | ~~**Two acts, not one**~~ | **PASS, 4 Sep 2026.** The endpoint counted **zero** requests through the whole of configuration, so saving one started nothing; and ticking the box with nothing stored was refused with a reason rather than accepted and left inert. |
 | ~~**Settings opens and takes**~~ | **PASS, 4 Sep 2026, and it is the strongest single check in this pass.** Threshold at **99** sent an ordinary dated capture to the **Inbox**; at **60** the same capture went to Google. A preference stored and then read by the capture path — which is precisely what no FR-1001 field on this client did until SRS 1.67, when it built a bare `ParseContext(now = LocalDateTime.now())` and asked for none of them. |
-| **FR-504 through Settings** | Set month-first and capture "Invoice 05/09". It must read **9 May**. Failure is a preference the capture path never asked for, which is what this client did with every FR-1001 field until SRS 1.67 | "Invoice 05/09" |
+| ~~**FR-504 through Settings**~~ | **PASS, 4 Sep 2026, at the second attempt — and the first attempt is why SRS 1.80 exists.** Month-first set, `Invoice 05/09` read as **9 May 2026**, badge **TASK** with FR-510's past-date line. The discriminator is unusually clean and was chosen for it: day-first gives 5 Sep 2026, tomorrow and an ordinary EVENT, so the badge alone says which reading arrived. The first attempt read 5 September, and the stored record — not the code — showed `day_first_dates` still `true`, separating *never stored* from *stored and ignored* in one step. |
 | **Changing the FR-302 hotkey** | Set it to something else, then press the new combination: a capture opens. Press the old one: nothing. Then the case that matters — set it to something another application already holds (Ctrl+Shift+S in many) and confirm the window says so **and the old shortcut still works**. Failure is being left with no shortcut at all, which is silent | Settings, and a running app that holds a combination |
 | **A refused shortcut does not get stored** | After the refusal above, close and reopen Settings: the field must show the old combination, not the refused one | as above |
 | **Settings survive a restart** | Change the working week to six days, quit Latch, start it again: still six | Settings, then a restart |
