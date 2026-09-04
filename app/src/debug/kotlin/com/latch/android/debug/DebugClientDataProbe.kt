@@ -303,13 +303,28 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
             intent.getStringExtra("cards")?.let { mode ->
                 var token: String? = null
                 val found = mutableListOf<String>()
+                var incomplete = false
                 do {
-                    val page = runCatching {
+                    // **A scan that could not run must not report zero** — the rule this project
+                    // states for `scanCapped` and forgot to apply to its own instrument. On
+                    // 4 Sep 2026 this printed "0 contact(s)" over an account holding three,
+                    // because the phone had not finished reconnecting and the fetch threw.
+                    val attempt = runCatching {
                         http.get(
                             "$BASE/people/me/connections?personFields=names,clientData" +
                                 "&pageSize=1000" + (token?.let { "&pageToken=$it" } ?: "")
                         )
-                    }.getOrNull() ?: break
+                    }
+                    val page = attempt.getOrNull()
+                    if (page == null) {
+                        incomplete = true
+                        Log.w(
+                            TAG,
+                            "cards: SCAN FAILED, this is not a count — " +
+                                "${attempt.exceptionOrNull()?.javaClass?.simpleName}",
+                        )
+                        break
+                    }
                     val people = page.optJSONArray("connections")
                     for (i in 0 until (people?.length() ?: 0)) {
                         val person = people?.optJSONObject(i) ?: continue
@@ -322,7 +337,11 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
                     token = page.optString("nextPageToken").takeIf { it.isNotBlank() }
                 } while (token != null)
 
-                Log.i(TAG, "cards: ${found.size} contact(s) carry a Latch card record")
+                if (incomplete) {
+                    Log.w(TAG, "cards: INCOMPLETE — found ${found.size} so far, but the scan did not finish")
+                } else {
+                    Log.i(TAG, "cards: ${found.size} contact(s) carry a Latch card record")
+                }
                 found.forEach { Log.i(TAG, "cards:   $it") }
                 // FR-1207's record, read back off the account. Keys in full; values truncated,
                 // and the two that matter are digests rather than content in any case.
@@ -350,7 +369,9 @@ class DebugClientDataProbeReceiver : BroadcastReceiver() {
                             "emails=${person.optJSONArray("emailAddresses")?.length() ?: 0}",
                     )
                 }
-                if (mode == "purge") {
+                if (mode == "purge" && incomplete) {
+                    Log.w(TAG, "cards: refusing to purge on an incomplete scan")
+                } else if (mode == "purge") {
                     found.forEach { name ->
                         val gone = runCatching { http.delete("$BASE/$name:deleteContact") }.isSuccess
                         Log.i(TAG, "cards: deleted $name ok=$gone")
