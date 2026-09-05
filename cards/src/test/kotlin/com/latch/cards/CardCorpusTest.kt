@@ -40,7 +40,7 @@ class CardCorpusTest {
                     // Separated by a literal backslash-n, as `card_vectors.tsv` does — a pipe collided
                     // with a real card whose title was "Director | Business Development - India".
                     // The two characters backslash-n, not a real newline: a TSV row is one line.
-                    lines = f[1].split(LINE_ESCAPE).map { it.trim() },
+                    lines = f[1].split(LINE_ESCAPE).map { unescape(it).trim() },
                     expectName = f[2].takeIf { it.isNotBlank() },
                     expectTitle = f[3].takeIf { it.isNotBlank() },
                     expectOrg = f[4].takeIf { it.isNotBlank() },
@@ -73,6 +73,19 @@ class CardCorpusTest {
         }
     }
 
+    /**
+     * `\uXXXX` becomes the character it names.
+     *
+     * **The corpus is kept in ASCII on purpose** — the same reason `hash_vectors.tsv` is — so that
+     * an editor, a diff tool or a copy-paste cannot normalise a codepoint away. That matters most
+     * for the one row whose entire subject is two invisible characters: a `U+0902` combining mark
+     * inside a Latin word, which is the recogniser bleed SRS 1.126 repairs. Written literally it
+     * would be unreviewable in a diff and one careless save from vanishing.
+     */
+    private fun unescape(raw: String): String = UNICODE_ESCAPE.replace(raw) { match ->
+        match.groupValues[1].toInt(16).toChar().toString()
+    }
+
     @Test
     fun `the corpus does not shrink`() {
         // The floor rises as real cards arrive. It exists so that a card cannot be quietly removed
@@ -88,15 +101,31 @@ class CardCorpusTest {
         // Not an assertion about the code: an assertion about the record. If this ever reads
         // "met", the requirement is met and this test should be deleted along with the note in
         // the SRS.
+        //
+        // **Counted in cards and not in rows** (SRS 1.126). A row is one *recognition*, and one
+        // card can supply two: SRS 1.123 recorded the same card photographed twice reading
+        // differently, and the second reading earns a row because it exercises the classifier
+        // against text it will genuinely see. It does not earn a card. Letting it would be the
+        // corpus flattering itself, which is the one thing FR-1222's own wording forbids —
+        // "cards invented for the corpus shall not count", and a duplicate reading is nearer to
+        // an invented card than to a real one for counting purposes.
         val required = 120
-        val short = required - cases.size
+        val short = required - distinctCards
         assertTrue(short >= 0)
-        println("FR-1222: ${cases.size} of $required real cards. $short still owed by the developer.")
+        println(
+            "FR-1222: $distinctCards of $required real cards " +
+                "(${cases.size} recognitions). $short still owed by the developer."
+        )
     }
 
+    /** Rows sharing a name before `#` are readings of one card. See the note above. */
+    private val distinctCards: Int get() = cases.map { it.name.substringBefore('#') }.distinct().size
+
     private companion object {
-        /** Raise this as real cards are added; never lower it. */
-        const val CORPUS_FLOOR = 11
+        /** Raise this as rows are added; never lower it. It guards the corpus against shrinking. */
+        const val CORPUS_FLOOR = 12
+
+        private val UNICODE_ESCAPE = Regex("""\\u([0-9A-Fa-f]{4})""")
 
         /**
          * The separator between a card's lines: a backslash followed by `n`, **not** a newline.

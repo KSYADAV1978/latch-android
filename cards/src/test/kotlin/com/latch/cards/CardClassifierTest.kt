@@ -169,4 +169,75 @@ class CardOcrRepairTest {
         val result = classifyCard(listOf("Mobile: + 91 99000 67612"))
         assertEquals("MOBILE", result.draft.phones.single().type)
     }
+
+    // ---- SRS 1.126: the recogniser bleeding Devanagari into Latin ----------------------------
+
+    private val anusvara = "\u0902"
+    private val danda = "\u0964"
+
+    @Test
+    fun `a Devanagari mark inside a Latin word does not cost the name`() {
+        // The whole defect in one assertion. The mark made `looksLikePersonName` refuse the line,
+        // so the real name fell to the notes and the NEXT line was promoted — the contact Google
+        // would have received was called "Corporate Affairs".
+        val result = classifyCard(
+            listOf(
+                "Ramesh Kumar Bhaga${anusvara}a",
+                "Executive Vice President -",
+                "Corporate Affairs",
+            )
+        )
+        assertEquals("Ramesh Kumar Bhagat", result.draft.displayName)
+        assertTrue(
+            "Corporate Affairs" !in listOfNotNull(result.draft.displayName),
+            "a job-title fragment was promoted into the name",
+        )
+    }
+
+    @Test
+    fun `the mark is dropped and nothing else about the word changes`() {
+        assertEquals("Bhagat", repairScriptBleed("Bhaga${anusvara}a"))
+        assertEquals("Ramesh Kumar Bhagat", repairScriptBleed("Ramesh Kumar Bhaga${anusvara}a"))
+    }
+
+    @Test
+    fun `an accented Latin letter is left alone`() {
+        // The reason this is confined to the Devanagari block. Latin uses combining marks
+        // legitimately, and a rule about combining marks in general would spell `Zoë` as `Zoe`
+        // and `José` as `Jose` — quietly changing somebody's name, which is the harm the whole
+        // repair exists to prevent.
+        val combined = "Zo\u0065\u0308"
+        assertEquals(combined, repairScriptBleed(combined))
+        assertEquals("Jos\u00e9 Ferreira", repairScriptBleed("Jos\u00e9 Ferreira"))
+    }
+
+    @Test
+    fun `a genuine Devanagari word is untouched`() {
+        // NFR-403. The mark's base here is Devanagari too, which is the ordinary correct case and
+        // must survive: stripping it would mangle a Hindi card into nonsense.
+        val hindi = "\u0939\u093f\u0928\u094d\u0926\u0940"
+        assertEquals(hindi, repairScriptBleed(hindi))
+    }
+
+    @Test
+    fun `a Devanagari mark on a space or a digit is left alone`() {
+        // Only a *Latin letter* base is unambiguously wrong. Anything else and the repair would
+        // be guessing about text it does not understand.
+        assertEquals("91 ${anusvara}4000", repairScriptBleed("91 ${anusvara}4000"))
+    }
+
+    @Test
+    fun `a danda in a number is deliberately not repaired`() {
+        // Recorded as a decision rather than an omission. Replacing it with a digit invents one;
+        // deleting it yields `+91 1 4000 8600`, a *more* plausible wrong number than the
+        // truncation the user can currently see and correct on the sheet.
+        val result = classifyCard(listOf("Phone : + 91 1${danda} 4000 8600"))
+        assertEquals(listOf("4000 8600"), result.draft.phones.map { it.number })
+    }
+
+    @Test
+    fun `a line with no Devanagari in it comes back identical`() {
+        val line = "Executive Vice President - Corporate Affairs"
+        assertTrue(line === repairScriptBleed(line), "the untouched path allocated a new string")
+    }
 }

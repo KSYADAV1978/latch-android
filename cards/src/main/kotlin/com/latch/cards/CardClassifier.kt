@@ -37,7 +37,10 @@ data class CardClassification(
 )
 
 fun classifyCard(lines: List<String>): CardClassification {
-    val cleaned = lines.map { it.trim() }.filter { it.isNotBlank() }
+    // The repair comes first, before any rule sees a line: a single stray mark in the middle of
+    // a name is enough to make the whole line fail `looksLikePersonName`, and what follows from
+    // that is not a missing name but the *wrong* one. See `repairScriptBleed`.
+    val cleaned = lines.map { repairScriptBleed(it.trim()) }.filter { it.isNotBlank() }
     if (cleaned.isEmpty()) return CardClassification(CardDraft())
 
     val emails = mutableListOf<CardEmail>()
@@ -197,6 +200,52 @@ internal fun phoneTypeNear(line: String, numberStart: Int): String? {
  */
 internal fun tidyNumber(raw: String): String = raw.trim().replace(NUMBER_NOISE, " ")
     .replace(WHITESPACE, " ").trim().replace(PLUS_GAP, "+")
+
+/**
+ * **A Devanagari combining mark cannot attach to a Latin letter, so one that has is the
+ * recogniser's and not the card's** (SRS 1.126).
+ *
+ * This app bundles two recognisers, Latin and Devanagari, and ML Kit merges their results. The
+ * Devanagari one occasionally wins a block it should not: `CLAUDE.md` records `October` arriving
+ * as `০ctobe` in August, which is how the Latin artifact came to be added. It still happens. On a
+ * real card the name `Ramesh Kumar Bhagat` came back as `Ramesh Kumar Bhaga` + `U+0902 DEVANAGARI
+ * SIGN ANUSVARA` + `a`.
+ *
+ * **What that one character cost was not the name but the wrong name.** `looksLikePersonName`
+ * requires every character of every word to be a letter, and a non-spacing mark is not one — so
+ * the line was refused, fell to FR-1223's notes, and the *next* line was promoted in its place.
+ * The contact Google would have received was called **"Corporate Affairs"**: not obviously broken,
+ * entirely plausible, and unverifiable afterwards because the card is gone. That is the exact harm
+ * FR-1224 exists for, arriving from one codepoint.
+ *
+ * **It invents nothing, which is what makes it allowed.** SRS 1.117 set the rule for these
+ * repairs: fire only on input that is already invalid. Unicode does not permit a Devanagari
+ * combining mark on a Latin base — the sequence cannot occur in correct text of any language — so
+ * dropping the mark cannot overwrite anything real, and every base letter is left exactly as it
+ * was. Contrast the danda in `+ 91 1। 4000 8600` on the same card, which is deliberately **left
+ * alone**: turning it into a `1` would invent a digit, and merely deleting it would produce a
+ * *more* plausible wrong number than the truncation the user can currently see.
+ *
+ * **Confined to the Devanagari block on purpose.** Latin uses combining marks legitimately — `e`
+ * followed by `U+0301` is `é` — so a rule about combining marks in general would corrupt an
+ * accented name. Devanagari on a Latin base is the case that cannot be anything but bleed, and
+ * NFR-403's Devanagari cards are untouched: there the base character is Devanagari too.
+ */
+internal fun repairScriptBleed(line: String): String {
+    if (line.none { it.code in DEVANAGARI }) return line
+    val out = StringBuilder(line.length)
+    for (ch in line) {
+        val isDevanagariMark = ch.code in DEVANAGARI &&
+            ch.category in setOf(CharCategory.NON_SPACING_MARK, CharCategory.COMBINING_SPACING_MARK)
+        if (isDevanagariMark && out.lastOrNull()?.isLatinLetter() == true) continue
+        out.append(ch)
+    }
+    return out.toString()
+}
+
+private fun Char.isLatinLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
+
+private val DEVANAGARI = 0x0900..0x097F
 
 /**
  * **A space before the `@` is OCR's, not the card's.**
