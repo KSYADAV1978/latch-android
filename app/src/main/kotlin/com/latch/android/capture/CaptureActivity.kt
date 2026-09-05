@@ -73,6 +73,8 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import com.latch.android.cards.cardPersonWarning
+import com.latch.wire.cardPersonKeys
 
 /**
  * What this screen has to show, which since FR-215 is not always known when it opens.
@@ -366,6 +368,11 @@ class CaptureActivity : ComponentActivity() {
                 }
                 var choosing by remember { mutableStateOf(false) }
 
+                // FR-1227's answer for the sheet currently open, or null while nothing has been
+                // asked. Keyed on the *key* rather than on the draft, so typing a job title does
+                // not re-scan 3,000 contacts and correcting a name does.
+                var personMatch by remember { mutableStateOf<String?>(null) }
+
                 // FR-1203: one payload opens; several ask; none means the user is telling us this
                 // image is a card the decoder could not read, which is Phase B's path and not
                 // built, so it says so rather than opening an empty sheet.
@@ -474,10 +481,40 @@ class CaptureActivity : ComponentActivity() {
                     }
                 }
 
+                // FR-1227: ask, once per distinct key, and never block on the answer.
+                //
+                // **Before the save and not during it**, which is the requirement: a warning that
+                // arrived with the outcome would be telling the user about a decision they had
+                // already taken. It runs on the application's scope for `CaptureSaver`'s reason —
+                // this window closes on a tap outside it — and its failure is silence, because an
+                // inexact key that cannot be checked has nothing to say.
+                val personKeys = remember(cardState?.edited) {
+                    cardState?.edited?.let { cardPersonKeys(it) } ?: emptyList()
+                }
+                LaunchedEffect(personKeys) {
+                    personMatch = null
+                    if (personKeys.isNotEmpty()) {
+                        personMatch = runCatching {
+                            // A blank hash asks the inexact question alone — there is no capture
+                            // hash to ask about before a save, and `findContactByHashPaged`
+                            // supports it explicitly rather than by accident.
+                            app.contactsApi.findContactBySourceHash(
+                                sourceHash = "",
+                                personKeys = personKeys,
+                            ).probablePersonResourceName
+                        }.getOrNull()
+                    }
+                }
+
                 val sheet = cardState
                 if (sheet != null) {
                     CardScreen(
                         state = sheet,
+                        personWarning = cardPersonWarning(
+                            personKeys = personKeys,
+                            matched = personMatch,
+                            exactAlreadySaved = cardSave is CardSaveResult.AlreadySaved,
+                        ),
                         // FR-1225. Offered on a photographed card only, and never on one decoded
                         // from a grammar: a vCard payload is a complete record, and merging a
                         // second side's recognised lines into it would need exactly the conflict

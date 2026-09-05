@@ -44,7 +44,10 @@ class CardQueueTest {
         override suspend fun deleteContact(resourceName: String) = Unit
         override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
 
-        override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch {
+        override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ): ContactDuplicateSearch {
             searches++
             if (searchFails) throw RuntimeException("search failed")
             return if (stored.containsKey(sourceHash)) {
@@ -166,7 +169,10 @@ class HeldCardDrainTest {
         }
         override suspend fun deleteContact(resourceName: String) = Unit
         override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
-        override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
+        override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ) = ContactDuplicateSearch()
     }
 
     private val long_ago = Instant.parse("2026-09-04T09:00:00Z")

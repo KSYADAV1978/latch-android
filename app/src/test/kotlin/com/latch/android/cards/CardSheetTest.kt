@@ -170,6 +170,55 @@ class CardSheetTest {
         assertEquals(CardSaveBlocker.READING_A_PHOTO, cardSaveBlocker(empty, readingPhoto = true))
     }
 
+    // ---- FR-1227: an inexact key that may speak and may not decide ---------------------------
+
+    @Test
+    fun `a matching person key is said`() {
+        assertEquals(
+            CardPersonWarning.PROBABLY_ALREADY_SAVED,
+            cardPersonWarning(personKeys = listOf("p1"), matched = "people/c1"),
+        )
+    }
+
+    @Test
+    fun `nothing is said where the card has no inexact key`() {
+        // A card with no name or no labelled mobile. Silence is the requirement's own answer for
+        // the cases it cannot judge — a warning on a bare name would be noise about strangers.
+        assertEquals(
+            CardPersonWarning.NONE,
+            cardPersonWarning(personKeys = emptyList(), matched = "people/c1"),
+        )
+    }
+
+    @Test
+    fun `nothing is said where the scan found nothing or has not finished`() {
+        assertEquals(CardPersonWarning.NONE, cardPersonWarning(listOf("p1"), matched = null))
+        assertEquals(CardPersonWarning.NONE, cardPersonWarning(listOf("p1"), matched = " "))
+    }
+
+    @Test
+    fun `the exact answer outranks it`() {
+        // FR-1208's "Already saved. Nothing was written again." is the stronger sentence and is
+        // about the same card. A weaker line beside it would only muddle what happened.
+        assertEquals(
+            CardPersonWarning.NONE,
+            cardPersonWarning(listOf("p1"), matched = "people/c1", exactAlreadySaved = true),
+        )
+    }
+
+    @Test
+    fun `it never blocks a save`() {
+        // **The assertion the whole requirement rests on.** FR-1227 may change what is offered and
+        // never what happens: an inexact key that could refuse a write would be FR-1208 widened by
+        // the back door, and would silently turn away a second person's card.
+        val state = CardSheetState(card, fromPhoto = true)
+        assertNull(cardSaveBlocker(state), "an inexact match reached the save blocker")
+        assertEquals(
+            CardPersonWarning.PROBABLY_ALREADY_SAVED,
+            cardPersonWarning(listOf("p1"), "people/c1"),
+        )
+    }
+
     // ---- FR-1202: detection changes what is offered, never what happens -----------------------
 
     @Test

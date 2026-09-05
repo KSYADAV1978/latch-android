@@ -29,6 +29,14 @@ data class CardMetadata(
     val capturedAt: Instant,
     /** Which capture surface produced it. FR-1211: never the image, which is not kept at all. */
     val captureLayer: String,
+    /**
+     * FR-1227: digests of (name, mobile) pairs, one per labelled mobile on the card.
+     *
+     * **Never consulted by FR-1208 and never allowed to refuse a save.** This is the inexact key,
+     * and everything it is permitted to do is put a sentence on the preview. See
+     * [cardPersonKeys] for why it is a list and for the two cases where it is deliberately empty.
+     */
+    val personKeys: List<String> = emptyList(),
 )
 
 const val KEY_CARD_VERSION = "latch.card.version"
@@ -36,6 +44,16 @@ const val KEY_CARD_SOURCE_HASH = "latch.card.source_hash"
 const val KEY_CARD_IDENTITY = "latch.card.identity"
 const val KEY_CARD_CAPTURED_AT = "latch.card.captured_at"
 const val KEY_CARD_LAYER = "latch.card.layer"
+
+/**
+ * FR-1227's inexact key.
+ *
+ * **Added inside version 1 rather than by bumping it**, and that is the safe direction rather than
+ * the lazy one: `cardMetadataFromClientData` refuses a version it does not know, so a bump would
+ * make every contact already created decode to null and duplicate once. A new key is additive —
+ * an older build ignores it, and this build simply finds none on a contact written before it.
+ */
+const val KEY_CARD_PERSON_KEY = "latch.card.person_key"
 
 /**
  * The schema version, leading, exactly as the local record formats do.
@@ -88,6 +106,55 @@ fun normaliseEmail(raw: String): String = raw.trim().lowercase(Locale.ROOT)
 fun identityKeyOf(normalisedEmail: String): String = itemKeyOf(normalisedEmail)
 
 /**
+ * FR-1227: **one key per labelled mobile**, each binding that number to the name on the card.
+ *
+ * **A list rather than one compound, and FR-1225 is the reason.** A card photographed front-only
+ * yields one mobile; the same card photographed on both sides may yield two, because the back
+ * brings its own numbers. A single key over the whole set would differ between those two captures
+ * of one card — the exact instability this key exists to see through. One key per number lets the
+ * two captures agree on the number they share.
+ *
+ * **Empty in two cases, and both are deliberate.** With **no name** it would reduce to a bare
+ * telephone number, which FR-1209 forbids as identity and which a shared switchboard makes
+ * actively dangerous. With **no labelled mobile** it would reduce to a bare name, and two people
+ * share a name often enough that the warning would be noise — `phoneTypeNear` never guesses a
+ * type, so 3 of the 11 corpus cards have no mobile and are silent here by design.
+ *
+ * **The number is compared on its digits**, because `+91 78…` and `91 78…` are the same number and
+ * `CardFieldStabilityTest` records one reading of one card losing the `+`.
+ */
+fun cardPersonKeys(draft: CardDraft): List<String> {
+    val name = normaliseForHash(
+        draft.displayName?.takeIf { it.isNotBlank() }
+            ?: listOfNotNull(draft.givenName, draft.familyName).joinToString(" ")
+    )
+    if (name.isBlank()) return emptyList()
+
+    return draft.phones
+        .filter { it.type == "MOBILE" }
+        .map { phone -> phone.number.filter(Char::isDigit) }
+        // A fragment is not a number. The same floor `:cards` applies before it will accept one at
+        // all, restated here because this module cannot see that constant and must not drift from it.
+        .filter { it.length >= MIN_KEYABLE_PHONE_DIGITS }
+        .distinct()
+        .sorted()
+        .map { itemKeyOf("$name|$it") }
+}
+
+/** See [cardPersonKeys]. `:cards` uses the same floor before it will accept a number at all. */
+private const val MIN_KEYABLE_PHONE_DIGITS = 8
+
+/**
+ * FR-1227: do these two cards probably name the same person?
+ *
+ * **Two empty lists do not match**, for exactly [sharesContactIdentity]'s reason one key over: a
+ * card with no mobile has no person key, and treating "neither has one" as agreement would warn
+ * about every such card against every other.
+ */
+fun sharesCardPerson(left: List<String>, right: List<String>): Boolean =
+    left.isNotEmpty() && right.isNotEmpty() && left.any { it in right }
+
+/**
  * Whether two cards name the same person, on FR-1209's terms.
  *
  * **Two empty lists do not match.** That is the whole point: no email means no identity, and
@@ -109,6 +176,8 @@ fun CardMetadata.toClientData(): List<Pair<String, String>> = buildList {
     add(KEY_CARD_VERSION to CARD_METADATA_VERSION)
     add(KEY_CARD_SOURCE_HASH to sourceHash)
     identityKeys.forEach { add(KEY_CARD_IDENTITY to it) }
+    // FR-1227. Several, for the reason several identities are several: one per labelled mobile.
+    personKeys.forEach { add(KEY_CARD_PERSON_KEY to it) }
     add(KEY_CARD_CAPTURED_AT to CARD_INSTANT.format(capturedAt))
     add(KEY_CARD_LAYER to captureLayer)
 }
@@ -130,6 +199,9 @@ fun cardMetadataFromClientData(pairs: List<Pair<String, String>>): CardMetadata?
     return CardMetadata(
         sourceHash = hash,
         identityKeys = pairs.filter { it.first == KEY_CARD_IDENTITY }.map { it.second },
+        // Absent on every contact written before FR-1227, which is why it defaults to empty
+        // rather than failing the decode: those contacts are still perfectly matchable by hash.
+        personKeys = pairs.filter { it.first == KEY_CARD_PERSON_KEY }.map { it.second },
         capturedAt = capturedAt,
         captureLayer = single[KEY_CARD_LAYER].orEmpty(),
     )

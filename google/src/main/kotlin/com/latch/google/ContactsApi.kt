@@ -1,6 +1,8 @@
 package com.latch.google
 
 import com.latch.wire.KEY_CARD_SOURCE_HASH
+import com.latch.wire.KEY_CARD_PERSON_KEY
+import com.latch.wire.sharesCardPerson
 
 /**
  * FR-1206 and FR-1208: the People API, and the duplicate check that must exist before anything is
@@ -38,7 +40,11 @@ interface ContactsApi {
      * Answers by scanning the user's connections and comparing `latch.card.source_hash`, because
      * **Google cannot be asked this question directly** — see [ContactDuplicateSearch].
      */
-    suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch
+    suspend fun findContactBySourceHash(
+        sourceHash: String,
+        /** FR-1227's inexact key, answered in the same pass. Empty asks FR-1208's question alone. */
+        personKeys: List<String> = emptyList(),
+    ): ContactDuplicateSearch
 }
 
 /**
@@ -51,6 +57,15 @@ interface ContactsApi {
 data class ContactDuplicateSearch(
     val existingResourceName: String? = null,
     val scanCapped: Boolean = false,
+    /**
+     * FR-1227: a contact that is **probably** this person, found in the same pass.
+     *
+     * **Never a reason to refuse anything.** [existingResourceName] means "this exact card is
+     * already saved, do not write"; this means "say something, and let them decide". Keeping them
+     * as separate fields rather than one nullable answer is what stops a caller conflating them —
+     * the whole risk FR-1227 was written to avoid is exactly that conflation.
+     */
+    val probablePersonResourceName: String? = null,
 ) {
     val found: Boolean get() = existingResourceName != null
 }
@@ -135,22 +150,52 @@ const val CONNECTIONS_PAGE_CAP = 10
  */
 suspend fun findContactByHashPaged(
     sourceHash: String,
+    /**
+     * FR-1227's inexact key, or empty to ask only FR-1208's question.
+     *
+     * **Answered in the same pass, which is the whole reason it is a parameter here rather than a
+     * second scan.** The account this was built against holds 3,157 contacts; asking twice would
+     * double a page loop the save path already waits on, to compare a second string per contact.
+     */
+    personKeys: List<String> = emptyList(),
     nextPage: suspend (String?) -> ContactPage,
 ): ContactDuplicateSearch {
     var token: String? = null
     var pages = 0
+    var person: String? = null
     while (pages < CONNECTIONS_PAGE_CAP) {
         val page = nextPage(token)
         pages++
         page.contacts.firstOrNull { contact ->
-            contact.clientData.any { it.first == KEY_CARD_SOURCE_HASH && it.second == sourceHash }
-        }?.let { return ContactDuplicateSearch(existingResourceName = it.resourceName) }
+            // **A blank hash matches nothing, and that is a supported call rather than an
+            // accident.** FR-1227's probe runs before a save and has no capture hash to ask about
+            // yet — it wants the inexact answer alone. Without this guard it would match any
+            // contact whose source hash was somehow empty, which is the kind of sentinel that
+            // works until the day it does not.
+            sourceHash.isNotBlank() &&
+                contact.clientData.any { it.first == KEY_CARD_SOURCE_HASH && it.second == sourceHash }
+        }?.let {
+            // The exact answer ends the scan. FR-1227's line would be redundant beside "already
+            // saved" and the caller has a stronger thing to say.
+            return ContactDuplicateSearch(existingResourceName = it.resourceName)
+        }
+
+        // First match wins and the scan continues, because the exact key outranks this one and
+        // may still be on a later page.
+        if (person == null) {
+            person = page.contacts.firstOrNull { contact ->
+                sharesCardPerson(
+                    personKeys,
+                    contact.clientData.filter { it.first == KEY_CARD_PERSON_KEY }.map { it.second },
+                )
+            }?.resourceName
+        }
 
         token = page.nextPageToken?.takeIf { it.isNotBlank() }
-            ?: return ContactDuplicateSearch()
+            ?: return ContactDuplicateSearch(probablePersonResourceName = person)
     }
     // Out of pages with a token still outstanding: this is "I do not know", not "not found".
-    return ContactDuplicateSearch(scanCapped = true)
+    return ContactDuplicateSearch(scanCapped = true, probablePersonResourceName = person)
 }
 
 data class ContactPage(val contacts: List<ContactRow>, val nextPageToken: String? = null)

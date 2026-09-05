@@ -96,7 +96,10 @@ class CardSaverTest {
             photoBytes = jpeg
         }
 
-        override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch {
+        override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ): ContactDuplicateSearch {
             searches++
             if (failSearch) throw RuntimeException("search failed")
             if (scanCapped) return ContactDuplicateSearch(scanCapped = true)
@@ -271,7 +274,10 @@ class CardSaverHoldTest {
         }
         override suspend fun deleteContact(resourceName: String) = Unit
         override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
-        override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch =
+        override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ): ContactDuplicateSearch =
             throw RuntimeException("offline")
     }
 
@@ -301,7 +307,10 @@ class CardSaverHoldTest {
                 throw RuntimeException("network went")
             override suspend fun deleteContact(resourceName: String) = Unit
             override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
-            override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
+            override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ) = ContactDuplicateSearch()
         }
         val saver = CardSaver(contacts, hold = { _, _, _, _ -> "entry-2" })
         assertEquals(CardSaveResult.Held("entry-2"), saver.save(draft, payload, "SHARED_IMAGE"))

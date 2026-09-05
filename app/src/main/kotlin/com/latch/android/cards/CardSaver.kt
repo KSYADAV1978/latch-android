@@ -7,6 +7,7 @@ import com.latch.google.ContactsApi
 import com.latch.google.contactWriteFor
 import com.latch.wire.CardMetadata
 import com.latch.wire.cardSourceHashOf
+import com.latch.wire.cardPersonKeys
 import com.latch.wire.contactIdentityKeys
 import com.latch.wire.toClientData
 import java.time.Instant
@@ -164,6 +165,9 @@ class CardSaver(
                     identityKeys = contactIdentityKeys(draft),
                     capturedAt = now(),
                     captureLayer = layer,
+                    // FR-1227. Written for the *next* capture's benefit, never read by this save:
+                    // the question it answers is asked before a save, not during one.
+                    personKeys = cardPersonKeys(draft),
                 )
                 try {
                     val name = contacts.createContact(

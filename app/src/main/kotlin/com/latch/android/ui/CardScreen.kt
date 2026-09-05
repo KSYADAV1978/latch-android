@@ -34,6 +34,7 @@ import com.latch.android.cards.cardSaveBlocker
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Checkbox
 import androidx.compose.ui.Alignment
+import com.latch.android.cards.CardPersonWarning
 import com.latch.android.cards.CardPhotoUpload
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
@@ -84,6 +85,14 @@ fun CardScreen(
     onAttachPhoto: ((Boolean) -> Unit)? = null,
     /** FR-1226 and FR-1212: there is no network, so a photograph would be dropped rather than sent. */
     photoWouldBeHeld: Boolean = false,
+    /**
+     * FR-1227: a contact carrying the same name and mobile is already in the account.
+     *
+     * **It never disables anything.** The user is holding the card and Latch is not; a line that
+     * says what was found and leaves the decision alone is the whole of what this requirement
+     * permits an inexact key to do.
+     */
+    personWarning: CardPersonWarning = CardPersonWarning.NONE,
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -155,6 +164,14 @@ fun CardScreen(
                     if (state.attachPhoto && photoWouldBeHeld) {
                         Note(stringResource(R.string.card_photo_not_held))
                     }
+                }
+
+                // FR-1227. Above the fields rather than beside Save, because it is something to
+                // know *while reading the card back*, not a verdict on the act of saving — and
+                // because a line that appears next to a button reads as a reason the button is
+                // disabled, which this one must never be.
+                if (personWarning == CardPersonWarning.PROBABLY_ALREADY_SAVED) {
+                    Note(stringResource(R.string.card_probably_saved))
                 }
 
                 // FR-1225's report, on FR-207's pattern and for FR-207's reason: a photograph that

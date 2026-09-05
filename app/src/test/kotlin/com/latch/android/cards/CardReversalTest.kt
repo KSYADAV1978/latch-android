@@ -56,7 +56,10 @@ class CardReversalTest {
             deleted += resourceName
         }
         override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
-        override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
+        override suspend fun findContactBySourceHash(
+            sourceHash: String,
+            personKeys: List<String>,
+        ) = ContactDuplicateSearch()
     }
 
     private val saved = Instant.parse("2026-09-04T09:15:00Z")

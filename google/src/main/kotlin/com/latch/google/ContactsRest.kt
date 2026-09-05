@@ -52,8 +52,11 @@ class ContactsRest(private val http: GoogleHttp) : ContactsApi {
         http.patch(updateContactPhotoUrl(resourceName), body)
     }
 
-    override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch =
-        findContactByHashPaged(sourceHash) { token ->
+    override suspend fun findContactBySourceHash(
+        sourceHash: String,
+        personKeys: List<String>,
+    ): ContactDuplicateSearch =
+        findContactByHashPaged(sourceHash, personKeys) { token ->
             val page = http.get(connectionsUrl(token))
             ContactPage(
                 contacts = page.optJSONArray("connections").rows(),

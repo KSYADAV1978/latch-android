@@ -157,6 +157,39 @@ fun cardSaveBlocker(
 }
 
 /**
+ * FR-1227: whether to say that this card is probably already saved.
+ *
+ * **A separate answer from FR-1208's, deliberately.** That one decides whether to write; this one
+ * decides whether to *speak*, and the whole risk the requirement was written against is the two
+ * being conflated into one. So there is no state here in which Save is unavailable.
+ */
+enum class CardPersonWarning {
+    /** No inexact key, no match, or the scan has not finished. Say nothing. */
+    NONE,
+
+    /** A contact carrying the same (name, mobile) is already in the account. Say so; allow Save. */
+    PROBABLY_ALREADY_SAVED,
+}
+
+/**
+ * @param personKeys what this card yields — empty where FR-1227 says the key degenerates, which is
+ *   a card with no name or no labelled mobile.
+ * @param matched the resource name a scan found, or null.
+ * @param exactAlreadySaved FR-1208 has already answered, and its sentence is the stronger one. A
+ *   second, weaker line beside "Already saved. Nothing was written again." would only muddle it.
+ */
+fun cardPersonWarning(
+    personKeys: List<String>,
+    matched: String?,
+    exactAlreadySaved: Boolean = false,
+): CardPersonWarning = when {
+    exactAlreadySaved -> CardPersonWarning.NONE
+    personKeys.isEmpty() -> CardPersonWarning.NONE
+    matched.isNullOrBlank() -> CardPersonWarning.NONE
+    else -> CardPersonWarning.PROBABLY_ALREADY_SAVED
+}
+
+/**
  * FR-1202: whether the card path is *offered* for a capture, and why.
  *
  * **Detection may change what is offered. It may never change what happens.** Where an image
