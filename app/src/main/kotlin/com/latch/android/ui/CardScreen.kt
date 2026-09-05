@@ -75,6 +75,13 @@ fun CardScreen(
             modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // FR-1224, and it belongs **before the first box** rather than among them. It was
+            // landing mid-list — between the phone boxes and the address — where it reads as a
+            // caption for whichever field happens to sit above it (SRS 1.113).
+            if (state.fromPhoto) {
+                Note(stringResource(R.string.card_from_photo))
+            }
+
             Field(R.string.card_field_name, draft.displayName) {
                 onEdit(state.edits.copy(displayName = it))
             }
@@ -98,19 +105,6 @@ fun CardScreen(
                 }
             }
 
-            // FR-1224. Said above the fields rather than below them: it is a reason to read what
-            // follows, and a caution underneath the thing it cautions about is one nobody reads.
-            if (state.fromPhoto) {
-                Note(stringResource(R.string.card_from_photo))
-            }
-
-            // FR-1223: what the classifier could not place. Shown, never dropped — a card whose
-            // job title vanished looks exactly like a card that never had one.
-            if (state.unplaced.isNotEmpty()) {
-                Note(stringResource(R.string.card_unplaced))
-                state.unplaced.forEach { Note("  $it") }
-            }
-
             // FR-1205: an editable box, not a label. The classifier joins an address out of
             // several recognised lines and gets the joining wrong as readily as the reading, so
             // this is the field most likely to need correcting — and it was the one field with
@@ -119,6 +113,18 @@ fun CardScreen(
                 Field(R.string.card_field_address, state.edits.addresses[index] ?: address) {
                     onEdit(state.edits.copy(addresses = state.edits.addresses + (index to it)))
                 }
+            }
+
+            // FR-1223, and more than it asks (SRS 1.113). The requirement is that unplaced text
+            // is *shown* and never silently discarded; showing it as a read-only list meant the
+            // user had to retype anything worth keeping, and everything else was dropped at save.
+            // The People API has a notes field, so it is carried there instead — shown, editable,
+            // and kept unless the user clears it.
+            Field(R.string.card_field_notes, draft.note) {
+                onEdit(state.edits.copy(note = it))
+            }
+            if (state.unplaced.isNotEmpty()) {
+                Note(stringResource(R.string.card_unplaced))
             }
 
             // FR-1213. Design principle 4 has no calendar to show here, so the account becomes

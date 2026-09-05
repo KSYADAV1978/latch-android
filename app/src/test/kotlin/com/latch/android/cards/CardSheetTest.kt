@@ -207,3 +207,32 @@ class CardDismissTest {
         assertEquals(CardDismiss.BACK_TO_CAPTURE, cardDismiss(saved = true, unsavedDateCandidates = 2))
     }
 }
+
+/** SRS 1.113: the lines the classifier could not place are carried, not merely shown. */
+class CardNotesTest {
+
+    @Test
+    fun `an edited note is what would be written`() {
+        val card = CardDraft(displayName = "Anita Sharma", note = "Weaving since 1974")
+        val state = CardSheetState(card, edits = CardEdits(note = "met at the fair"))
+        assertEquals("met at the fair", state.edited.note)
+    }
+
+    @Test
+    fun `clearing the note clears it, rather than falling back to the parse`() {
+        // The user trimming boilerplate out of a photographed card must actually remove it, or
+        // the ISO certifications and straplines reach their address book anyway.
+        val card = CardDraft(displayName = "Anita Sharma", note = "A Mini Ratna Company")
+        val state = CardSheetState(card, edits = CardEdits(note = ""))
+        assertEquals("", state.edited.note)
+    }
+
+    @Test
+    fun `a card with nothing but a note still cannot be saved`() {
+        // Carrying unplaced text into the notes must not turn a cardful of boilerplate into a
+        // saveable contact: the blocker asks for a name, a number or an address, and a note is
+        // none of those.
+        val onlyNote = CardDraft(note = "IS/S0 9001 & IS/S0 14001")
+        assertEquals(CardSaveBlocker.NOTHING_TO_SAVE, cardSaveBlocker(CardSheetState(onlyNote)))
+    }
+}

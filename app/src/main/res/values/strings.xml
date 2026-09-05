@@ -68,7 +68,8 @@
     <string name="card_unreadable">There is a code in this image, but Latch could not read a contact out of it.</string>
     <string name="card_title">Save as a contact</string>
     <string name="card_from_photo">Read from the photo. Check each field before saving — the card will not be here to check against afterwards.</string>
-    <string name="card_unplaced">Latch could not place these lines. Copy anything you want into a field above.</string>
+    <string name="card_field_notes">Notes</string>
+    <string name="card_unplaced">The notes above are the lines Latch could not place. Edit or clear them before saving.</string>
     <string name="card_field_name">Name</string>
     <string name="card_field_organisation">Company</string>
     <string name="card_field_title">Job title</string>

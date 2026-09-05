@@ -345,7 +345,15 @@ class CaptureActivity : ComponentActivity() {
                                 cardMessage = R.string.card_no_code
                             } else {
                                 cardState = CardSheetState(
-                                    parsed = classified.draft,
+                                    // FR-1223's lines become the note, so what could not be
+                                    // placed is carried rather than shown and then dropped
+                                    // (SRS 1.113). The classifier stays pure: it reports what it
+                                    // could not place, and this decides what to do about it.
+                                    parsed = classified.draft.copy(
+                                        note = classified.unplaced
+                                            .joinToString(System.lineSeparator())
+                                            .takeIf { it.isNotBlank() },
+                                    ),
                                     // No payload: FR-1208's hash comes from the recognised text
                                     // for this path, which SRS 1.30 records as wobblier than a
                                     // decoded one — the same image recognised twice can differ.
