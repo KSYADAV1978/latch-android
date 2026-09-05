@@ -54,7 +54,9 @@ class CardClassifierTest {
         // line yields a number, and a wrong number on a contact is not visibly wrong.
         val result = classify("Anita Sharma", "12 Nehru Road, Pune 411001")
         assertTrue(result.draft.phones.isEmpty(), "an address line became a phone number")
-        assertTrue("12 Nehru Road, Pune 411001" in result.unplaced)
+        // It is now an *address* rather than an unplaced line — the postcode anchors it. The
+        // point of the case is unchanged: it must never become a telephone number.
+        assertEquals(listOf("12 Nehru Road, Pune 411001"), result.draft.addresses)
     }
 
     @Test

@@ -320,6 +320,23 @@ class CaptureActivity : ComponentActivity() {
                         else -> {
                             val recognised = captured?.text?.lines().orEmpty()
                             val classified = classifyCard(recognised)
+                            // **A diagnostic that deliberately prints card content** (SRS 1.108),
+                            // which nothing else in this application does: `LatchTiming` carries
+                            // an enum and a boolean and structurally cannot leak. It exists to
+                            // build FR-1222's corpus from real cards, it is debug-only, and it is
+                            // recorded so that its removal is a decision rather than an oversight.
+                            if (BuildConfig.DEBUG) {
+                                Log.i("LatchCardOcr", "--- recognised ${recognised.size} line(s)")
+                                recognised.forEachIndexed { i, l -> Log.i("LatchCardOcr", "  [$i] $l") }
+                                Log.i("LatchCardOcr", "--- classified")
+                                Log.i("LatchCardOcr", "  name=${classified.draft.displayName}")
+                                Log.i("LatchCardOcr", "  title=${classified.draft.jobTitle}")
+                                Log.i("LatchCardOcr", "  org=${classified.draft.organisation}")
+                                classified.draft.phones.forEach { Log.i("LatchCardOcr", "  phone=${it.number} type=${it.type}") }
+                                classified.draft.emails.forEach { Log.i("LatchCardOcr", "  email=${it.address}") }
+                                classified.draft.urls.forEach { Log.i("LatchCardOcr", "  url=$it") }
+                                classified.unplaced.forEach { Log.i("LatchCardOcr", "  unplaced=$it") }
+                            }
                             if (classified.draft.isEmpty) {
                                 cardMessage = R.string.card_no_code
                             } else {

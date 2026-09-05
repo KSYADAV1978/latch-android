@@ -36,7 +36,10 @@ class CardCorpusTest {
                 check(f.size == 7) { "malformed corpus row: $line" }
                 Case(
                     name = f[0],
-                    lines = f[1].split("|").map { it.trim() },
+                    // Separated by a literal backslash-n, as `card_vectors.tsv` does — a pipe collided
+                    // with a real card whose title was "Director | Business Development - India".
+                    // The two characters backslash-n, not a real newline: a TSV row is one line.
+                    lines = f[1].split(LINE_ESCAPE).map { it.trim() },
                     expectName = f[2].takeIf { it.isNotBlank() },
                     expectTitle = f[3].takeIf { it.isNotBlank() },
                     expectOrg = f[4].takeIf { it.isNotBlank() },
@@ -81,6 +84,16 @@ class CardCorpusTest {
 
     private companion object {
         /** Raise this as real cards are added; never lower it. */
-        const val CORPUS_FLOOR = 0
+        const val CORPUS_FLOOR = 5
+
+        /**
+         * The separator between a card's lines: a backslash followed by `n`, **not** a newline.
+         *
+         * A pipe was tried first and collided with a real card whose job title is
+         * "Director | Business Development - India" — the separator appearing inside the content
+         * it separated, which split one field into two and failed the row for a reason that had
+         * nothing to do with the classifier.
+         */
+        val LINE_ESCAPE = "" + '\\' + 'n'
     }
 }
