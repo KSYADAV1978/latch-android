@@ -1425,6 +1425,8 @@ mechanisms hid *different* defect classes: FR-803's query returned an empty page
 `nextPageToken` and wrote duplicates for five days, and the drain ran a check no JVM test could
 reach. One pass covering both would have made a finding hard to attribute to either.
 
+**A two-sided card is two contacts in Phase A, and the second has no name** (SRS 1.118, FR-1225). Each share is its own capture and FR-1208 keys on the recognised text's hash, so the back writes a second contact — and nothing can attach it to the front afterwards, because a back carries no email and so has no FR-1209 identity for FR-1231 to match either. Both sides have to arrive inside **one** capture, which is why the fix is a control that adds another photograph rather than an `ACTION_SEND_MULTIPLE` filter: the filter does nothing for Phase B's camera. **Until FR-1225 ships, photograph both sides in one image.**
+
 **Phase A ships the shared image only.** The camera is FR-1201a at Phase B (SRS 1.85), and the
 `ACTION_IMAGE_CAPTURE`-versus-CameraX decision is owed with it — the first needs no permission and
 no dependency, the second needs both.

@@ -1,7 +1,7 @@
 ---
 title: "Software Requirements Specification"
 subtitle: "Working title: Latch — cross-platform date and deadline capture"
-author: "Version 1.117 (draft for developer handover)"
+author: "Version 1.118 (draft for developer handover)"
 date: "28 August 2026"
 ---
 
@@ -11,7 +11,7 @@ date: "28 August 2026"
 |---|---|
 | Document | Software Requirements Specification (SRS) |
 | Product | Latch (working title — subject to trademark clearance) |
-| Version | 1.117 — draft for developer handover |
+| Version | 1.118 — draft for developer handover |
 | Status | For estimation and build planning |
 | Platforms | Android, Windows, Chrome/Edge extension |
 | Commercial model | Free. No ads, no paid tier, no in-app purchase |
@@ -177,6 +177,7 @@ date: "28 August 2026"
 | 1.115 | 5 Sep 2026 | **Card nine found a printing convention, and finding it exposed that the corpus had never once checked an address.** The card's PIN is printed **`600 004`** — three digits, a space, three digits — which is how an Indian postcode is usually set, and the anchor pattern wanted five or six *consecutive* digits. So `Mylapore, Chennai - 600 004, India.` never anchored and both address lines went to the notes. The pattern now accepts three-and-three as well, which is narrow enough not to catch a telephone number — those run in fours, and are consumed before this is asked in any case. **The corpus passed anyway, and that is the real finding.** It asserted name, title, company, phones and emails, and **not the address** — a field built two cards earlier, at v1.110, and never once checked. Cards seven and eight had their addresses read correctly and nothing verified it; card nine had its address lost entirely and the row went green. **A corpus is blind wherever it does not look, and the field it omits is the one most recently added — which is the one most likely to be wrong.** The column exists now, and adding it immediately caught a second error: card one's expectation said *no address* where the classifier had been correctly producing one since v1.110, so the row would have started failing the moment anybody looked. **The rest of card nine was right first time**, including the hardest thing any card has asked for: three numbers with correct types, two of them on one line separated by a slash — `Mob: +91 94459 27931 / 99942 47959` — while `Dir: Extn: 550` was correctly *not* read as a number, the eight-digit floor doing exactly what SRS 1.109 built it for. FR-1222 stands at **9 of 120**. |
 | 1.116 | 5 Sep 2026 | **Card ten needed no rule change, and card nine's fix worked on a card it had never seen.** Name, title, company, phone, email and URL all correct — and the address came through **complete, all three lines**, which it could only do because the space-PIN pattern from the previous card recognised `New Delhi - 110 034`. **A fix generalising to an unseen card is the thing a corpus exists to demonstrate**, and it is the first time on this pillar that one has been observed doing so rather than merely not breaking anything. **One imperfection, recorded rather than fixed.** The phone carries no type: this card prints its labels in a separate column, so `Phone`, `Address` and `Email` arrived as lines of their own, scattered from their values by OCR block order. Associating a label with a value on a *different* line is positional guesswork of exactly the kind that produced three wrong names at v1.109, so the number is right and untyped — the safe direction. **An observation the developer may want to decide on.** Those bare labels now land in the notes, since FR-1223 carries whatever cannot be placed, and `Phone` on its own tells a reader nothing they do not already have. Dropping them would need a vocabulary of field labels, and vocabularies misfire — so it is left alone and named here rather than quietly filtered. The cost is a little noise in a box the user can clear; the alternative risks swallowing a line that mattered. Ten cards: five rewrote everything, one changed nothing, three changed one rule each, and two of the last four needed no change at all. |
 | 1.117 | 5 Sep 2026 | **Card eleven lost two fields, and OCR broke both of them rather than the classifier misreading either.** Name, title and company were right; the email was **dropped entirely** and the phone **lost its `+`**. The card prints `rameshkumar.bhagat@jsw.test` and it was recognised as `jsw. in` — a space after the dot, where SRS 1.109's card had one before the `@` — so the pattern matched nothing at all. And `+ 91 11 4000 8600` put a space between the plus and its country code, which `\+?` could not reach across. **The second loss is the quieter one and it is not cosmetic**: every digit was present and correct, so nothing on the preview looked wrong, and a number without its `+` is a number that will not dial from another country. **Both repairs are confined to input that is already broken.** An address ending in a bare dot is not a valid address, so the spaced branch overwrites nothing correct; the plus-space is allowed **only after a `+` that is actually present**, so an ordinary number cannot swallow the space before it and shift the label search `phoneTypeNear` runs — a rule breaking a rule it has nothing to do with, which is now a test of its own. **The guard test caught the guard**, which is the finding worth keeping. `\s[a-z]{2,4}` matched a *prefix* of a longer word, so `sales@example. contact anytime` invented `sales@example.cont` — a domain belonging to nobody, assembled out of prose. The test was written before the code and failed on the first run; the lookahead that requires the whole token is what it bought. **This is the first card whose fixes were both repairs of the recogniser rather than readings of a card**, and they are the two most dangerous changes made to this file, because each one *adds* characters the recogniser did not return. |
+| 1.118 | 5 Sep 2026 | **A two-sided card is currently two contacts, and the second one has no name.** Found by the developer sharing the back of a card whose front had already been read. Established from the code rather than assumed: each share is its own capture, FR-1208 keys on the source hash of the recognised text, so a different side is a different hash and writes a second contact. **FR-1209's identity cannot rescue it, and that is by design rather than by omission.** It keys on normalised email alone, a card's back usually carries none, and an empty identity deliberately refuses to match another empty one (v1.94) so that emailless cards cannot fold together — the protection against the wrong merge a shared switchboard number invites. Noted in passing: `sharesContactIdentity` is written into `clientData` and **called from nowhere**; the write path matches on the hash alone. **The consequence is sharper than it first looked.** A back captured after its front was saved can be attached to it by nothing this specification contains or plans — not FR-1208, whose key it does not share, and not even Phase C's FR-1231, whose key it does not possess. **Both sides must arrive inside one capture or they are two contacts for ever**, which is what makes this FR-1225 rather than a convenience. **The route was the developer's and it is the right one.** An `ACTION_SEND_MULTIPLE` filter was drafted first and does nothing for Phase B's camera, where there is no gallery to multi-select in; a control that adds another photograph to the capture in hand serves the shared image and the photograph both, so it is specified once, in the phase that needs it, rather than twice. The manifest's standing refusal of `ACTION_SEND_MULTIPLE` is left in place and its reason is still sound for dates — *“each would be its own parse, its own chain and its own undo”* — the asymmetry being that several photographs of one card are exactly one parse. **Recorded as a live limit of Phase A**, not a defect to be worked around: until FR-1225 ships, a two-sided card should be captured as one photograph of both sides. |
 
 **How to read this document.** Requirements are numbered (FR-nnn functional, NFR-nnn non-functional) so they can be quoted, tracked and tested individually. Requirements marked **[MUST]** are in scope for v1.0. Those marked **[SHOULD]** are expected but may be deferred by agreement. Those marked **[LATER]** are explicitly out of scope for v1.0 and are recorded here only to prevent architectural decisions that would block them. A requirement marked **[MUST, if X ships]** is conditional: it does not compel X to be built, but binds absolutely if X is built.
 
@@ -1106,6 +1107,28 @@ card that had none.
 shall never save on confidence alone, whatever FR-512's threshold is set to. This is a permanent
 narrowing rather than a phase limitation: the OCR of a name is not checkable by the user *after*
 the fact, because the card is gone and the contact looks plausible.
+
+**FR-1225 [MUST, Phase B]** A single card capture shall be able to hold **more than one
+photograph**, so that both sides of a two-sided card become one contact. The images shall be
+recognised in the order they were added and their recognised lines **concatenated into one input to
+FR-1221's classifier** — one capture, one classification, one duplicate check, one undo. Where
+more images are added than the capture will read, the count read and the count offered shall be
+reported on the sheet, as FR-207 reports a page cap.
+
+> **Why one classification rather than a merge of two.** Classifying each photograph and merging
+> the drafts would apply every FR-1221 rule twice and then need a conflict policy for each scalar
+> field — two names, two companies, two job titles, none of them separable afterwards.
+> Concatenating the *input* needs no such policy: there is one name to find, and the company on the
+> front is in scope when the address on the back is assembled.
+>
+> **This is where the problem is solvable and the only place it is.** A card's back typically
+> carries an address and a mobile number and **no email**, so it has no FR-1209 identity at all. It
+> therefore cannot be matched to the front by FR-1208, whose key is the source hash, nor by
+> FR-1231, whose key is that identity — an emailless card matching nothing is FR-1209's own
+> deliberate rule (v1.94), protecting against exactly the wrong merge that a shared switchboard
+> number invites. So a back captured *after* its front was saved can never be attached to it by any
+> mechanism this specification contains or plans. **Both sides have to arrive inside one capture,
+> or they are two contacts for ever.**
 
 ### 5.11.5 Phase C — signature blocks, and a contact that changed (FR-1230 to FR-1233)
 
