@@ -96,7 +96,7 @@ class CardCorpusTest {
 
     private companion object {
         /** Raise this as real cards are added; never lower it. */
-        const val CORPUS_FLOOR = 9
+        const val CORPUS_FLOOR = 10
 
         /**
          * The separator between a card's lines: a backslash followed by `n`, **not** a newline.
