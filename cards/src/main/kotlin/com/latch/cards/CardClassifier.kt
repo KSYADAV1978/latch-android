@@ -267,8 +267,15 @@ private val URL = Regex("(https?://|www\\.)[A-Za-z0-9./?=_%+-]+", RegexOption.IG
 private val PHONE = Regex("\\+?[0-9][0-9 ()\\-.]{5,}[0-9]")
 private const val MIN_PHONE_DIGITS = 8
 
-/** Five or six digits with letters on the line: an Indian PIN, a UK outcode, a US ZIP. */
-private val POSTCODE = Regex("(?<!\\d)\\d{5,6}(?!\\d)")
+/**
+ * A postcode: five or six digits, **or two groups of three with a space between them**.
+ *
+ * The second form is how an Indian PIN is usually printed — `600 004`, `110 011` — and a real
+ * card's address was missed entirely for want of it (SRS 1.115), both its lines going to the
+ * notes because nothing anchored them. Three-and-three is narrow enough not to catch a telephone
+ * number, which runs in fours and is consumed before this is asked in any case.
+ */
+private val POSTCODE = Regex("(?<!\\d)(\\d{5,6}|\\d{3}\\s\\d{3})(?!\\d)")
 
 private val NUMBER_NOISE = Regex("[()\\-.]+")
 private val WHITESPACE = Regex("\\s+")

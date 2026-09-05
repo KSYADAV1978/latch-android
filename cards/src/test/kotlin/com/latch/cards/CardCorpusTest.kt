@@ -23,6 +23,7 @@ class CardCorpusTest {
         val expectOrg: String?,
         val expectPhones: List<String>,
         val expectEmails: List<String>,
+        val expectAddress: String?,
     )
 
     private val cases: List<Case> by lazy {
@@ -33,7 +34,7 @@ class CardCorpusTest {
             .filterNot { it.startsWith("#") || it.isBlank() }
             .map { line ->
                 val f = line.split("\t")
-                check(f.size == 7) { "malformed corpus row: $line" }
+                check(f.size == 8) { "malformed corpus row: $line" }
                 Case(
                     name = f[0],
                     // Separated by a literal backslash-n, as `card_vectors.tsv` does — a pipe collided
@@ -45,6 +46,7 @@ class CardCorpusTest {
                     expectOrg = f[4].takeIf { it.isNotBlank() },
                     expectPhones = f[5].split(";").map { it.trim() }.filter { it.isNotBlank() },
                     expectEmails = f[6].split(";").map { it.trim() }.filter { it.isNotBlank() },
+                    expectAddress = f[7].takeIf { it.isNotBlank() },
                 )
             }
     }
@@ -58,6 +60,16 @@ class CardCorpusTest {
             assertEquals(case.expectOrg, result.draft.organisation, "org for ${case.name}")
             assertEquals(case.expectPhones, result.draft.phones.map { it.number }, "phones for ${case.name}")
             assertEquals(case.expectEmails, result.draft.emails.map { it.address }, "emails for ${case.name}")
+            // **The corpus was blind to addresses until SRS 1.115**, and card nine passed
+            // with its address missing entirely — the rule had been built two cards
+            // earlier and nothing had ever asserted it. A corpus that omits a field
+            // tests everything except the field most recently added, which is the one
+            // most likely to be wrong.
+            assertEquals(
+                case.expectAddress,
+                result.draft.addresses.firstOrNull(),
+                "address for ${case.name}",
+            )
         }
     }
 
@@ -84,7 +96,7 @@ class CardCorpusTest {
 
     private companion object {
         /** Raise this as real cards are added; never lower it. */
-        const val CORPUS_FLOOR = 8
+        const val CORPUS_FLOOR = 9
 
         /**
          * The separator between a card's lines: a backslash followed by `n`, **not** a newline.
