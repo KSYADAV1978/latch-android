@@ -197,6 +197,15 @@ fun CardScreen(
             // FR-1208's answer, said in the words the date side already uses for the same fact, so a
             // user who has seen "Already saved" on a capture reads this the same way.
             when (saveResult) {
+                // FR-1210 and NFR-303: an undo says what it did. The failed branch is the one
+                // that matters — the contact is still in the account and this is the only place
+                // the user is told.
+                is CardSaveResult.Undone -> Note(
+                    stringResource(
+                        if (saveResult.removed) R.string.card_undone
+                        else R.string.card_undo_failed
+                    )
+                )
                 is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
                 is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
                 // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the

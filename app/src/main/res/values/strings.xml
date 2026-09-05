@@ -92,6 +92,11 @@
     <string name="card_save_failed">Could not save that. Nothing was written — try again.</string>
     <string name="card_undo">Undo (%1$d)</string>
     <string name="card_undone">Undone. Nothing was kept.</string>
+    <!--
+      FR-1210 and NFR-303. The contact IS still in the account, so this says where it is rather
+      than only that something went wrong — the user cannot act on "undo failed" alone.
+    -->
+    <string name="card_undo_failed">Latch could not remove that contact. It is still in your Google Contacts — delete it there.</string>
     <string name="card_save">Save contact</string>
     <string name="card_saving">Saving…</string>
     <string name="card_choose_title">This image has more than one code</string>

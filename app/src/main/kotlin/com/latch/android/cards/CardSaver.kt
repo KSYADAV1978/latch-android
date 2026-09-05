@@ -59,6 +59,20 @@ sealed interface CardSaveResult {
 
     data object AlreadySaved : CardSaveResult
     data class Failed(val permanent: Boolean) : CardSaveResult
+
+    /**
+     * FR-1210 and NFR-303: the undo ran, and whether it actually removed anything.
+     *
+     * **A state rather than a closing window** (SRS 1.125). The sheet used to discard
+     * `undoCardCreated`'s answer and `finish()` regardless, so a delete that *failed* looked
+     * exactly like one that succeeded — the window closed, the contact stayed in the user's
+     * account, and nothing said so. NFR-303 calls a silent failure a defect in as many words, and
+     * the date side has always kept an undo's outcome on screen for this reason.
+     *
+     * The tell was in the lint report for a slice: `card_undone` was reported as an unused
+     * resource, because the state that would have shown it did not exist.
+     */
+    data class Undone(val removed: Boolean) : CardSaveResult
 }
 
 /**

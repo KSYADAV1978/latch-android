@@ -352,8 +352,16 @@ class CaptureActivity : ComponentActivity() {
                 var cardUndoing by remember { mutableStateOf(false) }
                 // The window must not close on a stray tap while an undo is on offer.
                 LaunchedEffect(cardSave, cardState) {
-                    cardOfferStanding = cardState != null &&
-                        (cardSave is CardSaveResult.Saved || cardSave is CardSaveResult.Held)
+                    cardOfferStanding = cardState != null && when (val r = cardSave) {
+                        is CardSaveResult.Saved, is CardSaveResult.Held -> true
+                        // **A failed undo holds the window too** (SRS 1.125), and only a failed
+                        // one: the contact is still in the user's account and the sentence saying
+                        // so is the only place they will learn it, so a stray tap outside must not
+                        // take it away. A successful undo has nothing left to act on, and letting
+                        // the window close on a tap there costs the user nothing.
+                        is CardSaveResult.Undone -> !r.removed
+                        else -> false
+                    }
                 }
                 var choosing by remember { mutableStateOf(false) }
 
@@ -443,7 +451,15 @@ class CaptureActivity : ComponentActivity() {
                 // field the user had just corrected.
                 LaunchedEffect(captured?.text, coverage) {
                     val open = cardState
-                    if (open != null && open.fromPhoto && captured != null) {
+                    // **Only where something actually changed**, which was worth finding: without
+                    // the guard this fired for the very text that had just opened the sheet, so
+                    // every capture classified twice and the debug diagnostic printed the card's
+                    // contents twice with it. Both keys are tested, not just the text — a side
+                    // that yields nothing leaves the text identical and moves the coverage, and
+                    // that is exactly the case FR-1225's report exists for.
+                    if (open != null && open.fromPhoto && captured != null &&
+                        (open.payload != captured.text || open.photos != coverage)
+                    ) {
                         photoCardState(captured.text, coverage)?.let { rebuilt ->
                             cardState = rebuilt.copy(edits = open.edits)
                         }
@@ -480,15 +496,22 @@ class CaptureActivity : ComponentActivity() {
                                     is CardSaveResult.Held -> CardCreated.Queued(r.entryId)
                                     else -> null
                                 }
-                                if (created != null) {
+                                val removal = if (created == null) null else {
                                     undoCardCreated(created, app.contactsApi) { id ->
                                         app.cardQueue.drop(id)
                                     }
                                 }
                                 cardUndoing = false
                                 cardSavedAt = null
-                                cardSave = CardSaveResult.Idle
-                                finish()
+                                // **The answer is kept and the window stays** (SRS 1.125). This
+                                // used to discard `removal` and `finish()` unconditionally, so a
+                                // delete that failed against Google was indistinguishable from one
+                                // that worked: the window closed either way and the contact stayed.
+                                // NFR-303 names that a defect, and the date side has always left an
+                                // undo's outcome on screen.
+                                cardSave = CardSaveResult.Undone(
+                                    removed = removal != null && removal.removed == removal.attempted
+                                )
                             }
                         },
                         onSave = {

@@ -21,6 +21,32 @@ import kotlinx.coroutines.test.runTest
  */
 class CardReversalTest {
 
+    // ---- SRS 1.125: the outcome the sheet shows ---------------------------------------------
+
+    @Test
+    fun `a delete Google refused is not reported as an undo`() = runTest {
+        // The defect this pins: the answer was discarded and the window closed regardless, so a
+        // contact still sitting in the user's account was indistinguishable from one removed.
+        val contacts = FakeContacts().apply { deleteFails = true }
+        val removal = undoCardCreated(CardCreated.Written("people/c1"), contacts) { true }
+
+        assertEquals(1, removal.attempted)
+        assertEquals(0, removal.removed, "a failed delete was counted as a removal")
+        assertFalse(
+            removal.removed == removal.attempted,
+            "the sheet would have said the contact was gone",
+        )
+    }
+
+    @Test
+    fun `a delete Google accepted is reported as an undo`() = runTest {
+        val contacts = FakeContacts()
+        val removal = undoCardCreated(CardCreated.Written("people/c1"), contacts) { true }
+
+        assertEquals(listOf("people/c1"), contacts.deleted)
+        assertTrue(removal.removed == removal.attempted)
+    }
+
     private class FakeContacts : ContactsApi {
         val deleted = mutableListOf<String>()
         var deleteFails = false
