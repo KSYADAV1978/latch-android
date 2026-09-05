@@ -120,8 +120,17 @@ internal fun looksLikePersonName(line: String): Boolean {
     if (line.any { it.isDigit() } || '@' in line) return false
     if (looksLikeJobTitle(line) || hasOrganisationSuffix(line)) return false
     // A separator means a role or a strapline: "Director | Business Development", "In-Charge, X".
-    if (line.any { it in SEPARATORS }) return false
-    val words = line.split(WHITESPACE).filter { it.isNotBlank() }
+    if (line.any { it in SEPARATORS && it != ',' }) return false
+
+    // **A comma may carry a post-nominal**, which is how a great many Indian cards are printed:
+    // `DEVENDRA PRATAP YADAV, IOFS` — and IAS, IPS and the rest (SRS 1.114). Everything after
+    // the first comma must look like one, so "In-Charge, ALIMCO New Delhi" and "Head Taxation,
+    // Aluminium Sector" stay out — though both are caught as job titles before reaching here.
+    val core = line.substringBefore(',').trim()
+    val suffix = line.substringAfter(',', "").trim()
+    if (suffix.isNotEmpty() && !isPostNominal(suffix)) return false
+
+    val words = core.split(WHITESPACE).filter { it.isNotBlank() }
     if (words.size !in 2..4) return false
     if (!words.all { word -> word.all { it.isLetter() || it in NAME_PUNCTUATION } }) return false
 
@@ -132,6 +141,16 @@ internal fun looksLikePersonName(line: String): Boolean {
     // a slogan does not.
     return words.all { word -> word.first().isUpperCase() || word.lowercase() in NAME_PARTICLES }
 }
+
+/**
+ * A qualification printed after a name: `IOFS`, `IAS`, `PhD`, `FRCS`.
+ *
+ * Short and capitalised, with no spaces — which is what keeps a department or a second half of a
+ * job title from qualifying. The name keeps its suffix when written, because it is how the person
+ * presents themselves on their own card.
+ */
+internal fun isPostNominal(text: String): Boolean =
+    text.length in 2..6 && text.all { it.isLetter() } && text == text.uppercase()
 
 /**
  * The label beside a number.
