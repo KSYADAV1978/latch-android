@@ -72,6 +72,7 @@
     <string name="card_field_name">Name</string>
     <string name="card_field_organisation">Company</string>
     <string name="card_field_title">Job title</string>
+    <string name="card_field_address">Address</string>
     <string name="card_field_phone">Phone</string>
     <string name="card_field_email">Email</string>
     <string name="card_destination">Will be added to your contacts in %s.</string>

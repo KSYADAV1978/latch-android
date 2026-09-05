@@ -61,6 +61,14 @@ data class CardEdits(
     /** Indexed by position in the parsed list; a blank value removes the entry. */
     val phones: Map<Int, String> = emptyMap(),
     val emails: Map<Int, String> = emptyMap(),
+    /**
+     * FR-1205 for the address, which was read-only until SRS 1.110.
+     *
+     * The classifier joins an address from several recognised lines and gets the joining wrong as
+     * readily as the reading — so this is the field most likely to need correcting, and it was the
+     * one field with no box to correct it in.
+     */
+    val addresses: Map<Int, String> = emptyMap(),
 ) {
     fun applyTo(draft: CardDraft): CardDraft = draft.copy(
         displayName = displayName ?: draft.displayName,
@@ -84,6 +92,9 @@ data class CardEdits(
         emails = draft.emails.mapIndexed { index, email ->
             CardEmail(emails[index] ?: email.address, email.type)
         }.filter { it.address.isNotBlank() },
+        addresses = draft.addresses.mapIndexed { index, address ->
+            addresses[index] ?: address
+        }.filter { it.isNotBlank() },
     )
 }
 

@@ -111,8 +111,14 @@ fun CardScreen(
                 state.unplaced.forEach { Note("  $it") }
             }
 
-            if (draft.addresses.isNotEmpty()) {
-                Note(draft.addresses.joinToString("\n"))
+            // FR-1205: an editable box, not a label. The classifier joins an address out of
+            // several recognised lines and gets the joining wrong as readily as the reading, so
+            // this is the field most likely to need correcting — and it was the one field with
+            // nothing to correct it in (SRS 1.110).
+            state.parsed.addresses.forEachIndexed { index, address ->
+                Field(R.string.card_field_address, state.edits.addresses[index] ?: address) {
+                    onEdit(state.edits.copy(addresses = state.edits.addresses + (index to it)))
+                }
             }
 
             // FR-1213. Design principle 4 has no calendar to show here, so the account becomes
@@ -239,7 +245,10 @@ private fun Field(labelRes: Int, value: String?, onChange: (String) -> Unit) {
         value = value.orEmpty(),
         onValueChange = onChange,
         label = { Text(stringResource(labelRes)) },
-        singleLine = true,
+        // Not single-line: an address wraps, and a box that hid most of it would be a
+        // field the user cannot check — which is the whole of what FR-1224 asks of them.
+        singleLine = false,
+        maxLines = 3,
         modifier = Modifier.fillMaxWidth(),
     )
 }

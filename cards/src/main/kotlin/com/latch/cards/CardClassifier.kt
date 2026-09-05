@@ -136,6 +136,22 @@ internal fun looksLikePersonName(line: String): Boolean {
  */
 internal fun phoneTypeNear(line: String, numberStart: Int): String? {
     val before = line.take(numberStart).lowercase()
+
+    // **A single letter hard against the number**, as in `M8009864200` — a real card wrote both
+    // numbers that way after OCR merged the line. Accepted only where the letter itself follows a
+    // space or begins the line, so the `O` in `TO11` (which is a lost zero, not a label) is not
+    // mistaken for one.
+    val letter = before.lastOrNull()
+    if (letter != null && letter in SINGLE_LETTER_LABELS) {
+        val beforeLetter = before.dropLast(1).lastOrNull()
+        if (beforeLetter == null || beforeLetter == ' ') {
+            return when (letter) {
+                'm' -> "MOBILE"
+                'f' -> "FAX"
+                else -> "WORK"
+            }
+        }
+    }
     // Nearest label wins: on `T 011-… M 8009…` the mobile's label is the one closest to it.
     val candidates = listOf(
         "MOBILE" to MOBILE_WORDS, "FAX" to FAX_WORDS, "WORK" to WORK_WORDS,
@@ -196,12 +212,24 @@ private fun hasDistinguishingWord(line: String): Boolean =
  * street address wraps; anything else is left for the user.
  */
 internal fun addressAmong(lines: List<String>): List<String> {
-    val anchor = lines.indexOfFirst { POSTCODE.containsMatchIn(it) }
+    // **A postcode alone is not enough, and a real card proved it**: `IS/S0 9001 & IS/S0 14001`
+    // carries "14001", and the first version read a certification as the anchor of an address —
+    // placing the ISO line and leaving the real address unplaced. An address line carries a
+    // **comma**; a certification does not. That one condition separates them.
+    val anchor = lines.indexOfFirst { POSTCODE.containsMatchIn(it) && ',' in it }
     if (anchor < 0) return emptyList()
+
+    // Neighbours on **both** sides, because OCR block order is not the order the address is
+    // printed in: on the card that found this, the street line came *after* the city line.
     var first = anchor
-    while (first > 0 && ',' in lines[first - 1] && !hasOrganisationSuffix(lines[first - 1])) first--
-    return lines.subList(first, anchor + 1)
+    while (first > 0 && isAddressNeighbour(lines[first - 1])) first--
+    var last = anchor
+    while (last < lines.lastIndex && isAddressNeighbour(lines[last + 1])) last++
+    return lines.subList(first, last + 1)
 }
+
+private fun isAddressNeighbour(line: String): Boolean =
+    ',' in line && !hasOrganisationSuffix(line) && !looksLikeJobTitle(line)
 
 private val EMAIL = Regex("[A-Za-z0-9._%+-]+\\s?@\\s?[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
 private val URL = Regex("(https?://|www\\.)[A-Za-z0-9./?=_%+-]+", RegexOption.IGNORE_CASE)
@@ -221,6 +249,9 @@ private val WHITESPACE = Regex("\\s+")
 
 /** Words as a card writes them: spaces, commas, ampersands and full stops all separate. */
 private val WORD_BREAK = Regex("[\\s,&.]+")
+
+/** Labels a card writes as one letter: mobile, telephone, fax, office, direct. */
+private val SINGLE_LETTER_LABELS = setOf('m', 't', 'f', 'o', 'd')
 private val SEPARATORS = setOf('|', ',', ':', '/')
 private val NAME_PUNCTUATION = setOf('.', '-', '\'')
 
