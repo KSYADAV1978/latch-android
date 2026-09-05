@@ -213,6 +213,14 @@ fun CaptureScreen(
      * only that something is happening stops being enough to say.
      */
     extractingPages: PageProgress? = null,
+    /**
+     * FR-1201a: this wait is over a photograph the user just took of a business card.
+     *
+     * Only the sentence changes. "Reading the text…" is true of a card photograph and describes
+     * the wrong thing — the user is watching for a contact, not for dates — and a spinner that
+     * names something other than what was asked for reads as the wrong screen having opened.
+     */
+    extractingCard: Boolean = false,
     /** FR-215: recognition finished and produced nothing usable. */
     ocrFailure: OcrFailure? = null,
 ) {
@@ -278,9 +286,15 @@ fun CaptureScreen(
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Text(
-                        text = extractingPages?.let {
-                            stringResource(R.string.capture_extracting_page, it.page, it.total)
-                        } ?: stringResource(R.string.capture_extracting),
+                        text = when {
+                            extractingPages != null -> stringResource(
+                                R.string.capture_extracting_page,
+                                extractingPages.page,
+                                extractingPages.total,
+                            )
+                            extractingCard -> stringResource(R.string.capture_extracting_card)
+                            else -> stringResource(R.string.capture_extracting)
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }

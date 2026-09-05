@@ -1,11 +1,16 @@
 # Release checklist (FR-1108, and everything that binds at submission)
 
 FR-1108 makes three things a **release gate**, and shipping FR-1004 and FR-208 has since added
-three more. This file is the whole list, and it exists because the distance between each of
-those decisions and the day someone opens the Play Console is months — long enough that nothing
-in the code will remind them.
+three more. Shipping §5.11's business-card pillar has added a seventh, which is item 0 below.
+This file is the whole list, and it exists because the distance between each of those decisions
+and the day someone opens the Play Console is months — long enough that nothing in the code will
+remind them.
 
-Two of the six are done. **Four are things only the publisher can do**, and they are marked so.
+Two of the seven are done, one is a grep in this repository, and **four are things only the
+publisher can do**, marked so. §5.11 also makes two of the publisher items *wider* rather than
+merely due: FR-1102's privacy policy must now carry "Latch never deletes contacts", FR-1103's
+Data Safety declaration must cover Contacts, and FR-1241's OAuth verification must be requested
+against the final scope set including `.../auth/contacts`.
 
 ---
 
@@ -98,10 +103,25 @@ Console.
   publisher servers, and — because FR-1004 ships — additionally describing the outbound webhook:
   that the capability exists, that it is disabled by default, that the destination endpoint is
   chosen by the user, and that content sent to it leaves the device.
+
+  **And, because §5.11's business-card pillar ships, three sentences about contacts.** That Latch
+  creates contacts in the user's own Google Contacts; that the data written is a third party's
+  and comes off a card the user photographed or was handed; and — verbatim, because the app tells
+  the user this on the card sheet and a policy that did not say it would contradict the product —
+  that **Latch never deletes a contact**. FR-1226 is not built, so the policy must not claim a
+  card image is stored anywhere: FR-1211 says it is not, and the amended version of that
+  requirement (SRS 1.120) is what to quote if asked how a photograph is handled.
 - **FR-1103 — Data Safety.** Google's form asks about data transmitted **off the device**, not
   only data reaching publisher servers, so the webhook is very likely to require declaration
   even though the publisher never receives the data. Confirm the correct treatment against
   current Play policy before filing.
+
+  **Contacts is now a declared data type**, and it is the one on this form most likely to be
+  filled in wrongly by analogy with the rest of the app: the data is *collected* (it goes to
+  Google Contacts, off the device) even though the publisher never sees it, which is exactly the
+  distinction the webhook line above already draws. The camera is **not** a permission this app
+  holds — FR-1201a delegates to the camera application through `ACTION_IMAGE_CAPTURE` — so
+  nothing on this form should assert camera access.
 - **FR-1104 — notification access.** Justify it in the Console as core functionality. The in-app
   prominent disclosure it also requires **is** built and is unavoidable before the permission can
   be requested — `NotificationAccessScreen` — so what is owed here is the Console half.
@@ -113,16 +133,42 @@ Console.
   launch. Developer name and address are publicly displayed either way.
 - **FR-1101**: no advertising, no in-app purchase, no paid tier. Nothing in the app contradicts
   this; the listing must not either.
-- **§8.6 / FR-002**: all four scopes are Sensitive, so OAuth verification is required before
+- **§8.6 / FR-002 / FR-1241**: the scopes are Sensitive, so OAuth verification is required before
   general availability. Expect a demo video, a published privacy policy and domain verification.
   §11 recommends submitting at the **start** of Phase 2, not the end: it is the most common cause
   of launch slippage. Until it completes, only test users on the consent screen can sign in.
+  **Submit against the final scope set, `.../auth/contacts` included.** Verification is granted
+  per scope, so adding one afterwards is a second verification and a second wait — and SRS 1.87
+  records what adding that scope does to an application already published: every existing user's
+  grant is invalidated on the next authorization.
 - **§13 decision 1**: "Latch" is a working title and needs trademark and Play Store name
   clearance.
 
 ---
 
 ## Before any of the above
+
+### 0. Remove the `LatchCardOcr` diagnostic ⛔ **repository, and it is the one item here with teeth**
+
+`CaptureActivity` logs the recognised lines of a business card and the classifier's reading of
+them, under the tag `LatchCardOcr`. **It prints card content** — a third party's name, telephone
+number and email address — which nothing else in this application does: `LatchTiming` carries an
+enum, a boolean and a character count, and is structurally incapable of leaking. It exists to
+build FR-1222's corpus from real cards (SRS 1.108), and it must be gone before submission.
+
+It is `BuildConfig.DEBUG`-guarded, so a release build strips the branch and the strings with it,
+and on that reading the risk is already zero. **It is listed here anyway**, because that guard is
+one edit away from not being there and the guard is not what anyone would notice changing. The
+check is a grep, and it takes a second:
+
+```
+grep -rn "LatchCardOcr" app/src/main
+```
+
+Nothing should match at submission. Removing it also retires the classifier-tuning workflow that
+depends on it, so do it when FR-1222's corpus is closed and not before.
+
+---
 
 **The device pass.** `CLAUDE.md` carries a Device pass backlog listing, slice by slice, what a
 human has to watch and what each failure would look like. Everything built in the autonomous

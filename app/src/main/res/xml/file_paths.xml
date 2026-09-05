@@ -10,4 +10,18 @@
 -->
 <paths>
     <cache-path name="exports" path="exports/" />
+    <!--
+      FR-1201a and FR-1211: the one photograph a card capture is holding.
+
+      **A second directory rather than a second use of `exports/`**, and the reason was found by
+      reading `shareAsIcs`: that directory is deleted in full on every export, so an `.ics` shared
+      while a card sheet was open would delete the photograph out from under the recognition
+      reading it. Two purposes, two directories.
+
+      The grant this one hands out is a **write**, to the camera application the user picks, for
+      the length of one photograph — where `exports/` grants a read. It is swept before each
+      photograph and deleted when the capture window closes; see the FR-1211 note in the SRS for
+      why it is not deleted the instant recognition returns.
+    -->
+    <cache-path name="camera" path="camera/" />
 </paths>

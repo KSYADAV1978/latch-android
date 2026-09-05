@@ -106,6 +106,27 @@
       background service.
     -->
 
+    <!--
+      THE CAMERA (FR-1201a) ADDS NO PERMISSION, AND THAT IS THE DECISION RATHER THAN LUCK.
+
+      "Capture a business card" on the home screen fires ACTION_IMAGE_CAPTURE, which hands the
+      job to whichever camera application the user already has and already trusts. Latch never
+      opens the camera itself, so `android.permission.CAMERA` is not declared and must not be —
+      declaring it would be a prompt, a Data Safety line and a Play review question bought for
+      nothing. CameraX would need it, and a dependency with it; SRS 1.119 records why that is
+      reopened only if a device pass shows people retaking photographs.
+
+      No <queries> entry either. Package visibility governs *asking what is installed*, not
+      starting an activity, and `startActivityForResult` still resolves the implicit intent — so
+      the only thing a <queries> entry would buy is the ability to grey the button out in
+      advance, at the cost of declaring an interest in every camera on the device.
+      ActivityNotFoundException is caught instead and the screen says what to do.
+
+      The photograph goes to the FileProvider below, in the `camera/` subdirectory declared in
+      @xml/file_paths, and the grant is a WRITE, for one launch of the app the user picks. It is
+      swept before each photograph and deleted when the capture window closes (FR-1211).
+    -->
+
     <application
         android:name=".LatchApplication"
         android:allowBackup="false"

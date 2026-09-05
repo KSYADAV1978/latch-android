@@ -64,7 +64,12 @@
     <!-- FR-506 row 3, per row: this one cannot be saved, but its neighbours still can. -->
     <string name="capture_row_needs_date">No day for this time yet — this one cannot be saved.</string>
     <!-- FR-1200 series: business-card capture (SRS 5.11). -->
-    <string name="card_no_code">Latch found no contact code in this image. Reading a photographed card is not built yet — only QR codes.</string>
+    <!--
+      Fires where there is no QR code AND the classifier placed nothing. The sentence said
+      "reading a photographed card is not built yet" until SRS 1.119; it has been built since
+      SRS 1.109 and the string was left describing the world it shipped in.
+    -->
+    <string name="card_no_code">Latch could not read a contact out of this image — no code in it, and nothing on it that reads like a card.</string>
     <string name="card_unreadable">There is a code in this image, but Latch could not read a contact out of it.</string>
     <string name="card_title">Save as a contact</string>
     <string name="card_from_photo">Read from the photo. Check each field before saving — the card will not be here to check against afterwards.</string>
@@ -92,6 +97,12 @@
     <string name="card_choose_title">This image has more than one code</string>
     <string name="card_choose_body">Latch will not guess which one you meant. Pick the one to open.</string>
     <string name="card_choose_option">Open code %1$d</string>
+    <!--
+      FR-1201a: the photograph was taken from Latch's own card button, so the user has already
+      said this is a card. Nothing came back — no code, no text at all — which is a different
+      thing from a card that read badly, and is nearly always the photograph rather than the app.
+    -->
+    <string name="card_photo_unreadable">Nothing could be read from that photo. Try again with the card filling more of the frame, in better light.</string>
     <!-- FR-1202: the action on the capture sheet. Two labels, because a detected card and an
          image that merely might be one are different offers. -->
     <string name="capture_card_detected">This looks like a contact card — save as contact</string>
@@ -161,6 +172,8 @@
       itself is reported afterwards by capture_pdf_capped, which is where FR-207 puts it.
     -->
     <string name="capture_extracting_page">Reading page %1$d of %2$d…</string>
+    <!-- FR-1201a: the same wait, named for what the user actually asked for. -->
+    <string name="capture_extracting_card">Reading the card…</string>
     <string name="capture_ocr_unreadable">Latch could not open that file. Try sharing it again, or share the text instead.</string>
     <string name="capture_ocr_no_text">No text found in that image.</string>
     <string name="capture_ocr_failed">Latch could not read that image. Nothing was sent anywhere — the reading happens on your phone.</string>
@@ -522,4 +535,15 @@
     -->
     <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google, every save can be undone for ten seconds, and anything Latch is unsure about waits in your Inbox instead of guessing.</string>
     <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text, a screenshot or a PDF to Latch.</string>
+    <!--
+      FR-1201a and FR-1202. The label says "business card" rather than "contact" because the
+      button *is* the card-versus-date choice: it has to name what the user is about to point the
+      camera at, or the photograph arrives having declared nothing.
+    -->
+    <string name="home_capture_card">Capture a business card</string>
+    <!--
+      No camera application on the device, which is rare and is not an error the user can fix
+      from here. Said plainly rather than as a failure of Latch's.
+    -->
+    <string name="home_capture_card_no_camera">No camera app on this phone. Photograph the card with another app and share the picture to Latch instead.</string>
 </resources>

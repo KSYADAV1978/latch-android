@@ -23,8 +23,22 @@ enum class CaptureState { INBOX, SAVED, DISCARDED }
  * Which capture layer produced this (FR-200 series). [NOTIFICATION] is load-bearing:
  * FR-210a suppresses webhook delivery for anything originating from that layer, and
  * FR-210 forbids writing its content to disk at all.
+ *
+ * [CAMERA] is FR-1201a's photograph, and it is deliberately **not** one of FR-1003's
+ * switchable layers (SRS 1.119). §5.2's layers intercept content the user is looking at
+ * somewhere else; a button inside Latch is not one of them, so [CAMERA] is absent from
+ * `DEFAULT_LAYERS` and from the Settings list, and the capture path does not gate on it.
+ * It exists so that FR-1207's `latch.card.layer` records the surface a contact came from
+ * rather than borrowing the share sheet's name for a photograph.
  */
-enum class CaptureLayer { TEXT_SELECTION, SHARE_SHEET, NOTIFICATION, QUICK_TILE, SCREENSHOT_WATCHER }
+enum class CaptureLayer {
+    TEXT_SELECTION,
+    SHARE_SHEET,
+    NOTIFICATION,
+    QUICK_TILE,
+    SCREENSHOT_WATCHER,
+    CAMERA,
+}
 
 data class CaptureSource(
     val layer: CaptureLayer,

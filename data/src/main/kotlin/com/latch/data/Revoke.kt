@@ -75,6 +75,14 @@ private const val TIMEOUT_MS = 10_000
  * remembering — which for this requirement means a user asking for their data to be deleted and
  * some of it staying. Adding a store is therefore a change to this function, visible in a diff.
  *
+ * **And that is exactly what did not happen when the tenth store arrived** (SRS 1.121). FR-1212's
+ * card queue was added in its own slice and never named here, so a card captured offline — a third
+ * party's name, telephone number and email address — survived "delete everything" and would have
+ * been written to Google Contacts on the next reconnection, after the account had been
+ * disconnected. An enumeration only catches a missing store if somebody looks, so the
+ * enumeration is now [deleteEveryStore] — which takes stores and no `Context`, and is therefore
+ * reachable from a JVM test that fails rather than from a reviewer who has to notice.
+ *
  * The Keystore keys go too. Without that, a later install would generate new records under keys
  * that had never been rotated; with it, anything that somehow survived is unreadable, which is
  * the same reasoning that makes an unreadable record "absent" everywhere else in this module.
@@ -89,10 +97,53 @@ suspend fun deleteAllLocalData(
     settings: SettingsStore,
     secrets: SecretStore,
     queue: WriteQueue,
+    /** FR-1212's held cards. See the note above for how long this was missing and why. */
+    cards: CardQueue,
 ): Boolean = runCatching {
-    // The queue first: it is the one store holding captures that exist nowhere else, so if
+    deleteEveryStore(
+        defaultsStore = defaultsStore,
+        inbox = inbox,
+        index = index,
+        undoOffers = undoOffers,
+        recipes = recipes,
+        settings = settings,
+        secrets = secrets,
+        queue = queue,
+        cards = cards,
+    )
+    // The database file itself, after its tables — deleting the file first would leave the
+    // helpers above opening a fresh empty one behind them. It is the one step here that needs
+    // a `Context`, which is the whole reason it is not in `deleteEveryStore`.
+    context.deleteDatabase(LatchDatabase.DATABASE_NAME)
+    true
+}.getOrDefault(false)
+
+/**
+ * NFR-205's enumeration, with nothing platform-bound in it.
+ *
+ * **Split out so a JVM test can call it** (SRS 1.121). `deleteAllLocalData` takes a `Context`,
+ * which is a throwing stub under unit tests, so for as long as the enumeration lived inside it
+ * the requirement had no test at all in either source set — and the day a tenth store was added
+ * without being named here, nothing said so. This is the standing convention in this project
+ * applied to the one function whose whole job is to be complete.
+ *
+ * Every store the app has, and it is meant to be read as a checklist.
+ */
+internal suspend fun deleteEveryStore(
+    defaultsStore: AccountDefaultsStore,
+    inbox: CaptureInbox,
+    index: LocalItemIndex,
+    undoOffers: UndoOfferStore,
+    recipes: RecipeStore,
+    settings: SettingsStore,
+    secrets: SecretStore,
+    queue: WriteQueue,
+    cards: CardQueue,
+) {
+    // The queues first: they are the stores holding captures that exist nowhere else, so if
     // anything here is going to fail it should fail before the rest is gone.
     queue.pending().forEach { queue.drop(it.id) }
+    cards.pending().forEach { cards.drop(it.id) }
     defaultsStore.allAccounts().forEach { defaultsStore.remove(it.accountId) }
     inbox.deleteAll()
     index.clear()
@@ -100,8 +151,4 @@ suspend fun deleteAllLocalData(
     recipes.deleteAll()
     settings.write(LatchSettings())
     secrets.clear()
-    // The database file itself, after its tables — deleting the file first would leave the
-    // helpers above opening a fresh empty one behind them.
-    context.deleteDatabase(LatchDatabase.DATABASE_NAME)
-    true
-}.getOrDefault(false)
+}

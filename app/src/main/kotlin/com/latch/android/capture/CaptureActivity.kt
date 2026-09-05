@@ -20,6 +20,9 @@ import com.latch.android.cards.cardDismiss
 import com.latch.android.cards.CardCreated
 import com.latch.android.cards.undoCardCreated
 import com.latch.android.cards.CardOffer
+import com.latch.android.cards.CardPhotoStep
+import com.latch.android.cards.cardPhotoStep
+import com.latch.android.cards.clearCardPhotos
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardOffer
@@ -131,7 +134,14 @@ class CaptureActivity : ComponentActivity() {
         // starts as Extracting and arrives later.
         // FR-1203's decode result, held apart from the recognition it runs beside — see the
         // Image branch below for why this is not a field on CaptureContent.
-        val cardPayloads = MutableStateFlow<List<String>>(emptyList())
+        //
+        // **Null is "not decoded yet", and the two-valued flow could not say it** (SRS 1.119).
+        // An empty list meant both "still decoding" and "no code in this image", which was
+        // harmless while a human tap read it — the offer simply firmed up from AVAILABLE to
+        // DETECTED — and is not harmless now that FR-1201a's camera path opens the sheet on its
+        // own: a card carrying a QR would be classified off its own photograph while the payload
+        // was still arriving.
+        val cardPayloads = MutableStateFlow<List<String>?>(null)
 
         val content = MutableStateFlow<CaptureContent>(
             when (request) {
@@ -279,7 +289,7 @@ class CaptureActivity : ComponentActivity() {
                 val payloads by cardPayloads.collectAsState()
                 val offer = cardOffer(
                     isImage = request is CaptureRequest.Image,
-                    decodedContactPayloads = payloads.size,
+                    decodedContactPayloads = payloads?.size ?: 0,
                 )
                 var cardState by remember { mutableStateOf<CardSheetState?>(null) }
                 var cardSave by remember { mutableStateOf<CardSaveResult>(CardSaveResult.Idle) }
@@ -305,9 +315,10 @@ class CaptureActivity : ComponentActivity() {
                 var cardMessage by remember { mutableStateOf<Int?>(null) }
                 val openCard = {
                     cardMessage = null
-                    val sole = soleContactPayload(payloads)
+                    val decoded = payloads.orEmpty()
+                    val sole = soleContactPayload(decoded)
                     when {
-                        payloads.size > 1 -> choosing = true
+                        decoded.size > 1 -> choosing = true
                         sole != null -> {
                             val state = cardStateFor(sole)
                             if (state == null) cardMessage = R.string.card_unreadable
@@ -361,6 +372,50 @@ class CaptureActivity : ComponentActivity() {
                                     unplaced = classified.unplaced,
                                     fromPhoto = true,
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // FR-1201a. A photograph taken from Latch's own card button has already been
+                // declared a card, so the sheet opens without asking again — the button *was*
+                // FR-1202's choice. `cardPhotoStep` decides, and waits for both readers; its
+                // note says why that ordering is required here and was wrong in SRS 1.100.
+                val fromCamera = (request as? CaptureRequest.Image)?.cardPath == true
+                var cardPhotoOpened by remember { mutableStateOf(false) }
+                if (fromCamera) {
+                    LaunchedEffect(captureContent, payloads) {
+                        if (cardPhotoOpened) return@LaunchedEffect
+                        when (
+                            cardPhotoStep(
+                                recognitionSettled = captureContent !is CaptureContent.Extracting,
+                                decodeSettled = payloads != null,
+                                hasText = !captured?.text.isNullOrBlank(),
+                                payloads = payloads?.size ?: 0,
+                            )
+                        ) {
+                            CardPhotoStep.WAITING -> Unit
+                            CardPhotoStep.OPEN -> {
+                                // Once per composition. Dismissing the sheet must return the user
+                                // to the capture rather than to the sheet they have just backed
+                                // out of.
+                                //
+                                // **A rotation reopens it**, this flag going with the composition
+                                // that held it — which is right for the ordinary case, where the
+                                // sheet was on screen and the user expects it back, and is a
+                                // shrug in the one case where they had dismissed it first. It is
+                                // the same standing this file already gives the recognition a
+                                // rotation re-runs: recorded so it is recognised rather than
+                                // diagnosed.
+                                cardPhotoOpened = true
+                                openCard()
+                            }
+                            // Nothing to open a sheet with. The capture screen stays, saying so,
+                            // with whatever the photograph did yield — a date on a flyer, say —
+                            // rather than the capture being thrown away.
+                            CardPhotoStep.NOTHING_READ -> {
+                                cardPhotoOpened = true
+                                cardMessage = R.string.card_photo_unreadable
                             }
                         }
                     }
@@ -438,7 +493,7 @@ class CaptureActivity : ComponentActivity() {
                     )
                 } else if (choosing) {
                     CardChooser(
-                        payloads = payloads,
+                        payloads = payloads.orEmpty(),
                         onChoose = { chosen -> choosing = false; cardState = cardStateFor(chosen) },
                         onDismiss = { choosing = false },
                     )
@@ -599,6 +654,9 @@ class CaptureActivity : ComponentActivity() {
                     fromLapsedOffer = (request as? CaptureRequest.Nothing)?.fromLapsedOffer == true,
                     // NFR-102: the screen draws these rather than waiting on them.
                     extracting = captureContent is CaptureContent.Extracting,
+                    // FR-1201a: the same wait, over a photograph the user just took of a card.
+                    // "Reading the text" would be true and would describe the wrong thing.
+                    extractingCard = fromCamera,
                     // FR-207: "Reading page N of M…" while a document is read.
                     extractingPages = (captureContent as? CaptureContent.Extracting)?.pages,
                     ocrFailure = (captureContent as? CaptureContent.Failed)?.reason,
@@ -629,7 +687,7 @@ class CaptureActivity : ComponentActivity() {
         referrer: String?,
         content: MutableStateFlow<CaptureContent>,
         /** FR-1203's decode result, independent of [content] — see the Image branch. */
-        cardPayloads: MutableStateFlow<List<String>>,
+        cardPayloads: MutableStateFlow<List<String>?>,
         openedAt: Long,
     ) {
         lifecycleScope.launch {
@@ -647,6 +705,9 @@ class CaptureActivity : ComponentActivity() {
                     // guarded: two independent results, neither waiting on the other.
                     lifecycleScope.launch {
                         val codes = runCatching { app.qrReader.readCodes(request.uri) }.getOrNull()
+                        // Assigned on every outcome, a throw included: the flow is now tri-state
+                        // and a decode that failed while leaving it null would hold FR-1201a's
+                        // automatic open open for ever, waiting on a reader that had finished.
                         cardPayloads.value = codes?.payloads.orEmpty()
                             .filter { looksLikeContactPayload(it) }
                     }
@@ -791,6 +852,23 @@ class CaptureActivity : ComponentActivity() {
     }
 
     /**
+     * FR-1211: the photograph does not outlive the capture.
+     *
+     * **Guarded on `isFinishing`, and that guard is the requirement rather than tidiness.** A
+     * rotation destroys this activity too, and the recreation re-runs the recognition against the
+     * same URI — so deleting unconditionally would lose a card capture to a quarter-turn of the
+     * phone. What this cannot cover is a killed process; `newCardPhotoFile` sweeps the directory
+     * before each photograph, which is the other half.
+     *
+     * Run for every capture, not only a camera one: the directory is empty for the rest, and a
+     * sweep that happens on a path nobody thought about is worth more than one that is exact.
+     */
+    override fun onDestroy() {
+        if (isFinishing) clearCardPhotos(cacheDir)
+        super.onDestroy()
+    }
+
+    /**
      * FR-1003: which capture layer delivered this, where the request names one.
      *
      * Null for a request that carries nothing usable — there is no layer to switch off, and
@@ -798,7 +876,12 @@ class CaptureActivity : ComponentActivity() {
      */
     private fun CaptureRequest.layerOf(): CaptureLayer? = when (this) {
         is CaptureRequest.Ready -> captured.layer
-        is CaptureRequest.Image -> layer
+        // FR-1201a's photograph reports no layer, deliberately (SRS 1.119). FR-1003's toggles
+        // govern §5.2's layers — the ways content arrives from somewhere else — and a button
+        // inside Latch is not one of them, so there is nothing here to switch off. Returning
+        // `CAMERA` would also have refused every existing install: their stored `enabled_layers`
+        // record was written before the value existed and cannot contain it.
+        is CaptureRequest.Image -> if (cardPath) null else layer
         is CaptureRequest.Pdf -> layer
         is CaptureRequest.Nothing -> null
     }

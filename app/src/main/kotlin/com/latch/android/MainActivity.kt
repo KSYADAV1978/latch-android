@@ -1,6 +1,7 @@
 package com.latch.android
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -28,6 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.latch.android.capture.CaptureActivity
+import com.latch.android.capture.EXTRA_CARD_PHOTO
+import com.latch.android.cards.cardPhotoFile
+import com.latch.android.cards.clearCardPhotos
+import com.latch.android.cards.newCardPhotoFile
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
 import com.latch.recipes.newRecipe
@@ -85,6 +92,74 @@ class MainActivity : ComponentActivity() {
     ) { granted -> canPostNotifications = granted }
 
     private var canPostNotifications by mutableStateOf(true)
+
+    /**
+     * FR-1201a: the photograph, taken by the camera application the user already has.
+     *
+     * **`ACTION_IMAGE_CAPTURE` and not CameraX** (SRS 1.119). This needs no permission, no
+     * dependency and no `<queries>` entry, so its APK cost is not a small number but no number at
+     * all; CameraX buys an in-app preview and a framing guide for a dependency under NFR-501 and
+     * the `CAMERA` runtime permission, and it is reopened only if a device pass shows people
+     * retaking photographs — which is the evidence that would make a framing guide worth it.
+     *
+     * Registered as a field for the reason the other two are: `ComponentActivity` handles a field
+     * registration before STARTED and gives it a stable key, where a composition-scoped one would
+     * key itself off a composition that changes shape as the user moves between screens.
+     */
+    private val takeCardPhoto = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { taken ->
+        // Recomputed rather than remembered. The camera application is in front of this process
+        // and this process may not survive it; a `Uri` kept in a field would be gone and the
+        // photograph with it, where a fixed path under the cache directory is still there.
+        val file = cardPhotoFile(cacheDir)
+        if (taken && file.length() > 0L) {
+            startActivity(
+                Intent(this, CaptureActivity::class.java)
+                    .setData(cardPhotoUri(file))
+                    .putExtra(EXTRA_CARD_PHOTO, true)
+                    // Redundant within one app and kept anyway: it costs nothing and it is what
+                    // makes the intent correct on its own terms rather than by whose UID it is.
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
+        } else {
+            // FR-1211: a photograph nobody took, or one the user backed out of, is not a
+            // capture. Nothing is kept and nothing is opened.
+            clearCardPhotos(cacheDir)
+        }
+    }
+
+    /** FR-1201a: no camera application answered. Rare, and not something Latch can fix. */
+    private var cardCameraMissing by mutableStateOf(false)
+
+    /**
+     * The provider's authority, which is named for FR-1005's exports and serves both cache
+     * roots — a `FileProvider` has one authority and as many declared paths as it needs.
+     * Renaming it would be a migration of a published component for no gain.
+     */
+    private fun cardPhotoUri(file: java.io.File): Uri =
+        FileProvider.getUriForFile(this, "$packageName.exports", file)
+
+    /**
+     * FR-1201a and FR-1211, in the order that matters: the directory is swept and the file made
+     * *before* the camera is asked, so the photograph the camera returns is the only one there.
+     */
+    private fun captureCard() {
+        cardCameraMissing = false
+        val file = newCardPhotoFile(cacheDir)
+        val uri = file?.let { runCatching { cardPhotoUri(it) }.getOrNull() }
+        if (uri == null) {
+            cardCameraMissing = true
+            return
+        }
+        // `launch` throws ActivityNotFoundException synchronously where nothing handles
+        // ACTION_IMAGE_CAPTURE. Caught rather than checked with `resolveActivity`, which since
+        // Android 11 would need a <queries> entry to answer honestly.
+        if (runCatching { takeCardPhoto.launch(uri) }.isFailure) {
+            clearCardPhotos(cacheDir)
+            cardCameraMissing = true
+        }
+    }
 
     private fun refreshPostPermission() {
         canPostNotifications = android.os.Build.VERSION.SDK_INT < 33 ||
@@ -267,6 +342,11 @@ class MainActivity : ComponentActivity() {
                                     // why the queue routes the user to this button instead.
                                     onSignIn = { app.reauthorize() },
                                     onRetryQueue = { app.retryQueueNow() },
+                                    // FR-1201a and FR-1202: the card path's own entry point,
+                                    // and the choice itself — a photograph taken from here has
+                                    // been declared a card before it exists.
+                                    onCaptureCard = { captureCard() },
+                                    cameraMissing = cardCameraMissing,
                                     onOpenInbox = {
                                         app.inboxCoordinator.refresh()
                                         screen = HomeScreen.INBOX
@@ -315,6 +395,10 @@ private fun Home(
     onAcknowledgeFallback: () -> Unit = {},
     onSignIn: () -> Unit = {},
     onRetryQueue: () -> Unit = {},
+    /** FR-1201a: photograph a business card. FR-1202's choice, made by pressing this. */
+    onCaptureCard: () -> Unit = {},
+    /** FR-1201a: nothing on this phone handles `ACTION_IMAGE_CAPTURE`. */
+    cameraMissing: Boolean = false,
     onOpenInbox: () -> Unit = {},
     /** FR-602/FR-603: the recipe list, which is also where a user's own are made. */
     onOpenRecipes: () -> Unit = {},
@@ -363,6 +447,26 @@ private fun Home(
                     Text(stringResource(R.string.home_undo, remaining))
                 }
             }
+        }
+
+        // FR-1201a and FR-1202. **A filled button, and the only one on this screen that is not
+        // about something having gone wrong**: it is an action the user comes here to take, where
+        // the Inbox, Recipes and Settings below are places to go. Its label names a business card
+        // rather than a contact because the button *is* FR-1202's card-versus-date election —
+        // pressing it declares what the photograph will be, so nothing has to be detected
+        // afterwards and no mode is ever switched.
+        //
+        // **Below FR-807's undo offer, deliberately.** That offer has ten seconds to live and a
+        // new control pushing its countdown down the screen would spend them.
+        Button(onClick = onCaptureCard) {
+            Text(stringResource(R.string.home_capture_card))
+        }
+        if (cameraMissing) {
+            Text(
+                text = stringResource(R.string.home_capture_card_no_camera),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
 
         // FR-704: an unobtrusive count, and nothing at all when there is none. The second half

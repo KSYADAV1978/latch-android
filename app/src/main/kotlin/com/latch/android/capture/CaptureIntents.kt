@@ -59,6 +59,14 @@ sealed interface CaptureRequest {
         val uri: Uri,
         val layer: CaptureLayer,
         val preferredTitle: String? = null,
+        /**
+         * FR-1201a: this photograph was taken from Latch's own card button.
+         *
+         * **It is FR-1202's choice already made**, so the sheet opens on the card rather than
+         * offering the card action beside the dates. A shared image can never set this: the user
+         * shared it without saying what it was, which is the whole reason the offer exists.
+         */
+        val cardPath: Boolean = false,
     ) : CaptureRequest
 
     /** FR-207: a PDF to render and recognise. */
@@ -82,6 +90,15 @@ sealed interface CaptureRequest {
 
 /** Marks an intent that the Quick Settings tile started, so the activity reads the clipboard. */
 const val EXTRA_READ_CLIPBOARD = "com.latch.android.extra.READ_CLIPBOARD"
+
+/**
+ * FR-1201a: marks an intent carrying a photograph Latch itself took, in the intent's `data`.
+ *
+ * Started explicitly by `MainActivity` and reachable no other way — `CaptureActivity`'s exported
+ * filters are the three §5.2 layers, none of which matches an intent with no action, so this
+ * cannot be set by anything outside the app.
+ */
+const val EXTRA_CARD_PHOTO = "com.latch.android.extra.CARD_PHOTO"
 
 /**
  * FR-208/FR-211: the key of a notification capture held in memory.
@@ -125,6 +142,13 @@ fun Intent.toCaptureRequest(
     Intent.ACTION_SEND -> sharedContent()
 
     else -> when {
+        // FR-1201a. Before the clipboard test rather than after it, because this intent carries
+        // neither an action nor a clipboard flag and would otherwise fall to Nothing.
+        getBooleanExtra(EXTRA_CARD_PHOTO, false) ->
+            data?.let {
+                CaptureRequest.Image(uri = it, layer = CaptureLayer.CAMERA, cardPath = true)
+            } ?: CaptureRequest.Nothing()
+
         getBooleanExtra(EXTRA_READ_CLIPBOARD, false) ->
             readClipboard(context)?.let(CaptureRequest::Ready)
                 ?: CaptureRequest.Nothing(fromEmptyClipboard = true)

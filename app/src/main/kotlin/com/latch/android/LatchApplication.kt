@@ -744,6 +744,9 @@ class LatchApplication : Application() {
                 settings = settingsStore,
                 secrets = secrets,
                 queue = writeQueue,
+                // FR-1212. Missing here until SRS 1.121, which is a defect and not a reading:
+                // a held card is somebody else's contact details and survived "delete everything".
+                cards = cardQueue,
             )
 
             // FR-210's memory is data too, and NFR-205 says "all local data".
