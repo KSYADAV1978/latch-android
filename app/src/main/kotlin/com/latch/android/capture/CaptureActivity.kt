@@ -335,6 +335,10 @@ class CaptureActivity : ComponentActivity() {
                                 classified.draft.phones.forEach { Log.i("LatchCardOcr", "  phone=${it.number} type=${it.type}") }
                                 classified.draft.emails.forEach { Log.i("LatchCardOcr", "  email=${it.address}") }
                                 classified.draft.urls.forEach { Log.i("LatchCardOcr", "  url=$it") }
+                                // Logged because its absence was mistaken for a missing address on a
+                                // real card: the lines were neither in the draft nor in unplaced, and
+                                // the instrument was what could not see them.
+                                classified.draft.addresses.forEach { Log.i("LatchCardOcr", "  address=$it") }
                                 classified.unplaced.forEach { Log.i("LatchCardOcr", "  unplaced=$it") }
                             }
                             if (classified.draft.isEmpty) {
