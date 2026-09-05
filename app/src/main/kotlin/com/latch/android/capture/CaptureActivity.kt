@@ -25,6 +25,7 @@ import com.latch.android.cards.CardCreated
 import com.latch.android.cards.undoCardCreated
 import com.latch.android.cards.CardOffer
 import com.latch.android.cards.CardPhotoCoverage
+import com.latch.android.cards.CardPhotoEncoder
 import com.latch.android.cards.CardPhotoStep
 import com.latch.android.cards.canAddCardPhoto
 import com.latch.android.cards.cardLinesOf
@@ -461,7 +462,14 @@ class CaptureActivity : ComponentActivity() {
                         (open.payload != captured.text || open.photos != coverage)
                     ) {
                         photoCardState(captured.text, coverage)?.let { rebuilt ->
-                            cardState = rebuilt.copy(edits = open.edits)
+                            // FR-1226's tick travels with FR-1205's edits, and for the same
+                            // reason: adding the back of a card must not silently untick a box the
+                            // user set, which would send no photograph while the sheet said it
+                            // would. It is a user answer, not a parse.
+                            cardState = rebuilt.copy(
+                                edits = open.edits,
+                                attachPhoto = open.attachPhoto,
+                            )
                         }
                     }
                 }
@@ -479,6 +487,14 @@ class CaptureActivity : ComponentActivity() {
                             fromCamera && sheet.fromPhoto && canAddCardPhoto(coverage?.added ?: 0)
                         ) ({ addAnotherCardPhoto() }) else null,
                         readingPhoto = readingPhoto,
+                        // FR-1226. Offered only where there is an image to attach, which is the
+                        // photographed path — a card decoded from a QR grammar has no photograph,
+                        // and drawing a tick that could do nothing would be a control that lies.
+                        onAttachPhoto = if (fromCamera && sheet.fromPhoto) {
+                            { on -> cardState = sheet.copy(attachPhoto = on) }
+                        } else null,
+                        // FR-1212's consequence, said before the save rather than after it.
+                        photoWouldBeHeld = destinations == null,
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
                         saveResult = cardSave,
@@ -497,9 +513,12 @@ class CaptureActivity : ComponentActivity() {
                                     else -> null
                                 }
                                 val removal = if (created == null) null else {
-                                    undoCardCreated(created, app.contactsApi) { id ->
-                                        app.cardQueue.drop(id)
-                                    }
+                                    undoCardCreated(
+                                        created = created,
+                                        contacts = app.contactsApi,
+                                        dropQueued = { id -> app.cardQueue.drop(id) },
+                                        log = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
+                                    )
                                 }
                                 cardUndoing = false
                                 cardSavedAt = null
@@ -520,10 +539,28 @@ class CaptureActivity : ComponentActivity() {
                             // closes on a tap outside it and a write in flight must still finish.
                             // `CaptureSaver` is held for the same reason.
                             app.appScope.launch {
+                                // FR-1226. Encoded here rather than in the saver, which keeps its
+                                // promise of no `android.*` import — and encoded **now** rather
+                                // than when the box was ticked, because the photographs are still
+                                // on disk until this capture closes and doing it on the tick would
+                                // spend a second of the user's time on a save they may not make.
+                                //
+                                // **The first photograph**, where FR-1225 supplied several: it is
+                                // the front, and choosing among them is a question no requirement
+                                // asks.
+                                val jpeg = if (!sheet.attachPhoto) null else {
+                                    cardPhotoFiles(cacheDir).firstOrNull()?.let { file ->
+                                        runCatching {
+                                            CardPhotoEncoder(this@CaptureActivity)
+                                                .squareJpeg(cardPhotoUriFor(this@CaptureActivity, file))
+                                        }.getOrNull()
+                                    }
+                                }
                                 cardSave = app.cardSaver.save(
                                     draft = sheet.edited,
                                     payload = sheet.payload,
                                     layer = captured?.layer?.name ?: "SHARED_IMAGE",
+                                    photoJpeg = jpeg,
                                 )
                                 cardSavedAt = Instant.now()
                             }

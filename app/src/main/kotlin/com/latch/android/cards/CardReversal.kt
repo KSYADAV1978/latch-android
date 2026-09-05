@@ -58,10 +58,33 @@ data class CardRemoval(val attempted: Int, val removed: Int) {
 suspend fun undoCardCreated(
     created: CardCreated,
     contacts: ContactsApi,
+    /**
+     * What the delete actually did, for the log.
+     *
+     * **Because "removed" is weaker than it looks** (SRS 1.129). `ContactsRest.deleteContact`
+     * treats `alreadyGone` — a 404 or a 410 — as success, which is right when a user has removed
+     * the contact by hand and is *indistinguishable from a request Google never routed*: the
+     * first device run of FR-1226 proved that a wrong method binding on this API answers 404 with
+     * no reason string. So an undo that deletes nothing can report that it deleted, and SRS
+     * 1.125's sentence on screen would say so honestly and still be wrong.
+     *
+     * This does not fix that. It makes the next run readable, which is what SRS 1.72 did for save
+     * decisions when the phone could not say which query had answered.
+     */
+    log: (String) -> Unit = {},
+    /**
+     * Last, so that the trailing-lambda call sites this function already had keep meaning what
+     * they meant — a diagnostic added at the end would silently have rebound every one of them.
+     */
     dropQueued: suspend (String) -> Boolean,
 ): CardRemoval = when (created) {
     is CardCreated.Written -> {
-        val removed = runCatching { contacts.deleteContact(created.resourceName) }.isSuccess
+        val outcome = runCatching { contacts.deleteContact(created.resourceName) }
+        val removed = outcome.isSuccess
+        log(
+            "card undo delete=" + if (removed) "accepted" else
+                (outcome.exceptionOrNull()?.javaClass?.simpleName ?: "refused")
+        )
         CardRemoval(attempted = 1, removed = if (removed) 1 else 0)
     }
 

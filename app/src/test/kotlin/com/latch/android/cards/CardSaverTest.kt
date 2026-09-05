@@ -15,6 +15,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlin.test.assertContentEquals
+import kotlin.test.assertNull
 
 /**
  * FR-1206, FR-1207 and FR-1208 at the seam where they meet.
@@ -25,6 +27,43 @@ import kotlinx.coroutines.test.runTest
  * indexes on the hash the write actually carried.
  */
 class CardSaverTest {
+
+    // ---- FR-1226: the card as the contact's photo ---------------------------------------------
+
+    @Test
+    fun `a photograph is attached after the contact, to the contact just created`() = runTest {
+        val contacts = FakeContacts()
+        val jpeg = byteArrayOf(1, 2, 3)
+        val result = CardSaver(contacts).save(draft, payload, "CAMERA", photoJpeg = jpeg)
+
+        val saved = assertIs<CardSaveResult.Saved>(result)
+        assertEquals(CardPhotoUpload.ATTACHED, saved.photo)
+        // The resource name it was sent to is the one the create returned. A fake that ignored
+        // its argument could not have caught this, which is the lesson findEventBySourceHash left.
+        assertEquals(saved.resourceName, contacts.photoFor)
+        assertContentEquals(jpeg, contacts.photoBytes)
+    }
+
+    @Test
+    fun `a photograph Google refuses does not fail the contact`() = runTest {
+        // FR-1226 in one assertion. The contact is the whole of what the user came for, and a save
+        // reported as failed would invite a retry that wrote a second contact.
+        val contacts = FakeContacts().apply { photoFails = true }
+        val result = CardSaver(contacts).save(draft, payload, "CAMERA", photoJpeg = byteArrayOf(9))
+
+        val saved = assertIs<CardSaveResult.Saved>(result)
+        assertEquals(CardPhotoUpload.FAILED, saved.photo)
+        assertTrue(saved.resourceName.isNotBlank(), "the contact was lost with the photograph")
+    }
+
+    @Test
+    fun `no photograph is sent when none was asked for`() = runTest {
+        val contacts = FakeContacts()
+        val result = CardSaver(contacts).save(draft, payload, "CAMERA")
+
+        assertEquals(CardPhotoUpload.NOT_REQUESTED, assertIs<CardSaveResult.Saved>(result).photo)
+        assertNull(contacts.photoFor, "a photograph was sent that nobody asked for")
+    }
 
     private class FakeContacts : ContactsApi {
         /** Indexed by the source hash the created contact carried, which is the whole point. */
@@ -44,6 +83,17 @@ class CardSaverTest {
 
         override suspend fun deleteContact(resourceName: String) {
             deleted += resourceName
+        }
+
+        /** FR-1226. Records rather than answers by fixture, for `findEventBySourceHash`'s reason. */
+        var photoFails = false
+        var photoFor: String? = null
+        var photoBytes: ByteArray? = null
+
+        override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) {
+            if (photoFails) throw RuntimeException("photo refused")
+            photoFor = resourceName
+            photoBytes = jpeg
         }
 
         override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch {
@@ -192,6 +242,26 @@ class CardSaverTest {
 /** FR-1212's half of the saver: a card that cannot be written is held, not lost. */
 class CardSaverHoldTest {
 
+    @Test
+    fun `a held card drops its photograph and says so`() = runTest {
+        // FR-1226 and FR-1211 together. The FR-1212 queue is persistent storage and a third
+        // party's photograph must not reach it — so the bytes go, deliberately, and the sheet is
+        // given something to say rather than the user being left to notice the absence later.
+        val saver = CardSaver(FailingContacts(), hold = { _, _, _, _ -> "entry-9" })
+        val result = saver.save(draft, payload, "CAMERA", photoJpeg = byteArrayOf(1, 2, 3))
+
+        val held = assertIs<CardSaveResult.Held>(result)
+        assertEquals("entry-9", held.entryId)
+        assertEquals(CardPhotoUpload.NOT_HELD, held.photo)
+    }
+
+    @Test
+    fun `a held card that never wanted a photograph says nothing about one`() = runTest {
+        val saver = CardSaver(FailingContacts(), hold = { _, _, _, _ -> "entry-9" })
+        val held = assertIs<CardSaveResult.Held>(saver.save(draft, payload, "CAMERA"))
+        assertEquals(CardPhotoUpload.NOT_REQUESTED, held.photo)
+    }
+
     private class FailingContacts(private val alsoFailCreate: Boolean = false) : ContactsApi {
         var created = 0
         override suspend fun createContact(person: ContactWrite): String {
@@ -200,6 +270,7 @@ class CardSaverHoldTest {
             return "people/c1"
         }
         override suspend fun deleteContact(resourceName: String) = Unit
+        override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
         override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch =
             throw RuntimeException("offline")
     }
@@ -229,6 +300,7 @@ class CardSaverHoldTest {
             override suspend fun createContact(person: ContactWrite): String =
                 throw RuntimeException("network went")
             override suspend fun deleteContact(resourceName: String) = Unit
+            override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
             override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
         }
         val saver = CardSaver(contacts, hold = { _, _, _, _ -> "entry-2" })

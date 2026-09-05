@@ -114,6 +114,14 @@
       Shown only when a photograph gave no text — the cap is enforced by withdrawing the control,
       so nothing is ever taken and then ignored.
     -->
+    <!--
+      FR-1226: the only control in this application that sends an image anywhere. The label says
+      what happens rather than naming a setting, and "this photo" rather than "the card" because
+      with FR-1225 there may be several and it is the first that is used.
+    -->
+    <string name="card_attach_photo">Use this photo as the contact’s picture</string>
+    <string name="card_photo_failed">The contact was saved, but Google would not take the picture. Everything else is there.</string>
+    <string name="card_photo_not_held">No connection, so the picture cannot be sent. The contact will be saved without it — Latch never keeps the photo on your phone.</string>
     <string name="card_photos_read">%1$d of %2$d photos read. One gave Latch nothing — retake it if it matters.</string>
     <!--
       FR-1201a: the photograph was taken from Latch's own card button, so the user has already

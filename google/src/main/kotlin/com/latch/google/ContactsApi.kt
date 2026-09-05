@@ -20,6 +20,19 @@ interface ContactsApi {
     suspend fun deleteContact(resourceName: String)
 
     /**
+     * FR-1226: the photographed card becomes the contact's photo.
+     *
+     * **The one place an image leaves the device**, which FR-216 was amended by name to allow. It
+     * is a second request after [createContact] and it is allowed to fail without failing the
+     * save — a contact with no photo is the whole of what the user came for, and NFR-303 asks
+     * that the outcome be *said* rather than that the save be reported as lost.
+     *
+     * [jpeg] is already square and already scaled; see `letterboxPlacement` for why the card is
+     * fitted inside the circle Google will crop it to rather than to the square's own edges.
+     */
+    suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray)
+
+    /**
      * FR-1208: is this exact card already in the account?
      *
      * Answers by scanning the user's connections and comparing `latch.card.source_hash`, because
@@ -76,6 +89,18 @@ fun createContactUrl(): String =
     "$PEOPLE_BASE/people:createContact?personFields=names,emailAddresses,clientData"
 
 fun deleteContactUrl(resourceName: String): String = "$PEOPLE_BASE/$resourceName:deleteContact"
+
+/**
+ * FR-1226's write.
+ *
+ * **No query parameters.** `updateContactPhoto` takes `personFields` as a field of the request
+ * *body*, not of the URL, and Google rejects an unknown query parameter outright — the first
+ * device run of this path came back refused with the photograph never leaving, while the contact
+ * beside it saved perfectly. The first version carried `?personFields=photos` here **and** in the
+ * body, which is how a redundant copy became a failure.
+ */
+fun updateContactPhotoUrl(resourceName: String): String =
+    "$PEOPLE_BASE/$resourceName:updateContactPhoto"
 
 /**
  * FR-1208's scan.

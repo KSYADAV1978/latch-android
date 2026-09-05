@@ -42,6 +42,7 @@ class CardQueueTest {
         }
 
         override suspend fun deleteContact(resourceName: String) = Unit
+        override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
 
         override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch {
             searches++
@@ -164,6 +165,7 @@ class HeldCardDrainTest {
             return "people/${written.size}"
         }
         override suspend fun deleteContact(resourceName: String) = Unit
+        override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
         override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
     }
 

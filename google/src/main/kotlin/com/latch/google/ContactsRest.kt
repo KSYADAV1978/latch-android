@@ -1,5 +1,6 @@
 package com.latch.google
 
+import java.util.Base64
 import com.latch.google.json.JSONArray
 import com.latch.google.json.JSONObject
 
@@ -29,6 +30,26 @@ class ContactsRest(private val http: GoogleHttp) : ContactsApi {
             // for a contact somebody removed by hand in the meantime.
             if (!alreadyGone(rejected)) throw rejected
         }
+    }
+
+    override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) {
+        // **Base64 and not multipart**: the People API takes the bytes as a string field on an
+        // ordinary JSON body, which is what keeps this request inside `GoogleHttp` and therefore
+        // inside AC-17's `ALLOWED_HOSTS` guard like every other request this project composes.
+        //
+        // The *standard* alphabet, not the URL-safe one. `photoBytes` is a JSON string value and
+        // not a path segment, and Google's own clients send standard Base64 here; sending the
+        // URL-safe alphabet would substitute `-` and `_` for `+` and `/` and be rejected as
+        // malformed for a reason nothing in the response would name.
+        val body = JSONObject()
+            .put("photoBytes", Base64.getEncoder().encodeToString(jpeg))
+            .put("personFields", "photos")
+        // **PATCH, and it is not a style choice** (SRS 1.128). `updateContactPhoto` is bound to
+        // PATCH in the People API, as `updateContact` is; only `createContact` is a POST. A POST
+        // to a PATCH-only binding is not a 405 — Google's front end finds no method at that path
+        // and answers **404 with no reason string**, which reads exactly like a contact that does
+        // not exist and sent the first device run looking at the resource name.
+        http.patch(updateContactPhotoUrl(resourceName), body)
     }
 
     override suspend fun findContactBySourceHash(sourceHash: String): ContactDuplicateSearch =

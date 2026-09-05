@@ -31,6 +31,12 @@ import com.latch.android.cards.CardSaveBlocker
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardSaveBlocker
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Checkbox
+import androidx.compose.ui.Alignment
+import com.latch.android.cards.CardPhotoUpload
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 
 /**
  * FR-1205 and FR-1213: the card preview.
@@ -69,6 +75,15 @@ fun CardScreen(
     onAddPhoto: (() -> Unit)? = null,
     /** FR-1225: a photograph is being recognised into this capture right now. */
     readingPhoto: Boolean = false,
+    /**
+     * FR-1226: the user may attach the card itself as the contact's photo.
+     *
+     * Null means the control is not offered — a card decoded from a QR grammar has no photograph
+     * to attach. Offered, it is **off** every time: see `CardSheetState.attachPhoto`.
+     */
+    onAttachPhoto: ((Boolean) -> Unit)? = null,
+    /** FR-1226 and FR-1212: there is no network, so a photograph would be dropped rather than sent. */
+    photoWouldBeHeld: Boolean = false,
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -103,6 +118,43 @@ fun CardScreen(
                 // caption for whichever field happens to sit above it (SRS 1.113).
                 if (state.fromPhoto) {
                     Note(stringResource(R.string.card_from_photo))
+                }
+
+                // FR-1226. **The only control in this application that sends an image anywhere**,
+                // which is why it is a tick the user sets for this card and not a setting they set
+                // once — FR-216 was amended by name for it, and the image is somebody else's.
+                if (onAttachPhoto != null) {
+                    // **The whole row is the target, not the box.** Watched on a device: tapping
+                    // the label did nothing, which is Material's default and is wrong on a
+                    // floating sheet where every control is already tight — this project has
+                    // already paid once for an action that was hard to hit here. `toggleable`
+                    // also collapses the row into a single semantics node, which is what a screen
+                    // reader should hear (NFR-401) rather than a box and a caption side by side.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = state.attachPhoto,
+                                onValueChange = onAttachPhoto,
+                                role = Role.Checkbox,
+                            ),
+                    ) {
+                        // Null, so the row owns the click rather than competing with it — the
+                        // Material pattern for a labelled checkbox.
+                        Checkbox(checked = state.attachPhoto, onCheckedChange = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.card_attach_photo),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    // Said **before** the save and not only after it. A user who ticks the box with
+                    // no network would otherwise learn that the photograph was dropped by noticing
+                    // its absence on the contact days later.
+                    if (state.attachPhoto && photoWouldBeHeld) {
+                        Note(stringResource(R.string.card_photo_not_held))
+                    }
                 }
 
                 // FR-1225's report, on FR-207's pattern and for FR-207's reason: a photograph that
@@ -210,8 +262,11 @@ fun CardScreen(
                 is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
                 // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
                 // reassuring direction: the account holds nothing yet.
-                is CardSaveResult.Held -> Note(stringResource(R.string.card_held))
-                is CardSaveResult.Saved ->
+                is CardSaveResult.Held -> {
+                    Note(stringResource(R.string.card_held))
+                    PhotoOutcome(saveResult.photo)
+                }
+                is CardSaveResult.Saved -> {
                     Note(
                         stringResource(
                             // A write made without an answer says so. SRS 5.8's rule reaching a
@@ -219,6 +274,11 @@ fun CardScreen(
                             if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
                         )
                     )
+                    // FR-1226, **beside** the save and never instead of it. A photograph Google
+                    // would not take is not a contact that failed to save, and saying so in the
+                    // same breath as "Saved" is what keeps those two facts apart.
+                    PhotoOutcome(saveResult.photo)
+                }
                 else -> Unit
             }
 
@@ -274,6 +334,22 @@ fun CardScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * FR-1226's outcome, in one place so the saved and held branches cannot drift apart.
+ *
+ * **Silent where the user did not ask.** Three states exist and only two are worth a sentence:
+ * telling somebody their card was not attached when they never asked for it to be is noise, and
+ * noise on this sheet costs the lines that matter.
+ */
+@Composable
+private fun PhotoOutcome(upload: CardPhotoUpload) {
+    when (upload) {
+        CardPhotoUpload.NOT_REQUESTED, CardPhotoUpload.ATTACHED -> Unit
+        CardPhotoUpload.FAILED -> Note(stringResource(R.string.card_photo_failed))
+        CardPhotoUpload.NOT_HELD -> Note(stringResource(R.string.card_photo_not_held))
     }
 }
 

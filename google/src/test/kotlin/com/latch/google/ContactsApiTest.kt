@@ -129,6 +129,11 @@ class ContactsApiTest {
         listOf(
             createContactUrl(),
             deleteContactUrl("people/c123"),
+            // FR-1226 is the one place an image leaves the device, so it is the one place where a
+            // URL slipping outside the guard would send somebody else's photograph off it. AC-17
+            // covers it like everything else, which is why the request is composed here and not
+            // in a client of its own.
+            updateContactPhotoUrl("people/c123"),
             connectionsUrl(),
             connectionsUrl("token"),
         ).forEach { requireGoogleEndpoint(it) }
@@ -143,6 +148,25 @@ class ContactsApiTest {
             "https://people.googleapis.com/v1/people/c123:deleteContact",
             deleteContactUrl("people/c123"),
         )
+    }
+
+    @Test
+    fun `the photo URL does not repeat the collection either`() {
+        // The same trap the delete URL fell into: `resourceName` already carries `people/`.
+        assertEquals(
+            "https://people.googleapis.com/v1/people/c123:updateContactPhoto",
+            updateContactPhotoUrl("people/c123"),
+        )
+    }
+
+    @Test
+    fun `the photo URL carries no query parameters at all`() {
+        // **Found on a device, not by reading the reference.** `updateContactPhoto` takes
+        // `personFields` as a body field, and the first version sent it in the URL as well —
+        // Google refused the request outright while the contact beside it saved perfectly, which
+        // is exactly the shape FR-1226 says must not read as a failed save. A `?` here is a
+        // regression that costs a photograph and says nothing.
+        assertTrue('?' !in updateContactPhotoUrl("people/c123"), updateContactPhotoUrl("people/c123"))
     }
 
     @Test

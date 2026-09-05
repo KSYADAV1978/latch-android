@@ -341,6 +341,9 @@ class LatchApplication : Application() {
                     HeldCard(id = id, payload = payload, draft = draft, layer = layer, queuedAt = at),
                 ).also { WriteQueueWorker.schedule(this) }
             },
+            // FR-1226. The same guard and the same tag as every other line this app logs, and it
+            // carries a byte count and Google's own reason — never a field off the card.
+            logPhoto = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
         )
     }
 

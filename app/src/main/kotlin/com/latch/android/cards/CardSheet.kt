@@ -41,6 +41,19 @@ data class CardSheetState(
      */
     val photos: CardPhotoCoverage? = null,
     /**
+     * FR-1226: the user has asked for the card to become the contact's photo.
+     *
+     * **Off by default and never remembered between captures**, which is the requirement rather
+     * than caution: a stored preference would mean the second card's photograph left the device
+     * because of a decision taken about the first, and the image is a *third party's*. It lives on
+     * the sheet state, so it is keyed on the capture and resets with it, exactly as FR-1004 keeps
+     * entering an endpoint and enabling delivery two separate acts.
+     *
+     * Only ever true on the photographed path: there is no image to attach to a card decoded from
+     * a QR payload, which is why the control is not drawn there.
+     */
+    val attachPhoto: Boolean = false,
+    /**
      * FR-1224: this draft was read off a photograph, not decoded from a grammar.
      *
      * **It changes what the sheet says and never what the save does.** A photographed card is a

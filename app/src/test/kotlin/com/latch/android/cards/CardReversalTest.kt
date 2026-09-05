@@ -55,6 +55,7 @@ class CardReversalTest {
             if (deleteFails) throw RuntimeException("delete failed")
             deleted += resourceName
         }
+        override suspend fun updateContactPhoto(resourceName: String, jpeg: ByteArray) = Unit
         override suspend fun findContactBySourceHash(sourceHash: String) = ContactDuplicateSearch()
     }
 
