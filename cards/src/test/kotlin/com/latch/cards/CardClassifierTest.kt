@@ -119,3 +119,54 @@ class CardClassifierTest {
         assertEquals(lines.size, placed + result.unplaced.size, "a line was neither placed nor shown")
     }
 }
+
+/**
+ * The two repairs card eleven forced, tested at the seam where each could invent rather than
+ * recover — which is the only interesting half of either.
+ */
+class CardOcrRepairTest {
+
+    @Test
+    fun `a domain broken by a space is repaired`() {
+        val result = classifyCard(listOf("Email: rameshkumar.bhagat@jsw. test Phone : + 91 11 4000 8600"))
+        assertEquals(listOf("rameshkumar.bhagat@jsw.test"), result.draft.emails.map { it.address })
+    }
+
+    @Test
+    fun `prose after a full stop is not made into a domain`() {
+        // The dangerous half. `acme.` is not a valid domain either, so the repair is *offered* a
+        // following word here exactly as it was on the real card — and must refuse it, because a
+        // capitalised word is a sentence and not a top-level domain.
+        val result = classifyCard(listOf("Write to john@acme. Regards, the team"))
+        assertTrue(
+            result.draft.emails.isEmpty(),
+            "invented ${result.draft.emails.map { it.address }} from a sentence",
+        )
+    }
+
+    @Test
+    fun `a long lowercase word is not made into a domain either`() {
+        val result = classifyCard(listOf("reach us at sales@example. contact anytime"))
+        assertTrue(result.draft.emails.isEmpty(), "invented ${result.draft.emails.map { it.address }}")
+    }
+
+    @Test
+    fun `a plus separated from its country code is kept`() {
+        val result = classifyCard(listOf("Phone : + 91 11 4000 8600"))
+        assertEquals(listOf("+91 11 4000 8600"), result.draft.phones.map { it.number })
+    }
+
+    @Test
+    fun `a number with no plus does not acquire one`() {
+        val result = classifyCard(listOf("Tel 011 20001745"))
+        assertEquals(listOf("011 20001745"), result.draft.phones.map { it.number })
+    }
+
+    @Test
+    fun `the label still reaches a number the plus rule matched`() {
+        // `phoneTypeNear` reads what precedes the match, so widening the pattern leftwards is the
+        // one way this change could have broken a rule it has nothing to do with.
+        val result = classifyCard(listOf("Mobile: + 91 99000 67612"))
+        assertEquals("MOBILE", result.draft.phones.single().type)
+    }
+}

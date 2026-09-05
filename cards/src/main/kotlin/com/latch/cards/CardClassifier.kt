@@ -185,8 +185,18 @@ internal fun phoneTypeNear(line: String, numberStart: Int): String? {
     return candidates.maxByOrNull { it.second }?.first
 }
 
+/**
+ * **A country code separated from its `+` is still a country code.**
+ *
+ * A card printed `+ 91 11 4000 8600` and the pattern's `\+?` could not reach across the space, so
+ * the number arrived as `91 11 4000 8600`. That loss is quiet and it is not cosmetic: a `+` is
+ * what makes a number dialable from another country, and its absence is invisible on the preview
+ * — the digits are all there and all correct. The space is only ever allowed **after a `+` that
+ * is actually present**, so a number with no country code cannot swallow the space before it and
+ * shift the label search `phoneTypeNear` runs.
+ */
 internal fun tidyNumber(raw: String): String = raw.trim().replace(NUMBER_NOISE, " ")
-    .replace(WHITESPACE, " ").trim()
+    .replace(WHITESPACE, " ").trim().replace(PLUS_GAP, "+")
 
 /**
  * **A space before the `@` is OCR's, not the card's.**
@@ -257,14 +267,33 @@ internal fun addressAmong(lines: List<String>): List<String> {
 private fun isAddressNeighbour(line: String): Boolean =
     ',' in line && !hasOrganisationSuffix(line) && !looksLikeJobTitle(line)
 
-private val EMAIL = Regex("[A-Za-z0-9._%+-]+\\s?@\\s?[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+/**
+ * **The second half of the space rule: OCR breaks a domain as readily as it breaks an `@`.**
+ *
+ * A real card printed `rameshkumar.bhagat@jsw.test` and it was recognised as `jsw. in` — a space
+ * after the dot rather than before the `@` — so the pattern matched nothing and the address was
+ * dropped whole, exactly as `tidyEmail`'s card lost one before it.
+ *
+ * The spaced branch is **narrower than the ordinary one and deliberately so**, because it is the
+ * branch that could invent an address. It fires only where the alternative is certain loss: an
+ * address ending in a bare dot is not a valid address, so nothing correct is being overwritten,
+ * and it takes only a short *lowercase* run after the space. That is what keeps prose out —
+ * `write to john@acme. Regards` offers `Regards`, which is capitalised and refused.
+ *
+ * **The trailing lookahead is not decoration**, and the test that demanded it was written before
+ * the code that satisfies it. Without it the short run matched a *prefix* of a longer word, so
+ * `sales@example. contact anytime` invented `sales@example.cont` — a domain that is nobody's,
+ * built out of a word that was not a domain at all. The run has to be the whole token.
+ */
+private val EMAIL =
+    Regex("[A-Za-z0-9._%+-]+\\s?@\\s?[A-Za-z0-9.-]+\\.(?:[A-Za-z]{2,}|\\s[a-z]{2,4}(?![A-Za-z]))")
 private val URL = Regex("(https?://|www\\.)[A-Za-z0-9./?=_%+-]+", RegexOption.IGNORE_CASE)
 
 /**
  * Seven digits at least, and the floor is the whole of the rule's safety: without it "12 Nehru
  * Road, 411001" yields a number, and a wrong number on a contact is not visibly wrong.
  */
-private val PHONE = Regex("\\+?[0-9][0-9 ()\\-.]{5,}[0-9]")
+private val PHONE = Regex("(?:\\+\\s?)?[0-9][0-9 ()\\-.]{5,}[0-9]")
 private const val MIN_PHONE_DIGITS = 8
 
 /**
@@ -278,6 +307,7 @@ private const val MIN_PHONE_DIGITS = 8
 private val POSTCODE = Regex("(?<!\\d)(\\d{5,6}|\\d{3}\\s\\d{3})(?!\\d)")
 
 private val NUMBER_NOISE = Regex("[()\\-.]+")
+private val PLUS_GAP = Regex("^\\+\\s+")
 private val WHITESPACE = Regex("\\s+")
 
 /** Words as a card writes them: spaces, commas, ampersands and full stops all separate. */
