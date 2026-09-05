@@ -123,7 +123,14 @@ internal fun looksLikePersonName(line: String): Boolean {
     if (line.any { it in SEPARATORS }) return false
     val words = line.split(WHITESPACE).filter { it.isNotBlank() }
     if (words.size !in 2..4) return false
-    return words.all { word -> word.all { it.isLetter() || it in NAME_PUNCTUATION } }
+    if (!words.all { word -> word.all { it.isLetter() || it in NAME_PUNCTUATION } }) return false
+
+    // **Every word is capitalised, or is a name particle** (SRS 1.111). Two words was not enough:
+    // a real card carried the strapline "Trade with Trust", which is three words of letters and
+    // was taken as somebody's name while *Madhavan Iyer* sat unplaced two lines below. What
+    // separates them is the lowercase "with" — a person capitalises every part of their name and
+    // a slogan does not.
+    return words.all { word -> word.first().isUpperCase() || word.lowercase() in NAME_PARTICLES }
 }
 
 /**
@@ -254,6 +261,17 @@ private val WORD_BREAK = Regex("[\\s,&.]+")
 private val SINGLE_LETTER_LABELS = setOf('m', 't', 'f', 'o', 'd')
 private val SEPARATORS = setOf('|', ',', ':', '/')
 private val NAME_PUNCTUATION = setOf('.', '-', '\'')
+
+/**
+ * Lowercase words that legitimately appear inside a person's name.
+ *
+ * Deliberately a list rather than a rule about word length: "with", "and" and "for" are just as
+ * short as "van" and "de", and they are exactly what the capitalisation test exists to reject.
+ */
+private val NAME_PARTICLES = setOf(
+    "de", "del", "della", "der", "van", "von", "da", "di", "du", "la", "le", "bin", "binte",
+    "al", "el", "ibn", "ter", "ten", "dos", "das",
+)
 
 // Single letters are matched with a following space or colon, so "m " counts and "member" does
 // not. Longer words are matched anywhere, since a card writes "Mobile" and "Mob." alike.
