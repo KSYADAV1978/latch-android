@@ -1,11 +1,14 @@
 package com.latch.android.capture
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -13,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.latch.android.BuildConfig
 import com.latch.android.cards.CardDismiss
@@ -20,9 +24,14 @@ import com.latch.android.cards.cardDismiss
 import com.latch.android.cards.CardCreated
 import com.latch.android.cards.undoCardCreated
 import com.latch.android.cards.CardOffer
+import com.latch.android.cards.CardPhotoCoverage
 import com.latch.android.cards.CardPhotoStep
+import com.latch.android.cards.canAddCardPhoto
+import com.latch.android.cards.cardLinesOf
+import com.latch.android.cards.cardPhotoFiles
 import com.latch.android.cards.cardPhotoStep
 import com.latch.android.cards.clearCardPhotos
+import com.latch.android.cards.nextCardPhotoFile
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardOffer
@@ -57,6 +66,7 @@ import com.latch.wire.saveRoute
 import com.latch.wire.SheetEdits
 import com.latch.wire.draftItems
 import com.latch.wire.withEdits
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
@@ -103,6 +113,56 @@ sealed interface CaptureContent {
  */
 class CaptureActivity : ComponentActivity() {
 
+    /**
+     * FR-1203's decode result, held apart from the recognition it runs beside.
+     *
+     * **Null is "not decoded yet", and the two-valued flow could not say it** (SRS 1.119). An
+     * empty list meant both "still decoding" and "no code in this image", which was harmless
+     * while a human tap read it — the offer simply firmed up from AVAILABLE to DETECTED — and is
+     * not harmless now that FR-1201a's camera path opens the sheet on its own.
+     *
+     * **A field rather than a local** since FR-1225: another photograph arrives at an Activity
+     * result callback, which is outside `onCreate`'s scope and has to be able to publish into it.
+     */
+    private val cardPayloads = MutableStateFlow<List<String>?>(null)
+
+    /** What this screen has to show. See [CaptureContent]; a field for [cardPayloads]' reason. */
+    private val content = MutableStateFlow<CaptureContent>(CaptureContent.Ready(null))
+
+    /** FR-1225: how many photographs this capture holds, and how many of them yielded text. */
+    private val cardCoverage = MutableStateFlow<CardPhotoCoverage?>(null)
+
+    /**
+     * FR-1225: a photograph is being recognised into the capture in hand.
+     *
+     * Blocks the save while it stands, which is correctness rather than politeness — a save that
+     * raced the back of the card would write a contact missing it, silently, against a card that
+     * is no longer in the user's hand.
+     */
+    private val readingCardPhoto = MutableStateFlow(false)
+
+    /**
+     * FR-1225: take another photograph into the capture already open.
+     *
+     * Registered as a field, which `ComponentActivity` handles before STARTED and gives a stable
+     * key — the same reason `MainActivity`'s three launchers are fields. A composition-scoped one
+     * would key itself off a composition that changes shape between the capture sheet and the
+     * card sheet, and a key that moves is a result delivered to no one.
+     */
+    private val addCardPhoto = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { taken ->
+        if (taken) {
+            // Everything is re-read from disk, this photograph included: the set is enumerated
+            // rather than remembered, so there is nothing here to append to.
+            extractCardPhotos(SystemClock.elapsedRealtime())
+        } else {
+            // Abandoned in the camera. No file was written, so the next attempt reuses the index
+            // and nothing needs cleaning up.
+            readingCardPhoto.value = false
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as LatchApplication
@@ -132,28 +192,19 @@ class CaptureActivity : ComponentActivity() {
 
         // Text is resolved before the first frame, as it always was. Only an OCR capture
         // starts as Extracting and arrives later.
-        // FR-1203's decode result, held apart from the recognition it runs beside — see the
-        // Image branch below for why this is not a field on CaptureContent.
-        //
-        // **Null is "not decoded yet", and the two-valued flow could not say it** (SRS 1.119).
-        // An empty list meant both "still decoding" and "no code in this image", which was
-        // harmless while a human tap read it — the offer simply firmed up from AVAILABLE to
-        // DETECTED — and is not harmless now that FR-1201a's camera path opens the sheet on its
-        // own: a card carrying a QR would be classified off its own photograph while the payload
-        // was still arriving.
-        val cardPayloads = MutableStateFlow<List<String>?>(null)
-
-        val content = MutableStateFlow<CaptureContent>(
-            when (request) {
-                is CaptureRequest.Ready -> CaptureContent.Ready(request.captured.copy(appId = referrer))
-                is CaptureRequest.Nothing -> CaptureContent.Ready(null)
-                is CaptureRequest.Image, is CaptureRequest.Pdf -> CaptureContent.Extracting()
-            }
-        )
-        if (request is CaptureRequest.Image || request is CaptureRequest.Pdf) {
-            extract(request, referrer, content, cardPayloads, openedAt)
-        } else {
-            logContentReady(openedAt, content.value)
+        content.value = when (request) {
+            is CaptureRequest.Ready -> CaptureContent.Ready(request.captured.copy(appId = referrer))
+            is CaptureRequest.Nothing -> CaptureContent.Ready(null)
+            is CaptureRequest.Image, is CaptureRequest.Pdf -> CaptureContent.Extracting()
+        }
+        when {
+            // FR-1201a and FR-1225. Its own path, because the card capture reads *every*
+            // photograph on disk rather than the one URI an intent carries — which is also what
+            // makes a rotation cost a re-recognition instead of every side but the first.
+            request is CaptureRequest.Image && request.cardPath -> extractCardPhotos(openedAt)
+            request is CaptureRequest.Image || request is CaptureRequest.Pdf ->
+                extract(request, referrer, content, cardPayloads, openedAt)
+            else -> logContentReady(openedAt, content.value)
         }
 
         setContent {
@@ -161,6 +212,8 @@ class CaptureActivity : ComponentActivity() {
                 val destinations by app.configuredAccounts.collectAsState()
                 val saveState by app.captureSaver.state.collectAsState()
                 val captureContent by content.collectAsState()
+                val coverage by cardCoverage.collectAsState()
+                val readingPhoto by readingCardPhoto.collectAsState()
                 val settings by app.settings.collectAsState()
 
                 /*
@@ -329,50 +382,9 @@ class CaptureActivity : ComponentActivity() {
                         // costs nothing beyond the classification, and reusing it is the reason
                         // FR-1220 says to use `:ocr` unchanged.
                         else -> {
-                            val recognised = captured?.text?.lines().orEmpty()
-                            val classified = classifyCard(recognised)
-                            // **A diagnostic that deliberately prints card content** (SRS 1.108),
-                            // which nothing else in this application does: `LatchTiming` carries
-                            // an enum and a boolean and structurally cannot leak. It exists to
-                            // build FR-1222's corpus from real cards, it is debug-only, and it is
-                            // recorded so that its removal is a decision rather than an oversight.
-                            if (BuildConfig.DEBUG) {
-                                Log.i("LatchCardOcr", "--- recognised ${recognised.size} line(s)")
-                                recognised.forEachIndexed { i, l -> Log.i("LatchCardOcr", "  [$i] $l") }
-                                Log.i("LatchCardOcr", "--- classified")
-                                Log.i("LatchCardOcr", "  name=${classified.draft.displayName}")
-                                Log.i("LatchCardOcr", "  title=${classified.draft.jobTitle}")
-                                Log.i("LatchCardOcr", "  org=${classified.draft.organisation}")
-                                classified.draft.phones.forEach { Log.i("LatchCardOcr", "  phone=${it.number} type=${it.type}") }
-                                classified.draft.emails.forEach { Log.i("LatchCardOcr", "  email=${it.address}") }
-                                classified.draft.urls.forEach { Log.i("LatchCardOcr", "  url=$it") }
-                                // Logged because its absence was mistaken for a missing address on a
-                                // real card: the lines were neither in the draft nor in unplaced, and
-                                // the instrument was what could not see them.
-                                classified.draft.addresses.forEach { Log.i("LatchCardOcr", "  address=$it") }
-                                classified.unplaced.forEach { Log.i("LatchCardOcr", "  unplaced=$it") }
-                            }
-                            if (classified.draft.isEmpty) {
-                                cardMessage = R.string.card_no_code
-                            } else {
-                                cardState = CardSheetState(
-                                    // FR-1223's lines become the note, so what could not be
-                                    // placed is carried rather than shown and then dropped
-                                    // (SRS 1.113). The classifier stays pure: it reports what it
-                                    // could not place, and this decides what to do about it.
-                                    parsed = classified.draft.copy(
-                                        note = classified.unplaced
-                                            .joinToString(System.lineSeparator())
-                                            .takeIf { it.isNotBlank() },
-                                    ),
-                                    // No payload: FR-1208's hash comes from the recognised text
-                                    // for this path, which SRS 1.30 records as wobblier than a
-                                    // decoded one — the same image recognised twice can differ.
-                                    payload = captured?.text.orEmpty(),
-                                    unplaced = classified.unplaced,
-                                    fromPhoto = true,
-                                )
-                            }
+                            val state = photoCardState(captured?.text.orEmpty(), coverage)
+                            if (state == null) cardMessage = R.string.card_no_code
+                            else cardState = state
                         }
                     }
                 }
@@ -421,10 +433,36 @@ class CaptureActivity : ComponentActivity() {
                     }
                 }
 
+                // FR-1225: another photograph re-classifies the **whole** capture and keeps the
+                // user's corrections. Never two drafts merged — that would apply every FR-1221
+                // rule twice and then need a conflict policy for each scalar field.
+                //
+                // **`CardSheetState` separating `parsed` from `edits` is what makes this safe**,
+                // and this is the first thing to use that separation for something other than
+                // display: without it, adding the back of a card would silently discard every
+                // field the user had just corrected.
+                LaunchedEffect(captured?.text, coverage) {
+                    val open = cardState
+                    if (open != null && open.fromPhoto && captured != null) {
+                        photoCardState(captured.text, coverage)?.let { rebuilt ->
+                            cardState = rebuilt.copy(edits = open.edits)
+                        }
+                    }
+                }
+
                 val sheet = cardState
                 if (sheet != null) {
                     CardScreen(
                         state = sheet,
+                        // FR-1225. Offered on a photographed card only, and never on one decoded
+                        // from a grammar: a vCard payload is a complete record, and merging a
+                        // second side's recognised lines into it would need exactly the conflict
+                        // policy this requirement exists to avoid. Withdrawn at the cap rather
+                        // than taking a photograph and then discarding it.
+                        onAddPhoto = if (
+                            fromCamera && sheet.fromPhoto && canAddCardPhoto(coverage?.added ?: 0)
+                        ) ({ addAnotherCardPhoto() }) else null,
+                        readingPhoto = readingPhoto,
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
                         saveResult = cardSave,
@@ -852,6 +890,135 @@ class CaptureActivity : ComponentActivity() {
     }
 
     /**
+     * FR-1220 into FR-1205: recognised lines become an editable draft, or nothing.
+     *
+     * **One classification over every photograph's lines**, which is FR-1225's own sentence and
+     * the reason this is a function rather than two call sites: it is used when the sheet first
+     * opens and again each time a side is added, and the two producing different readings of one
+     * capture is precisely the drift this pillar keeps finding.
+     */
+    private fun photoCardState(text: String, photos: CardPhotoCoverage?): CardSheetState? {
+        val recognised = text.lines()
+        val classified = classifyCard(recognised)
+        // **A diagnostic that deliberately prints card content** (SRS 1.108), which nothing else
+        // in this application does: `LatchTiming` carries an enum and a boolean and structurally
+        // cannot leak. It exists to build FR-1222's corpus from real cards, it is debug-only, and
+        // it is recorded so that its removal is a decision rather than an oversight. It is item 0
+        // on `docs/RELEASE.md`'s gate.
+        if (BuildConfig.DEBUG) {
+            Log.i("LatchCardOcr", "--- recognised ${recognised.size} line(s)")
+            recognised.forEachIndexed { i, l -> Log.i("LatchCardOcr", "  [$i] $l") }
+            Log.i("LatchCardOcr", "--- classified")
+            Log.i("LatchCardOcr", "  name=${classified.draft.displayName}")
+            Log.i("LatchCardOcr", "  title=${classified.draft.jobTitle}")
+            Log.i("LatchCardOcr", "  org=${classified.draft.organisation}")
+            classified.draft.phones.forEach { Log.i("LatchCardOcr", "  phone=${it.number} type=${it.type}") }
+            classified.draft.emails.forEach { Log.i("LatchCardOcr", "  email=${it.address}") }
+            classified.draft.urls.forEach { Log.i("LatchCardOcr", "  url=$it") }
+            // Logged because its absence was mistaken for a missing address on a real card: the
+            // lines were neither in the draft nor in unplaced, and the instrument was what could
+            // not see them.
+            classified.draft.addresses.forEach { Log.i("LatchCardOcr", "  address=$it") }
+            classified.unplaced.forEach { Log.i("LatchCardOcr", "  unplaced=$it") }
+        }
+        if (classified.draft.isEmpty) return null
+        return CardSheetState(
+            // FR-1223's lines become the note, so what could not be placed is carried rather than
+            // shown and then dropped (SRS 1.113). The classifier stays pure: it reports what it
+            // could not place, and this decides what to do about it.
+            parsed = classified.draft.copy(
+                note = classified.unplaced
+                    .joinToString(System.lineSeparator())
+                    .takeIf { it.isNotBlank() },
+            ),
+            // No payload: FR-1208's hash comes from the recognised text for this path, which
+            // SRS 1.30 records as wobblier than a decoded one and SRS 1.123 records as weaker
+            // still once a camera is involved — every shutter press is a new image.
+            payload = text,
+            unplaced = classified.unplaced,
+            photos = photos,
+            fromPhoto = true,
+        )
+    }
+
+    /**
+     * FR-1225: the camera again, into the capture already open.
+     *
+     * The file is named before the camera is asked, so the photograph the camera returns is the
+     * only thing this has to find afterwards — and it is never swept here, which is the whole
+     * difference from starting a capture.
+     */
+    private fun addAnotherCardPhoto() {
+        val file = nextCardPhotoFile(cacheDir) ?: return
+        val uri = runCatching { cardPhotoUriFor(this, file) }.getOrNull() ?: return
+        readingCardPhoto.value = true
+        // `launch` throws ActivityNotFoundException where nothing handles ACTION_IMAGE_CAPTURE.
+        // It cannot here — the capture only exists because a camera answered once — but the
+        // flag has to come back down either way or the save stays blocked for ever.
+        if (runCatching { addCardPhoto.launch(uri) }.isFailure) readingCardPhoto.value = false
+    }
+
+    /**
+     * FR-1201a and FR-1225: every photograph of the capture in hand, recognised and decoded.
+     *
+     * **Enumerated from disk, not appended to** (SRS 1.124). A rotation recreates this Activity
+     * and runs this again, which costs a second and loses nothing; state remembered in the
+     * composition would have kept the first photograph and dropped every side added after it,
+     * which loses work rather than repeating it. FR-1211 already puts them on disk, so disk was
+     * the source of truth and anything else would have been a second copy of it.
+     *
+     * The decode runs beside the recognition here rather than racing it, which is safe on this
+     * path and is not the shared-image path's arrangement: `cardPhotoStep` waits for both before
+     * the sheet opens anyway, so there is nothing for a race to win. SRS 1.100's fix is left
+     * exactly where it was, on the path that needs it.
+     */
+    private fun extractCardPhotos(openedAt: Long) {
+        lifecycleScope.launch {
+            val app = application as LatchApplication
+            val referrer = referrerPackage()
+            val files = cardPhotoFiles(cacheDir)
+            val texts = mutableListOf<String>()
+            val payloads = mutableListOf<String>()
+
+            for (file in files) {
+                val uri = runCatching { cardPhotoUriFor(this@CaptureActivity, file) }.getOrNull()
+                    ?: continue
+                runCatching { app.qrReader.readCodes(uri) }.getOrNull()
+                    ?.payloads
+                    .orEmpty()
+                    .filterTo(payloads) { looksLikeContactPayload(it) }
+                when (val result = app.ocrReader.readImage(uri)) {
+                    // A side that gave nothing is still a photograph the user took, so it is
+                    // counted rather than forgotten — that difference is the whole of what
+                    // FR-1225's coverage line reports.
+                    is OcrResult.Failed -> Unit
+                    is OcrResult.Text -> texts += result.value
+                }
+            }
+
+            cardPayloads.value = payloads
+            cardCoverage.value = CardPhotoCoverage(read = texts.size, added = files.size)
+
+            val lines = cardLinesOf(texts)
+            val next = if (lines.isEmpty()) {
+                CaptureContent.Ready(null)
+            } else {
+                CaptureContent.Ready(
+                    CapturedText(
+                        text = lines.joinToString(System.lineSeparator()),
+                        layer = CaptureLayer.CAMERA,
+                        appId = referrer,
+                        ocrUsed = true,
+                    )
+                )
+            }
+            logContentReady(openedAt, next)
+            content.value = next
+            readingCardPhoto.value = false
+        }
+    }
+
+    /**
      * FR-1211: the photograph does not outlive the capture.
      *
      * **Guarded on `isFinishing`, and that guard is the requirement rather than tidiness.** A
@@ -911,6 +1078,20 @@ class CaptureActivity : ComponentActivity() {
      */
     private fun referrerPackage(): String? = referrer?.host?.takeIf { it.isNotBlank() }
 }
+
+/**
+ * FR-1201a: a card photograph's file, as a URI the camera application can be granted.
+ *
+ * **One definition, used by both Activities**: `MainActivity` starts a capture and
+ * `CaptureActivity` adds a side to one, and two copies of an authority string is how the two
+ * eventually stop naming the same provider.
+ *
+ * The authority is named for FR-1005's exports and serves both cache roots — a `FileProvider` has
+ * one authority and as many declared paths as it needs. Renaming it would be a migration of a
+ * published component for no gain.
+ */
+internal fun cardPhotoUriFor(context: Context, file: File): Uri =
+    FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
 
 /**
  * FR-1202: is this decoded payload a contact grammar?

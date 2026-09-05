@@ -29,12 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import com.latch.android.capture.CaptureActivity
 import com.latch.android.capture.EXTRA_CARD_PHOTO
-import com.latch.android.cards.cardPhotoFile
+import com.latch.android.capture.cardPhotoUriFor
+import com.latch.android.cards.cardPhotoFiles
 import com.latch.android.cards.clearCardPhotos
-import com.latch.android.cards.newCardPhotoFile
+import com.latch.android.cards.startCardPhotoSet
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
 import com.latch.recipes.newRecipe
@@ -111,12 +111,12 @@ class MainActivity : ComponentActivity() {
     ) { taken ->
         // Recomputed rather than remembered. The camera application is in front of this process
         // and this process may not survive it; a `Uri` kept in a field would be gone and the
-        // photograph with it, where a fixed path under the cache directory is still there.
-        val file = cardPhotoFile(cacheDir)
-        if (taken && file.length() > 0L) {
+        // photograph with it, where a known path under the cache directory is still there.
+        val file = cardPhotoFiles(cacheDir).lastOrNull()
+        if (taken && file != null && file.length() > 0L) {
             startActivity(
                 Intent(this, CaptureActivity::class.java)
-                    .setData(cardPhotoUri(file))
+                    .setData(cardPhotoUriFor(this, file))
                     .putExtra(EXTRA_CARD_PHOTO, true)
                     // Redundant within one app and kept anyway: it costs nothing and it is what
                     // makes the intent correct on its own terms rather than by whose UID it is.
@@ -133,21 +133,15 @@ class MainActivity : ComponentActivity() {
     private var cardCameraMissing by mutableStateOf(false)
 
     /**
-     * The provider's authority, which is named for FR-1005's exports and serves both cache
-     * roots — a `FileProvider` has one authority and as many declared paths as it needs.
-     * Renaming it would be a migration of a published component for no gain.
-     */
-    private fun cardPhotoUri(file: java.io.File): Uri =
-        FileProvider.getUriForFile(this, "$packageName.exports", file)
-
-    /**
-     * FR-1201a and FR-1211, in the order that matters: the directory is swept and the file made
-     * *before* the camera is asked, so the photograph the camera returns is the only one there.
+     * FR-1201a and FR-1211, in the order that matters: the directory is **swept** and the first
+     * file named *before* the camera is asked, so the photograph the camera returns is the only
+     * one there. FR-1225's later sides are added by `CaptureActivity`, which does not sweep —
+     * that is the whole difference between starting a capture and extending one.
      */
     private fun captureCard() {
         cardCameraMissing = false
-        val file = newCardPhotoFile(cacheDir)
-        val uri = file?.let { runCatching { cardPhotoUri(it) }.getOrNull() }
+        val file = startCardPhotoSet(cacheDir)
+        val uri = file?.let { runCatching { cardPhotoUriFor(this, it) }.getOrNull() }
         if (uri == null) {
             cardCameraMissing = true
             return

@@ -33,6 +33,14 @@ data class CardSheetState(
      */
     val unplaced: List<String> = emptyList(),
     /**
+     * FR-1225: how many photographs this capture holds, and how many of them yielded text.
+     *
+     * Null on every path but the camera's. Drawn only where a photograph gave nothing, which is
+     * the one case FR-1225's report can arise from — the cap is enforced by withdrawing the
+     * control rather than by discarding a photograph already taken.
+     */
+    val photos: CardPhotoCoverage? = null,
+    /**
      * FR-1224: this draft was read off a photograph, not decoded from a grammar.
      *
      * **It changes what the sheet says and never what the save does.** A photographed card is a
@@ -107,9 +115,24 @@ data class CardEdits(
 enum class CardSaveBlocker {
     /** Nothing that identifies a person: no name, no number, no address. */
     NOTHING_TO_SAVE,
+
+    /**
+     * FR-1225: a photograph of this card is still being recognised.
+     *
+     * **Correctness, not politeness.** A save taken while the back of the card was still being
+     * read would write a contact missing everything on it — silently, and against a card that is
+     * no longer in the user's hand to check against. It is the same hazard FR-1224 exists for,
+     * arriving from timing rather than from OCR.
+     */
+    READING_A_PHOTO,
 }
 
-fun cardSaveBlocker(state: CardSheetState): CardSaveBlocker? {
+fun cardSaveBlocker(
+    state: CardSheetState,
+    /** FR-1225: another photograph is being recognised into this capture right now. */
+    readingPhoto: Boolean = false,
+): CardSaveBlocker? {
+    if (readingPhoto) return CardSaveBlocker.READING_A_PHOTO
     val draft = state.edited
     val hasName = !draft.displayName.isNullOrBlank() ||
         !draft.givenName.isNullOrBlank() || !draft.familyName.isNullOrBlank()

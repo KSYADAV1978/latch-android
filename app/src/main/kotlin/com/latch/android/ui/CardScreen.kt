@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,154 +58,210 @@ fun CardScreen(
     savedAt: Instant? = null,
     onUndo: () -> Unit = {},
     undoing: Boolean = false,
+    /**
+     * FR-1225: take another photograph into this same capture.
+     *
+     * **Null means the control is not offered at all**, which is every path but the camera's and,
+     * within that, every card that came from a decoded grammar. A vCard payload is a complete
+     * record and merging a second side's recognised lines into it would need exactly the conflict
+     * policy FR-1225 exists to avoid.
+     */
+    onAddPhoto: (() -> Unit)? = null,
+    /** FR-1225: a photograph is being recognised into this capture right now. */
+    readingPhoto: Boolean = false,
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
-    val blocker = cardSaveBlocker(state)
+    val blocker = cardSaveBlocker(state, readingPhoto = readingPhoto)
 
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    // **The sheet needs a background of its own** (SRS 1.122). `Theme.Latch.Capture` sets
+    // `windowBackground` to transparent so the capture window is a floating popup over
+    // whatever the user was reading; `CaptureScreen` has always drawn its own `Surface`
+    // under that, and this one never did. It went unseen through the whole 4 Sep card pass
+    // because every card arrived from a share sheet, and what showed through was a dimmed
+    // gallery. B2 put Latch's own home screen behind it — high-contrast text at the same
+    // size as the fields — and the sheet became unreadable.
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 2.dp,
     ) {
-        Text(
-            text = stringResource(R.string.card_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-
         Column(
-            modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // FR-1224, and it belongs **before the first box** rather than among them. It was
-            // landing mid-list — between the phone boxes and the address — where it reads as a
-            // caption for whichever field happens to sit above it (SRS 1.113).
-            if (state.fromPhoto) {
-                Note(stringResource(R.string.card_from_photo))
-            }
-
-            Field(R.string.card_field_name, draft.displayName) {
-                onEdit(state.edits.copy(displayName = it))
-            }
-            Field(R.string.card_field_organisation, draft.organisation) {
-                onEdit(state.edits.copy(organisation = it))
-            }
-            Field(R.string.card_field_title, draft.jobTitle) {
-                onEdit(state.edits.copy(jobTitle = it))
-            }
-
-            // Indexed against the parsed list, so an edit survives another edit and a blanked
-            // entry is a removal rather than an empty row on somebody's contact.
-            state.parsed.phones.forEachIndexed { index, phone ->
-                Field(R.string.card_field_phone, state.edits.phones[index] ?: phone.number) {
-                    onEdit(state.edits.copy(phones = state.edits.phones + (index to it)))
-                }
-            }
-            state.parsed.emails.forEachIndexed { index, email ->
-                Field(R.string.card_field_email, state.edits.emails[index] ?: email.address) {
-                    onEdit(state.edits.copy(emails = state.edits.emails + (index to it)))
-                }
-            }
-
-            // FR-1205: an editable box, not a label. The classifier joins an address out of
-            // several recognised lines and gets the joining wrong as readily as the reading, so
-            // this is the field most likely to need correcting — and it was the one field with
-            // nothing to correct it in (SRS 1.110).
-            state.parsed.addresses.forEachIndexed { index, address ->
-                Field(R.string.card_field_address, state.edits.addresses[index] ?: address) {
-                    onEdit(state.edits.copy(addresses = state.edits.addresses + (index to it)))
-                }
-            }
-
-            // FR-1223, and more than it asks (SRS 1.113). The requirement is that unplaced text
-            // is *shown* and never silently discarded; showing it as a read-only list meant the
-            // user had to retype anything worth keeping, and everything else was dropped at save.
-            // The People API has a notes field, so it is carried there instead — shown, editable,
-            // and kept unless the user clears it.
-            Field(R.string.card_field_notes, draft.note) {
-                onEdit(state.edits.copy(note = it))
-            }
-            if (state.unplaced.isNotEmpty()) {
-                Note(stringResource(R.string.card_unplaced))
-            }
-
-            // FR-1213. Design principle 4 has no calendar to show here, so the account becomes
-            // the destination — and it is stated before the save rather than after it.
-            Note(
-                accountLabel?.let { stringResource(R.string.card_destination, it) }
-                    ?: stringResource(R.string.card_destination_loading)
+            Text(
+                text = stringResource(R.string.card_title),
+                style = MaterialTheme.typography.titleMedium,
             )
 
-            // Said plainly, because the consent screen asks for permission to delete contacts and
-            // this is the only place the user learns that Latch does not (SRS 1.88, FR-1102).
-            Note(stringResource(R.string.card_never_deletes))
-        }
+            Column(
+                modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // FR-1224, and it belongs **before the first box** rather than among them. It was
+                // landing mid-list — between the phone boxes and the address — where it reads as a
+                // caption for whichever field happens to sit above it (SRS 1.113).
+                if (state.fromPhoto) {
+                    Note(stringResource(R.string.card_from_photo))
+                }
 
-        if (blocker == CardSaveBlocker.NOTHING_TO_SAVE) {
-            Note(stringResource(R.string.card_nothing_to_save))
-        }
+                // FR-1225's report, on FR-207's pattern and for FR-207's reason: a photograph that
+                // yielded nothing is invisible otherwise, and a user who adds a third side and
+                // sees the sheet not change cannot tell that apart from a side with nothing on it.
+                //
+                // **Only when something went unread.** The cap is enforced by withdrawing the
+                // control below, so a photograph is never taken and then discarded — which means
+                // this line never has to say "and one of them was ignored".
+                state.photos?.takeIf { it.capped }?.let { photos ->
+                    Note(stringResource(R.string.card_photos_read, photos.read, photos.added))
+                }
 
-        // FR-1210's clock, ticking only while there is something to count — the date sheet's own
-        // shape. A timer left running behind a finished sheet is a wakeup a second for nothing.
-        val counting = savedAt != null &&
-            (saveResult is CardSaveResult.Saved || saveResult is CardSaveResult.Held)
-        val now by produceState(Instant.now(), counting) {
-            while (counting) {
-                value = Instant.now()
-                delay(250)
-            }
-        }
-        val undoOffered = counting && cardUndoOffered(savedAt!!, now)
+                Field(R.string.card_field_name, draft.displayName) {
+                    onEdit(state.edits.copy(displayName = it))
+                }
+                Field(R.string.card_field_organisation, draft.organisation) {
+                    onEdit(state.edits.copy(organisation = it))
+                }
+                Field(R.string.card_field_title, draft.jobTitle) {
+                    onEdit(state.edits.copy(jobTitle = it))
+                }
 
-        // FR-1208's answer, said in the words the date side already uses for the same fact, so a
-        // user who has seen "Already saved" on a capture reads this the same way.
-        when (saveResult) {
-            is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
-            is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
-            // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
-            // reassuring direction: the account holds nothing yet.
-            is CardSaveResult.Held -> Note(stringResource(R.string.card_held))
-            is CardSaveResult.Saved ->
+                // Indexed against the parsed list, so an edit survives another edit and a blanked
+                // entry is a removal rather than an empty row on somebody's contact.
+                state.parsed.phones.forEachIndexed { index, phone ->
+                    Field(R.string.card_field_phone, state.edits.phones[index] ?: phone.number) {
+                        onEdit(state.edits.copy(phones = state.edits.phones + (index to it)))
+                    }
+                }
+                state.parsed.emails.forEachIndexed { index, email ->
+                    Field(R.string.card_field_email, state.edits.emails[index] ?: email.address) {
+                        onEdit(state.edits.copy(emails = state.edits.emails + (index to it)))
+                    }
+                }
+
+                // FR-1205: an editable box, not a label. The classifier joins an address out of
+                // several recognised lines and gets the joining wrong as readily as the reading, so
+                // this is the field most likely to need correcting — and it was the one field with
+                // nothing to correct it in (SRS 1.110).
+                state.parsed.addresses.forEachIndexed { index, address ->
+                    Field(R.string.card_field_address, state.edits.addresses[index] ?: address) {
+                        onEdit(state.edits.copy(addresses = state.edits.addresses + (index to it)))
+                    }
+                }
+
+                // FR-1223, and more than it asks (SRS 1.113). The requirement is that unplaced text
+                // is *shown* and never silently discarded; showing it as a read-only list meant the
+                // user had to retype anything worth keeping, and everything else was dropped at save.
+                // The People API has a notes field, so it is carried there instead — shown, editable,
+                // and kept unless the user clears it.
+                Field(R.string.card_field_notes, draft.note) {
+                    onEdit(state.edits.copy(note = it))
+                }
+                if (state.unplaced.isNotEmpty()) {
+                    Note(stringResource(R.string.card_unplaced))
+                }
+
+                // FR-1213. Design principle 4 has no calendar to show here, so the account becomes
+                // the destination — and it is stated before the save rather than after it.
                 Note(
-                    stringResource(
-                        // A write made without an answer says so. SRS 5.8's rule reaching a
-                        // screen: a scan that gave up must not be reported as a clean check.
-                        if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
-                    )
+                    accountLabel?.let { stringResource(R.string.card_destination, it) }
+                        ?: stringResource(R.string.card_destination_loading)
                 )
-            else -> Unit
-        }
 
-        // FlowRow for the reason the capture sheet uses one: a clipped action label is a silent
-        // failure, and "Update" became "Up…" on a real device once already.
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
+                // Said plainly, because the consent screen asks for permission to delete contacts and
+                // this is the only place the user learns that Latch does not (SRS 1.88, FR-1102).
+                Note(stringResource(R.string.card_never_deletes))
+            }
 
-            // FR-1210. Counting down, because a ten-second offer with no number on it is one the
-            // user cannot judge whether to reach for — and this project has already recorded the
-            // window being missed twice while somebody checked Google first.
-            if (undoOffered) {
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onUndo, enabled = !undoing) {
-                    ActionLabel(
-                        stringResource(
-                            R.string.card_undo,
-                            cardUndoSecondsLeft(savedAt!!, now),
-                        )
-                    )
+            when (blocker) {
+                CardSaveBlocker.NOTHING_TO_SAVE -> Note(stringResource(R.string.card_nothing_to_save))
+                // FR-1225. Said rather than left as a disabled button: a Save the user cannot
+                // press and cannot account for reads as the app having stopped working, and this
+                // one clears itself in a second or two.
+                CardSaveBlocker.READING_A_PHOTO -> Note(stringResource(R.string.card_reading_photo_note))
+                null -> Unit
+            }
+
+            // FR-1210's clock, ticking only while there is something to count — the date sheet's own
+            // shape. A timer left running behind a finished sheet is a wakeup a second for nothing.
+            val counting = savedAt != null &&
+                (saveResult is CardSaveResult.Saved || saveResult is CardSaveResult.Held)
+            val now by produceState(Instant.now(), counting) {
+                while (counting) {
+                    value = Instant.now()
+                    delay(250)
                 }
             }
+            val undoOffered = counting && cardUndoOffered(savedAt!!, now)
 
-            if (saveResult is CardSaveResult.Idle || saveResult is CardSaveResult.Saving ||
-                saveResult is CardSaveResult.Failed
-            ) {
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = onSave, enabled = blocker == null && !saving && accountLabel != null) {
-                    ActionLabel(
-                        stringResource(if (saving) R.string.card_saving else R.string.card_save)
+            // FR-1208's answer, said in the words the date side already uses for the same fact, so a
+            // user who has seen "Already saved" on a capture reads this the same way.
+            when (saveResult) {
+                is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
+                is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
+                // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
+                // reassuring direction: the account holds nothing yet.
+                is CardSaveResult.Held -> Note(stringResource(R.string.card_held))
+                is CardSaveResult.Saved ->
+                    Note(
+                        stringResource(
+                            // A write made without an answer says so. SRS 5.8's rule reaching a
+                            // screen: a scan that gave up must not be reported as a clean check.
+                            if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
+                        )
                     )
+                else -> Unit
+            }
+
+            // FlowRow for the reason the capture sheet uses one: a clipped action label is a silent
+            // failure, and "Update" became "Up…" on a real device once already.
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
+
+                // FR-1225. Offered while the card is still the user's to change — so it goes with
+                // Save rather than among the fields, and it disappears once a save has landed:
+                // adding a side to a contact already written is a Phase C update, not this.
+                if (onAddPhoto != null &&
+                    (saveResult is CardSaveResult.Idle || saveResult is CardSaveResult.Failed)
+                ) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onAddPhoto, enabled = !readingPhoto) {
+                        ActionLabel(
+                            stringResource(
+                                if (readingPhoto) R.string.card_reading_photo
+                                else R.string.card_add_photo
+                            )
+                        )
+                    }
+                }
+
+                // FR-1210. Counting down, because a ten-second offer with no number on it is one the
+                // user cannot judge whether to reach for — and this project has already recorded the
+                // window being missed twice while somebody checked Google first.
+                if (undoOffered) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onUndo, enabled = !undoing) {
+                        ActionLabel(
+                            stringResource(
+                                R.string.card_undo,
+                                cardUndoSecondsLeft(savedAt!!, now),
+                            )
+                        )
+                    }
+                }
+
+                if (saveResult is CardSaveResult.Idle || saveResult is CardSaveResult.Saving ||
+                    saveResult is CardSaveResult.Failed
+                ) {
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = onSave, enabled = blocker == null && !saving && accountLabel != null) {
+                        ActionLabel(
+                            stringResource(if (saving) R.string.card_saving else R.string.card_save)
+                        )
+                    }
                 }
             }
         }
@@ -224,24 +281,36 @@ fun CardChooser(
     onChoose: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    // **The sheet needs a background of its own** (SRS 1.122). `Theme.Latch.Capture` sets
+    // `windowBackground` to transparent so the capture window is a floating popup over
+    // whatever the user was reading; `CaptureScreen` has always drawn its own `Surface`
+    // under that, and this one never did. It went unseen through the whole 4 Sep card pass
+    // because every card arrived from a share sheet, and what showed through was a dimmed
+    // gallery. B2 put Latch's own home screen behind it — high-contrast text at the same
+    // size as the fields — and the sheet became unreadable.
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 2.dp,
     ) {
-        Text(
-            text = stringResource(R.string.card_choose_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Note(stringResource(R.string.card_choose_body))
-        payloads.forEachIndexed { index, payload ->
-            TextButton(onClick = { onChoose(payload) }) {
-                // Numbered rather than previewed: the payloads are somebody else's contact
-                // details and putting two of them on screen to be told apart is a poor trade
-                // for a choice between two codes.
-                Text(stringResource(R.string.card_choose_option, index + 1))
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.card_choose_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Note(stringResource(R.string.card_choose_body))
+            payloads.forEachIndexed { index, payload ->
+                TextButton(onClick = { onChoose(payload) }) {
+                    // Numbered rather than previewed: the payloads are somebody else's contact
+                    // details and putting two of them on screen to be told apart is a poor trade
+                    // for a choice between two codes.
+                    Text(stringResource(R.string.card_choose_option, index + 1))
+                }
             }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
         }
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
     }
 }
 

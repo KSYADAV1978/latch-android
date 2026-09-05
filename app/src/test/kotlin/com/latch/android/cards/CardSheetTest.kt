@@ -148,6 +148,28 @@ class CardSheetTest {
         )
     }
 
+    // ---- FR-1225: a save must not race a photograph -------------------------------------------
+
+    @Test
+    fun `a save is refused while another side is being read`() {
+        // Correctness rather than politeness. A save taken while the back of the card was still
+        // being recognised would write a contact missing everything on it — silently, and against
+        // a card that is no longer in the user's hand to check against.
+        val state = CardSheetState(card, fromPhoto = true)
+        assertNull(cardSaveBlocker(state), "the sheet was blocked with nothing being read")
+        assertEquals(CardSaveBlocker.READING_A_PHOTO, cardSaveBlocker(state, readingPhoto = true))
+    }
+
+    @Test
+    fun `the photograph outranks having nothing to save`() {
+        // Both are true of an empty sheet mid-read, and the one that will resolve itself in a
+        // second is the honest thing to say. Telling the user there is nothing to save about a
+        // card whose only side is still being read would be wrong as well as unhelpful.
+        val empty = CardSheetState(CardDraft(), fromPhoto = true)
+        assertEquals(CardSaveBlocker.NOTHING_TO_SAVE, cardSaveBlocker(empty))
+        assertEquals(CardSaveBlocker.READING_A_PHOTO, cardSaveBlocker(empty, readingPhoto = true))
+    }
+
     // ---- FR-1202: detection changes what is offered, never what happens -----------------------
 
     @Test

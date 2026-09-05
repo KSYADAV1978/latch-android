@@ -98,6 +98,19 @@
     <string name="card_choose_body">Latch will not guess which one you meant. Pick the one to open.</string>
     <string name="card_choose_option">Open code %1$d</string>
     <!--
+      FR-1225: both sides of a card in one capture. "Another photo" and not "the back", because a
+      fold-out card has more than two sides and the control is the same one either way.
+    -->
+    <string name="card_add_photo">Add another photo</string>
+    <string name="card_reading_photo">Reading…</string>
+    <string name="card_reading_photo_note">Reading the photo you just took. Save is off until it is in.</string>
+    <!--
+      FR-207's pattern, one pillar over: a photograph that yielded nothing is invisible otherwise.
+      Shown only when a photograph gave no text — the cap is enforced by withdrawing the control,
+      so nothing is ever taken and then ignored.
+    -->
+    <string name="card_photos_read">%1$d of %2$d photos read. One gave Latch nothing — retake it if it matters.</string>
+    <!--
       FR-1201a: the photograph was taken from Latch's own card button, so the user has already
       said this is a card. Nothing came back — no code, no text at all — which is a different
       thing from a card that read badly, and is nearly always the photograph rather than the app.
