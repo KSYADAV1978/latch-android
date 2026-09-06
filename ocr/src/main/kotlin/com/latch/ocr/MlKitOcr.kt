@@ -459,7 +459,8 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         }
         log(
             "decode ${bounds.outWidth}x${bounds.outHeight} sample=$sample" +
-                " -> ${bounds.outWidth / sample}x${bounds.outHeight / sample}"
+                " -> ${bounds.outWidth / sample}x${bounds.outHeight / sample}" +
+                " exif=${rotationDegreesFor(exifOrientation(uri))}"
         )
         return try {
             openStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }

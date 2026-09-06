@@ -160,9 +160,26 @@ class RereadRegionTest {
     @Test
     fun `the first reading is kept when the crop went wrong`() {
         // The failure this guards: the union comes from the first pass, so a first pass that found
-        // only a corner would send the second to re-read that corner. Preferring the longer text
-        // makes that cost nothing instead of losing what was already read.
+        // only a corner would send the second to re-read that corner. A corner returns a fraction
+        // of the text and is caught with room to spare.
         assertEquals("the whole card as first read", betterReading("the whole card as first read", "corner"))
+    }
+
+    @Test
+    fun `a couple of characters short is not a failed crop`() {
+        // **The defect a two-sided capture found.** A card's back came back from the second pass
+        // at 166 characters against the first pass's 168 — two characters — and the old rule threw
+        // it away, so the *unlevelled* reading survived and its address was assembled backwards.
+        // Length tests "the crop missed the card"; it does not test which reading is better.
+        val first = "x".repeat(168)
+        val second = "y".repeat(166)
+        assertEquals(second, betterReading(first, second))
+    }
+
+    @Test
+    fun `a reading that lost a fifth of the card is still refused`() {
+        val first = "x".repeat(200)
+        assertEquals(first, betterReading(first, "y".repeat(150)))
     }
 
     @Test

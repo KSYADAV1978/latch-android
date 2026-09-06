@@ -1473,6 +1473,16 @@ rotation passed to the second pass. **`withoutTopChrome` rests on the same wrong
 deliberately left alone** — its swap only matters when EXIF rotation is non-zero, screenshots carry
 none, and it was device-verified on 31 Aug; the comment there now says so.
 
+**FR-1225 and FR-1228 together, watched 6 Sep 2026 (SRS 1.141).** Each photograph is read
+**independently** — its own EXIF, decode, union, angle and levelling — so a front held flat and a
+back held turned are each corrected to their own orientation and then concatenated in the order
+taken. Confirmed on a device: front `angle=-90.5` levelled to `0.3`, back `-179.8` to `0.2`.
+**One defect was found by exactly that test**: the back's levelled reading was **discarded** because
+it was 166 characters against the first pass's 168, so the *unlevelled* reading survived and the
+address came out **backwards**. `betterReading` now keeps the second unless it is substantially
+shorter (four fifths) — length tests "the crop missed the card", not which reading is better. After
+the fix both sides `kept=second` and the address is in printed order.
+
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same
 framing did before. Then photograph one filling the frame and confirm **no** reread line — the

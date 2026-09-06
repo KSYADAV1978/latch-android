@@ -359,14 +359,28 @@ fun sourceRect(
 /**
  * FR-1228: which of the two readings to keep.
  *
- * **The longer one, and that is a deliberate choice of failure.** The second pass reads a better
- * image of the same text and should win — but the union it was cropped to is derived from the
- * first pass, so a first pass that found only a corner of the card would send the second one to
- * read that corner. Preferring the longer text means such a crop costs nothing rather than losing
- * what was already read. A tie goes to the second, which is the sharper image of the two.
+ * **The second one, unless it plainly failed** — and the first version of this rule got the
+ * balance wrong in a way a two-sided capture exposed. The second pass reads a better image *and*
+ * a levelled one, so it carries both the sharper characters and the only reading order that can
+ * be trusted. What it must still guard against is the crop going wrong: the region is derived
+ * from the first pass, so a first pass that found only a corner of the card would send the second
+ * to read that corner.
+ *
+ * **Preferring simply the longer text confused those two cases.** A card's back came back from the
+ * second pass at 166 characters against the first pass's 168 — two characters, well under one per
+ * cent — and was discarded, so the *unlevelled* reading survived and its address was assembled
+ * backwards. Length is a good test for "the crop missed the card" and a terrible one for "which
+ * of these two readings of the same card is better".
+ *
+ * So the second wins unless it is **substantially** shorter. A corner-crop returns a fraction of
+ * the text and is caught with room to spare; a recogniser disagreeing with itself over a stray
+ * character is not.
  */
 fun betterReading(first: String, second: String): String =
-    if (second.length >= first.length) second else first
+    if (second.length >= first.length * MIN_REREAD_COVERAGE) second else first
+
+/** See [betterReading]. Four fifths: far below a failed crop, far above recogniser noise. */
+const val MIN_REREAD_COVERAGE: Double = 0.8
 
 /**
  * FR-1228: the angle the writing on this image actually runs at.
