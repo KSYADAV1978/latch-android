@@ -291,7 +291,7 @@ class CardOcrRepairTest {
         // would have received was called "Corporate Affairs".
         val result = classifyCard(
             listOf(
-                "Ramesh Kumar Bhaga${anusvara}a",
+                "Ramesh Kumar Bhaga${anusvara}t",
                 "Executive Vice President -",
                 "Corporate Affairs",
             )
@@ -305,8 +305,8 @@ class CardOcrRepairTest {
 
     @Test
     fun `the mark is dropped and nothing else about the word changes`() {
-        assertEquals("Bhagat", repairScriptBleed("Bhaga${anusvara}a"))
-        assertEquals("Ramesh Kumar Bhagat", repairScriptBleed("Ramesh Kumar Bhaga${anusvara}a"))
+        assertEquals("Bhagat", repairScriptBleed("Bhaga${anusvara}t"))
+        assertEquals("Ramesh Kumar Bhagat", repairScriptBleed("Ramesh Kumar Bhaga${anusvara}t"))
     }
 
     @Test

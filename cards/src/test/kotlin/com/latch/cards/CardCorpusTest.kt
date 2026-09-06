@@ -1,5 +1,6 @@
 package com.latch.cards
 
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -12,6 +13,18 @@ import kotlin.test.assertTrue
  * 113 for the life of the project, and is carried in the specification rather than by a red build
  * that everybody learns to ignore. What this file does is make the shortfall visible, hold every
  * card that *is* here to its expected reading, and stop the count going backwards.
+ *
+ * **The corpus itself is not in this repository** (SRS 1.155). Every row is a card somebody
+ * actually handed over, carrying a real person's name, direct line and work address — third
+ * parties who consented to none of it, about data this product's own sheet calls theirs. So the
+ * file is git-ignored and lives only on the developer's machine, and `card_corpus.tsv.example`
+ * beside it shows the format with invented rows that must never be counted.
+ *
+ * **Absent, these tests report SKIPPED and never PASSED**, which is why `:cards` takes the junit5
+ * artifact: CLAUDE.md records the rule the expensive way — *an inconclusive run looks exactly like
+ * a pass in a log* — and a corpus test that quietly went green with no corpus would be the purest
+ * form of that. The shortfall is carried in `docs/RELEASE.md` under **Knowingly unmet at
+ * submission**, where it is read whether or not anyone runs this.
  */
 class CardCorpusTest {
 
@@ -26,10 +39,16 @@ class CardCorpusTest {
         val expectAddress: String?,
     )
 
+    /**
+     * Whether the developer's corpus is on this machine.
+     *
+     * A clone has none, and that is the ordinary case now rather than the broken one.
+     */
+    private val corpusPresent: Boolean
+        get() = javaClass.getResourceAsStream("/cards/card_corpus.tsv") != null
+
     private val cases: List<Case> by lazy {
-        val stream = checkNotNull(javaClass.getResourceAsStream("/cards/card_corpus.tsv")) {
-            "card_corpus.tsv is missing; the shortfall must stay visible rather than vanish"
-        }
+        val stream = javaClass.getResourceAsStream("/cards/card_corpus.tsv") ?: return@lazy emptyList()
         stream.bufferedReader().readLines()
             .filterNot { it.startsWith("#") || it.isBlank() }
             .map { line ->
@@ -53,6 +72,7 @@ class CardCorpusTest {
 
     @Test
     fun `every card in the corpus reads as expected`() {
+        assumeTrue(corpusPresent, CORPUS_ABSENT)
         cases.forEach { case ->
             val result = classifyCard(case.lines)
             assertEquals(case.expectName, result.draft.displayName, "name for ${case.name}")
@@ -88,6 +108,7 @@ class CardCorpusTest {
 
     @Test
     fun `the corpus does not shrink`() {
+        assumeTrue(corpusPresent, CORPUS_ABSENT)
         // The floor rises as real cards arrive. It exists so that a card cannot be quietly removed
         // when it starts failing, which is the cheapest way to make a corpus lie.
         assertTrue(
@@ -98,6 +119,7 @@ class CardCorpusTest {
 
     @Test
     fun `the shortfall against FR-1222 is stated rather than hidden`() {
+        assumeTrue(corpusPresent, CORPUS_ABSENT)
         // Not an assertion about the code: an assertion about the record. If this ever reads
         // "met", the requirement is met and this test should be deleted along with the note in
         // the SRS.
@@ -138,3 +160,14 @@ class CardCorpusTest {
         val LINE_ESCAPE = "" + '\\' + 'n'
     }
 }
+
+/**
+ * Why a skipped corpus test is skipped, said in the report rather than left to be guessed.
+ *
+ * It names the file and the reason it is not here, because the first person to see three SKIPPED
+ * rows in this class will otherwise read them as a broken build.
+ */
+private const val CORPUS_ABSENT: String =
+    "cards/src/test/resources/cards/card_corpus.tsv is not on this machine. It holds real people's " +
+        "names, direct lines and work addresses off cards they handed over, so it is git-ignored " +
+        "and never published (SRS 1.155). See card_corpus.tsv.example for the format."

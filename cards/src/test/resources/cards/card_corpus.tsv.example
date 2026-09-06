@@ -1,0 +1,38 @@
+# FR-1222's corpus — THE FORMAT, and two invented rows that must never be counted.
+#
+# The corpus itself is not in this repository and never will be (SRS 1.155). Every real row is a
+# card somebody actually handed over: a named person, their direct line, their work address. They
+# consented to none of it, and this product's own card sheet tells the user that a card is a third
+# party's data. So `card_corpus.tsv` beside this file is git-ignored and lives only on the
+# developer's machine; `CardCorpusTest` reports SKIPPED when it is absent rather than passing.
+#
+# THE TWO ROWS BELOW ARE INVENTED AND DO NOT COUNT TOWARD FR-1222. The requirement says so in as
+# many words — "cards invented for the corpus shall not count" — for NFR-502's reason, which this
+# project has already paid for once: a corpus padded by the person writing the rules tests that
+# the rules do what they say, not that they work on somebody's printed card. They are here only so
+# that the columns and the escaping are discoverable from a clone.
+#
+# COLUMNS, tab-separated, eight of them:
+#
+#   1  id            a short slug naming the card. `id#something` marks a *second recognition* of
+#                    a card already present — it earns a row and not a card, because one card
+#                    photographed twice reads differently (SRS 1.123) and letting that raise the
+#                    count would be the corpus flattering itself
+#   2  lines         the recognised text in reading order, separated by the two characters
+#                    backslash-n. NOT a real newline: a TSV row is one line. NOT a pipe either —
+#                    a real card carried the title "Director | Business Development - India"
+#   3  name          expected display name, or empty for none
+#   4  title         expected job title
+#   5  organisation  expected company
+#   6  phones        expected numbers, semicolon-separated, in order
+#   7  emails        expected addresses, semicolon-separated, in order
+#   8  address       expected postal address, joined with ", "
+#
+# THE TEXT IS RECORDED AS RECOGNISED, OCR errors included. Correcting them here would test the
+# classifier against text it will never see. `\uXXXX` escapes let the file stay pure ASCII, which
+# is what stops an editor or a diff tool normalising a codepoint away — it matters most for the
+# rows whose whole subject is an invisible character.
+#
+# id	lines	name	title	organisation	phones	emails	address
+northwind-invented	Anita Kapoor\nHead of Sourcing\nNorthwind Textiles Private Limited\nM: +91 98200 12345\nanita.kapoor@northwind.test\n14 Mill Road\nNew Delhi - 110 001	Anita Kapoor	Head of Sourcing	Northwind Textiles Private Limited	+91 98200 12345	anita.kapoor@northwind.test	14 Mill Road, New Delhi - 110 001
+bluewater-invented	BLUEWATER\nRavi Menon\nDirector - Operations\nBluewater Logistics Pvt. Ltd.\nT +91 22 4000 1000\nm +91 99000 54321\ne ravi.menon@bluewater.test	Ravi Menon	Director - Operations	Bluewater Logistics Pvt. Ltd.	+91 22 4000 1000;+91 99000 54321	ravi.menon@bluewater.test

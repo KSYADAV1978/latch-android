@@ -309,7 +309,7 @@ internal fun tidyNumber(raw: String): String = raw.trim().replace(NUMBER_NOISE, 
  * Devanagari one occasionally wins a block it should not: `CLAUDE.md` records `October` arriving
  * as `০ctobe` in August, which is how the Latin artifact came to be added. It still happens. On a
  * real card the name `Ramesh Kumar Bhagat` came back as `Ramesh Kumar Bhaga` + `U+0902 DEVANAGARI
- * SIGN ANUSVARA` + `a`.
+ * SIGN ANUSVARA` + `t`.
  *
  * **What that one character cost was not the name but the wrong name.** `looksLikePersonName`
  * requires every character of every word to be a letter, and a non-spacing mark is not one — so

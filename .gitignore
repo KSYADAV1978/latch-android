@@ -43,6 +43,18 @@ keystore.properties
 # Cloud client to anyone who reads the repository.
 client.properties
 
+# FR-1222's business-card corpus (SRS 1.155).
+#
+# Every row is a card somebody actually handed over: a named person, their direct line, their
+# work address. They consented to none of it, and this product's own card sheet tells the user
+# that a card is a third party's data — so the corpus is never published, and it was removed from
+# this repository's history rather than merely from its tip.
+#
+# It lives on the developer's machine at the path below. `card_corpus.tsv.example` beside it is
+# committed, shows the format, and carries two invented rows that FR-1222 forbids counting.
+# `CardCorpusTest` reports SKIPPED when the real file is absent rather than passing.
+cards/src/test/resources/cards/card_corpus.tsv
+
 # OS
 Thumbs.db
 .DS_Store

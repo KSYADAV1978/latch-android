@@ -17,7 +17,11 @@ java {
 
 dependencies {
     implementation(project(":core-model"))
-    testImplementation(libs.kotlin.test)
+    // junit5 rather than the plain artifact, for the reason :desktop takes it: FR-1222's corpus
+    // is not in this repository (SRS 1.155), and a test that cannot find it must report SKIPPED
+    // rather than passing. CLAUDE.md records that rule the expensive way — an inconclusive run
+    // looks exactly like a pass in a log — and `Assumptions` is what makes the difference visible.
+    testImplementation(libs.kotlin.test.junit5)
 }
 
 tasks.test {
