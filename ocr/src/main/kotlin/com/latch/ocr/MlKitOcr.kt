@@ -3,6 +3,8 @@ package com.latch.ocr
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.media.ExifInterface
@@ -73,13 +75,18 @@ class MlKitOcrReader(
             .getClient(DevanagariTextRecognizerOptions.Builder().build())
             .also { devanagari = it }
 
-    override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.Default) {
+override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.Default) {
+        val source = sourceSize(uri) ?: return@withContext OcrResult.Failed(OcrFailure.UNREADABLE_SOURCE)
+        val sample = sampleSizeFor(source.width(), source.height())
         val bitmap = decodeBitmap(uri)
             ?: return@withContext OcrResult.Failed(OcrFailure.UNREADABLE_SOURCE)
         val rotation = rotationDegreesFor(exifOrientation(uri))
 
         val text = try {
-            recognise(bitmap, rotation)
+            val blocks = recogniseBlocks(bitmap, rotation)
+            val first = assemble(blocks)
+            // FR-1228: read the card again at the resolution of its own text.
+            betterReading(first, rereadText(uri, blocks, bitmap, sample, rotation, source).orEmpty())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -91,6 +98,93 @@ class MlKitOcrReader(
         text.trim().takeIf(String::isNotEmpty)
             ?.let { OcrResult.Text(it) }
             ?: OcrResult.Failed(OcrFailure.NO_TEXT_FOUND)
+    }
+
+    /**
+     * FR-1228: the second pass, or null where there is nothing to gain.
+     *
+     * **The whole point is that this decodes from the source rather than from [bitmap].** A crop of
+     * the already-decoded bitmap would recover nothing — `inSampleSize` has discarded those pixels
+     * — so the region is mapped back to file coordinates and read again with a
+     * `BitmapRegionDecoder`. A card at half the frame then reads at the resolution of one filling
+     * it; at a third, roughly double.
+     *
+     * **Everything that can go wrong here returns null and keeps the first reading.** The region
+     * is derived from the first pass, so a first pass that found only a corner would send this to
+     * re-read that corner — which is why the caller takes the *longer* of the two texts and why a
+     * failure costs nothing rather than costing the capture.
+     */
+    private suspend fun rereadText(
+        uri: Uri,
+        blocks: List<TextBlock>,
+        bitmap: Bitmap,
+        sample: Int,
+        rotation: Int,
+        source: Rect,
+    ): String? {
+        val union = textUnion(blocks) ?: return null
+        val uprightWidth = if (rotation % 180 == 0) bitmap.width else bitmap.height
+        val uprightHeight = if (rotation % 180 == 0) bitmap.height else bitmap.width
+        val padded = paddedRegion(union, uprightWidth, uprightHeight)
+        val region = sourceRect(padded, sample, rotation, source.width(), source.height())
+        if (region.width <= 0 || region.height <= 0) return null
+
+        val regionSample = sampleSizeFor(region.width, region.height)
+        // The comparison is in the text's own axis: how wide the writing was, against how wide it
+        // would be. `rereadWorthwhile` is what stops a card that already fills the frame paying
+        // for a second recognition it cannot benefit from.
+        val currentWidth = if (rotation % 180 == 0) padded.width else padded.height
+        val availableWidth = (if (rotation % 180 == 0) region.width else region.height) / regionSample
+        if (!rereadWorthwhile(currentWidth, availableWidth)) return null
+
+        val cropped = decodeRegion(uri, region, regionSample) ?: return null
+        log("reread ${region.width}x${region.height} sample=$regionSample from ${currentWidth}px")
+        return try {
+            recognise(cropped, rotation)
+        } finally {
+            cropped.recycle()
+        }
+    }
+
+    /** The file's own dimensions, read from the header. Allocates nothing. */
+    private fun sourceSize(uri: Uri): Rect? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val header = openStream(uri) ?: return null
+        header.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        return Rect(0, 0, bounds.outWidth, bounds.outHeight)
+    }
+
+    /**
+     * FR-1228: one rectangle of the file, at [sample].
+     *
+     * `BitmapRegionDecoder` has been in the platform since API 10 and reads JPEG, so this needs no
+     * dependency. `newInstance(InputStream, Boolean)` is deprecated at API 31 in favour of an
+     * overload this project's minSdk of 26 does not have; the deprecated call is what works on
+     * both, and is the same trade `getParcelableExtra` records in `CaptureIntents`.
+     */
+    @Suppress("DEPRECATION")
+    private fun decodeRegion(uri: Uri, region: PixelRect, sample: Int): Bitmap? = try {
+        openStream(uri)?.use { stream ->
+            val decoder = BitmapRegionDecoder.newInstance(stream, false)
+            try {
+                decoder?.decodeRegion(
+                    Rect(region.left, region.top, region.right, region.bottom),
+                    BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    },
+                )
+            } finally {
+                decoder?.recycle()
+            }
+        }
+    } catch (outOfMemory: OutOfMemoryError) {
+        null
+    } catch (unreadable: Exception) {
+        // A format `BitmapRegionDecoder` will not open — some WebP, anything exotic. The first
+        // reading stands; FR-1228 is an improvement and never a precondition.
+        null
     }
 
     override suspend fun readPdf(
@@ -182,7 +276,20 @@ class MlKitOcrReader(
      * The merge and the ordering are pure functions in `Ocr.kt`; this method's only job is to
      * get two block lists off the device and hand them over.
      */
-    private suspend fun recognise(bitmap: Bitmap, rotationDegrees: Int): String = coroutineScope {
+    private suspend fun recognise(bitmap: Bitmap, rotationDegrees: Int): String =
+        assemble(recogniseBlocks(bitmap, rotationDegrees))
+
+    /**
+     * As [recognise], but stopping one step short.
+     *
+     * **Split for FR-1228**, which needs where the text was and not only what it said: the union of
+     * these boxes is the region worth reading again. `assemble` is one call away and every caller
+     * that wants a string still gets one.
+     */
+    private suspend fun recogniseBlocks(
+        bitmap: Bitmap,
+        rotationDegrees: Int,
+    ): List<TextBlock> = coroutineScope {
         val image = InputImage.fromBitmap(bitmap, rotationDegrees)
         val latinPass = async { blocksOf(latin(), image) }
         val devanagariPass = async { blocksOf(devanagari(), image) }
@@ -192,7 +299,7 @@ class MlKitOcrReader(
         // capture would measure the band against the wrong edge — on a landscape photo of a
         // document that is the difference between trimming a status bar and trimming a margin.
         val uprightHeight = if (rotationDegrees % 180 == 0) bitmap.height else bitmap.width
-        assemble(inReadingOrder(withoutTopChrome(merged, uprightHeight)))
+        inReadingOrder(withoutTopChrome(merged, uprightHeight))
     }
 
     /**

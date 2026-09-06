@@ -226,6 +226,126 @@ data class TextBlock(
     val height: Int get() = (bottom - top).coerceAtLeast(1)
 }
 
+/**
+ * A rectangle in pixels. FR-1228's arithmetic works in three different frames and this is what
+ * travels between them.
+ */
+data class PixelRect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+    val width: Int get() = (right - left).coerceAtLeast(0)
+    val height: Int get() = (bottom - top).coerceAtLeast(0)
+}
+
+/**
+ * FR-1228: where the text is, as one rectangle.
+ *
+ * **The union of the text blocks and not the card's outline**, which is the requirement's own
+ * substance. The app does not want the card's edges; it wants what is printed on it, and this is
+ * already computed by the time the first pass finishes. It is indifferent to the background, to
+ * the card's colour, to whether the card is rectangular, and to the phone's aspect ratio.
+ */
+fun textUnion(blocks: List<TextBlock>): PixelRect? {
+    if (blocks.isEmpty()) return null
+    return PixelRect(
+        left = blocks.minOf { it.left },
+        top = blocks.minOf { it.top },
+        right = blocks.maxOf { it.right },
+        bottom = blocks.maxOf { it.bottom },
+    )
+}
+
+/**
+ * FR-1228: the region to re-read, with a margin, clamped to the image.
+ *
+ * **A margin, because the union is where text was *found*.** A character the first pass missed
+ * at the edge — the `+` of a telephone number, the last letter of a domain — sits just outside
+ * it, and re-reading a region cropped exactly to what was already read would be the one crop
+ * guaranteed to preserve the first pass's mistakes.
+ */
+fun paddedRegion(
+    union: PixelRect,
+    imageWidth: Int,
+    imageHeight: Int,
+    margin: Double = REREAD_MARGIN,
+): PixelRect {
+    val padX = (union.width * margin).toInt()
+    val padY = (union.height * margin).toInt()
+    return PixelRect(
+        left = (union.left - padX).coerceAtLeast(0),
+        top = (union.top - padY).coerceAtLeast(0),
+        right = (union.right + padX).coerceAtMost(imageWidth),
+        bottom = (union.bottom + padY).coerceAtMost(imageHeight),
+    )
+}
+
+/** See [paddedRegion]. Six per cent of the text's own extent, not of the frame's. */
+const val REREAD_MARGIN: Double = 0.06
+
+/**
+ * FR-1228: is a second pass worth its cost?
+ *
+ * **Only where it would actually gain resolution**, so a card already filling the frame pays
+ * nothing. [currentWidth] is how wide the text is in the bitmap that was just read; [availableWidth]
+ * is how wide the same text would be if its region were decoded from the source. The threshold is
+ * a **half again**, because a second recognition costs real time against NFR-101's 2.5 s and a
+ * gain of a few per cent would not move a glyph across the threshold that matters.
+ */
+fun rereadWorthwhile(currentWidth: Int, availableWidth: Int): Boolean =
+    currentWidth > 0 && availableWidth >= currentWidth * REREAD_GAIN
+
+/** See [rereadWorthwhile]. */
+const val REREAD_GAIN: Double = 1.5
+
+/**
+ * FR-1228: a rectangle in the **upright** frame, mapped back to the **source** image.
+ *
+ * Three frames meet here and getting them confused would re-read the wrong part of the picture,
+ * which is a failure that looks exactly like bad OCR.
+ *
+ *  - the **source**: the file as it was written, unrotated, full size. `BitmapRegionDecoder` reads
+ *    in these coordinates and nothing else does.
+ *  - the **bitmap**: the source divided by `inSampleSize`, still unrotated.
+ *  - the **upright**: the bitmap turned by the EXIF rotation. ML Kit reports its boxes here, which
+ *    is what `recognise` already relies on when it measures the top-chrome band.
+ *
+ * So the mapping is the rotation undone, then the sample multiplied back. Rotating an image
+ * clockwise by 90 sends a point (x, y) to (h - y, x) where h is the *source* height of that
+ * rotation — undoing it is what each branch below does.
+ */
+fun sourceRect(
+    upright: PixelRect,
+    sample: Int,
+    rotationDegrees: Int,
+    sourceWidth: Int,
+    sourceHeight: Int,
+): PixelRect {
+    val bw = sourceWidth / sample
+    val bh = sourceHeight / sample
+    val inBitmap = when (((rotationDegrees % 360) + 360) % 360) {
+        90 -> PixelRect(upright.top, bh - upright.right, upright.bottom, bh - upright.left)
+        180 -> PixelRect(bw - upright.right, bh - upright.bottom, bw - upright.left, bh - upright.top)
+        270 -> PixelRect(bw - upright.bottom, upright.left, bw - upright.top, upright.right)
+        else -> upright
+    }
+    return PixelRect(
+        left = (inBitmap.left * sample).coerceIn(0, sourceWidth),
+        top = (inBitmap.top * sample).coerceIn(0, sourceHeight),
+        right = (inBitmap.right * sample).coerceIn(0, sourceWidth),
+        bottom = (inBitmap.bottom * sample).coerceIn(0, sourceHeight),
+    )
+}
+
+/**
+ * FR-1228: which of the two readings to keep.
+ *
+ * **The longer one, and that is a deliberate choice of failure.** The second pass reads a better
+ * image of the same text and should win — but the union it was cropped to is derived from the
+ * first pass, so a first pass that found only a corner of the card would send the second one to
+ * read that corner. Preferring the longer text means such a crop costs nothing rather than losing
+ * what was already read. A tie goes to the second, which is the sharper image of the two.
+ */
+fun betterReading(first: String, second: String): String =
+    if (second.length >= first.length) second else first
+
 /** Devanagari's Unicode block. The test that decides which recogniser owns a region. */
 fun hasDevanagari(text: String): Boolean = text.any { it.code in 0x0900..0x097F }
 
