@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -411,7 +413,20 @@ private fun Home(
     onUndo: () -> Unit = {},
 ) {
     Column(
-        modifier = Modifier.padding(24.dp),
+        // **It scrolls, and until SRS 1.158 it did not.** This was the only screen in the
+        // application without `verticalScroll`, and SRS 1.149's fourth section pushed Settings
+        // off the bottom of a Pixel 6 Pro — with it FR-1003's layer toggles, FR-905's routing,
+        // FR-1004's webhook and NFR-205's disconnect, none of them reachable by any other route.
+        // Two hard flings moved nothing, because there was nothing to move.
+        //
+        // The alerts stay inside the scroll and above the sections, so FR-807's ten-second
+        // countdown is still the first thing drawn (SRS 1.149's requirement of it) rather than
+        // pinned outside a scrolling region, which would have been a second layout decision
+        // taken to fix the first.
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.home_headline), style = MaterialTheme.typography.headlineMedium)
