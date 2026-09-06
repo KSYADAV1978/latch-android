@@ -150,21 +150,41 @@ to confirm what actually landed — **326 files, no `card_corpus.tsv`** (only it
 credential file of any kind. That distinction matters here: SRS 1.155's purge is only true of the
 thing that was published if the thing that was published is what was inspected.
 
-**`backup.cmd` and the Drive bundle stay as the secondary backup**, deliberately and not as a
-leftover. A remote is not a backup: it holds exactly what was pushed, and this project has just
-spent a session establishing that what is pushed is deliberately *less* than what is on this
-machine. `cards/.../card_corpus.tsv` is git-ignored and exists nowhere but here, so a GitHub
-repository that survived a disk failure would not bring FR-1222's corpus back. The bundle would.
+**`backup.cmd` and `C:\dev\latch-backup` stay as the secondary backup**, deliberately and not as
+a leftover. A remote is not a backup: it holds exactly what was pushed, and this project spent a
+session establishing that what is pushed is deliberately *less* than what is on this machine.
 
-**One bundle must never be published.** The pre-rewrite bundle taken before SRS 1.155's history
-rewrite holds the unscrubbed history — every real name, direct line and work address. It is not in
-this repository and must not be pushed, uploaded or shared. If it is still in a temporary
-directory, delete it; if it ever reaches Drive, it is the one file in that folder that is not a
-backup but a liability.
+**And a bundle is not a backup of everything either — that sentence used to be wrong here, and
+the correction is the point.** This note originally said a GitHub repository lost to a disk
+failure would not bring FR-1222's corpus back but *"the bundle would"*. **It would not.** A git
+bundle is a packfile of git **objects**; `cards/.../card_corpus.tsv` is git-ignored and therefore
+not an object, so no bundle has ever contained it or could. Proven rather than reasoned about, on
+6 Sep 2026: a fresh bundle was restored into an empty directory and inspected — 244 commits, 326
+files, `docs/SRS.md` present, so the restore was real — and the corpus was **absent**, with only
+its `.example` beside it. For as long as that sentence stood, the one irreplaceable file in this
+project had **no backup at all**.
 
-**The history was rewritten before the first push**, so every commit's SHA changed. There was no
-remote at the time, so nothing had to be force-pushed and no other clone exists to reconcile. Any
-clone taken from GitHub is on the scrubbed history from its first commit.
+**`backup.cmd` copies it separately now**, under the same timestamp so a bundle and a corpus from
+one run are an obvious pair, and it reports the corpus's absence rather than skipping in silence —
+a backup that quietly omits a file is how the file comes to be lost. The script's own message says
+the copy holds real people's names, direct lines and work addresses, because **where that file
+goes is a decision and not a habit**: it needs a backup because it is irreplaceable, and it needs
+thought because it is somebody else's personal data. It must never be published, attached to an
+issue, or left in a shared folder.
+
+**The pre-rewrite bundle is deleted.** It held the unscrubbed history — every real name and direct
+line — and was removed on 6 Sep 2026 along with the pseudonym maps used to build the substitution.
+The 4 Sep 2026 bundle in `C:\dev\latch-backup` was checked and is **clean**: `cards/` did not
+exist on that date, so it predates the card pillar entirely and is safe wherever it already is.
+
+**The history has been rewritten twice, and both are on the server.** First to remove the personal
+data (SRS 1.155), before any remote existed. Then on 6 Sep 2026 to change every commit's author and
+committer to `325626203+KSYADAV1978@users.noreply.github.com`, which was force-pushed — GitHub's
+*Keep my email addresses private* and *Block command line pushes that expose my email* are both on,
+so a push carrying the old address would now be refused at the server. Verified by cloning the
+server afresh and reading its own commits: 244, one identity, zero occurrences of the old address.
+Any clone taken from GitHub is on the scrubbed history with the private address from its first
+commit.
 
 ## Commits
 Commit directly to `main`. This is a single-developer repository with no CI and no review

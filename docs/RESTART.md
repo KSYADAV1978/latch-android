@@ -7,7 +7,7 @@ Copy everything below the line into a fresh session.
 I am developing **Latch** at `C:\dev\latch-android` — an Android + Windows app that captures dates
 and business cards into Google Calendar, Tasks and Contacts. Read `CLAUDE.md` and `docs/SRS.md`
 first; they are the authoritative record and they are long. `docs/SRS.md`'s revision table now runs
-to **1.156**.
+to **1.157**.
 
 ## Standing rules — these override defaults and stay in force all session
 
@@ -34,7 +34,7 @@ Clean tree on `main`, **1320 JVM tests green**, `./gradlew build` green.
 
 The ship-v1.0 run of 6 Sep 2026 built every remaining requirement except one, prepared the
 repository for publication, and wrote the release and launch documents. What it did is in
-`CLAUDE.md` under *The ship-v1.0 run*, and each slice has an SRS row (1.150 to 1.156).
+`CLAUDE.md` under *The ship-v1.0 run*, and each slice has an SRS row (1.150 to 1.157).
 
 ## What is now owed, in the order it bites
 
@@ -93,16 +93,24 @@ synchronous SHA-256 that Web Crypto does not provide.
 ## The git repository
 
 **Pushed to GitHub on 6 Sep 2026**: `https://github.com/KSYADAV1978/latch-android`, public,
-`origin/main` tracking `main`. `backup.cmd` and the Drive bundle remain the secondary backup — a
-remote holds only what was pushed, and the card corpus is deliberately not.
+`origin/main` tracking `main`. Commits are authored as
+`325626203+KSYADAV1978@users.noreply.github.com`; the Gmail address is on no commit and GitHub
+would now refuse a push carrying it.
+
+`backup.cmd` and `C:\dev\latch-backup` remain the secondary backup, and it writes **two** files:
+the bundle, and FR-1222's corpus copied separately. A bundle holds git objects only, so it never
+contained the git-ignored corpus — that was proven by restoring one and looking (SRS 1.157), and
+until 6 Sep the corpus had no backup at all.
 
 - README and Apache 2.0 licence are committed.
 - History was audited: no keystore, no `local.properties`, no OAuth client file, no API keys or
   tokens have ever been committed.
 - **The history was rewritten** to remove real third parties' contact details (SRS 1.155). Every
   commit changed SHA. There was no remote, so nothing needed force-pushing anywhere.
-- A pre-rewrite bundle was kept at the time; it is **not** in this repository and holds the
-  unscrubbed history, so it must not be published.
+- The pre-rewrite bundle has been **deleted**, along with the pseudonym maps. The 4 Sep 2026
+  bundle in `C:\dev\latch-backup` was checked and is clean — `cards/` did not exist then.
+- **The corpus backup is personal data.** `latch-card-corpus-*.tsv` beside the bundle holds real
+  people's names, direct lines and work addresses. Back it up; never share the folder it is in.
 
 Ordinary pushes from here:
 
