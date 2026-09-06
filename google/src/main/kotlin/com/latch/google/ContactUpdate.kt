@@ -54,7 +54,35 @@ data class ContactFieldChange(
      * different decision.
      */
     val existing: List<String> = emptyList(),
+    /**
+     * Whether accepting this row **replaces** what the field holds rather than adding beside it.
+     *
+     * **SRS 1.152's "an update adds and never removes" was a reading, not the requirement, and it
+     * was too crude** (SRS 1.162). It was justified with telephone numbers — somebody genuinely
+     * has an office line and a mobile, and a card printing one is no evidence the other should go
+     * — and that argument does not transfer to a website. A company has one; a second string
+     * differing by two characters is not a second site but the same site read badly, which is
+     * exactly what a device pass produced three times running.
+     *
+     * So the default is per field and the user can flip it. Nothing is removed without somebody
+     * choosing to, which is the part of the old reading worth keeping.
+     */
+    val replaces: Boolean = false,
 )
+
+/**
+ * Whether replacing is the likelier intent for this field (SRS 1.162).
+ *
+ * **A default, and defaults on this sheet are visible and flippable.** A website and a postal
+ * address are singular in practice — one company, one office — so a card's version of one the
+ * contact already holds is almost always a re-reading. A telephone number and an email address
+ * are not: people have several, and replacing would destroy the one the card does not print.
+ *
+ * **Several existing values always means add**, whatever the field: there is no answer to *which
+ * of these three would you replace*, and guessing at one is how an update loses something.
+ */
+internal fun replaceByDefault(field: ContactField, existing: List<String>): Boolean =
+    existing.size == 1 && (field == ContactField.URL || field == ContactField.ADDRESS)
 
 /**
  * What is stored on a contact right now.
@@ -119,12 +147,14 @@ fun contactChanges(stored: ContactRecord, captured: CardDraft): List<ContactFiel
     }
     captured.addresses.filter { it.isNotBlank() }.distinct().forEach { address ->
         if (stored.addresses.none { folded(it) == folded(address) }) {
-            add(ContactFieldChange(ContactField.ADDRESS, null, address, existing = stored.addresses))
+            add(ContactFieldChange(ContactField.ADDRESS, null, address, existing = stored.addresses,
+            replaces = replaceByDefault(ContactField.ADDRESS, stored.addresses)))
         }
     }
     captured.urls.filter { it.isNotBlank() }.distinct().forEach { url ->
         if (stored.urls.none { folded(it) == folded(url) }) {
-            add(ContactFieldChange(ContactField.URL, null, url, existing = stored.urls))
+            add(ContactFieldChange(ContactField.URL, null, url, existing = stored.urls,
+            replaces = replaceByDefault(ContactField.URL, stored.urls)))
         }
     }
 }
@@ -190,12 +220,14 @@ fun mergedContactUpdate(
         displayName = changed(changes, ContactField.NAME) ?: stored.displayName,
         organisation = changed(changes, ContactField.ORGANISATION) ?: stored.organisation,
         jobTitle = changed(changes, ContactField.JOB_TITLE) ?: stored.jobTitle,
-        phones = stored.phones + changes.filter { it.field == ContactField.PHONE }
-            .map { it.captured to it.type },
-        emails = stored.emails + changes.filter { it.field == ContactField.EMAIL }
-            .map { it.captured to it.type },
-        addresses = stored.addresses + additions(changes, ContactField.ADDRESS),
-        urls = stored.urls + additions(changes, ContactField.URL),
+        // **A replaced field sends only what the user accepted; an added one sends both**
+        // (SRS 1.162). Each named field goes whole, so what is left out of the list is what is
+        // removed — which is why this decision has to be read off the change rather than assumed.
+        phones = merged(stored.phones, changes, ContactField.PHONE),
+        emails = merged(stored.emails, changes, ContactField.EMAIL),
+        addresses = merged(stored.addresses.map { it to null }, changes, ContactField.ADDRESS)
+            .map { it.first },
+        urls = merged(stored.urls.map { it to null }, changes, ContactField.URL).map { it.first },
     )
     return ContactUpdate(write = write, fields = fieldNames(touched))
 }
@@ -224,6 +256,24 @@ fun restoreContactUpdate(stored: ContactRecord, fields: List<String>): ContactUp
     ),
     fields = fields,
 )
+
+/**
+ * The new list for one multi-valued field: the stored values kept or dropped, plus the accepted
+ * ones (SRS 1.162).
+ *
+ * Replacing drops **only what this field held**, never another field's, and only where a row
+ * actually asked for it.
+ */
+private fun merged(
+    stored: List<Pair<String, String?>>,
+    changes: List<ContactFieldChange>,
+    field: ContactField,
+): List<Pair<String, String?>> {
+    val mine = changes.filter { it.field == field }
+    if (mine.isEmpty()) return stored
+    val keep = if (mine.any { it.replaces }) emptyList() else stored
+    return keep + mine.map { it.captured to it.type }
+}
 
 private fun changed(changes: List<ContactFieldChange>, field: ContactField): String? =
     changes.firstOrNull { it.field == field }?.captured
@@ -271,6 +321,13 @@ fun acceptedChanges(
     accepted: Set<Int>,
     /** Corrections, by row index. Absent means the captured value stands. */
     values: Map<Int, String> = emptyMap(),
+    /**
+     * Rows whose replace-or-add the user flipped away from the default (SRS 1.162).
+     *
+     * A set of *overrides* rather than a set of "replacing" rows, so a row nobody touched keeps
+     * whatever `replaceByDefault` decided and the default stays in one place.
+     */
+    flipped: Set<Int> = emptySet(),
 ): List<ContactFieldChange> = changes.mapIndexedNotNull { index, change ->
     if (index !in accepted) return@mapIndexedNotNull null
     val value = (values[index] ?: change.captured).trim()
@@ -278,5 +335,5 @@ fun acceptedChanges(
     if (change.stored != null && value.equals(change.stored, ignoreCase = true)) {
         return@mapIndexedNotNull null
     }
-    change.copy(captured = value)
+    change.copy(captured = value, replaces = change.replaces != (index in flipped))
 }

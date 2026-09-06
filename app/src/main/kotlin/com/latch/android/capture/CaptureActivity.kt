@@ -410,6 +410,9 @@ class CaptureActivity : ComponentActivity() {
                 // are drawn from, so the screen cannot show one thing and send another.
                 var offerAccepted by remember { mutableStateOf(emptySet<Int>()) }
                 var offerValues by remember { mutableStateOf(emptyMap<Int, String>()) }
+                // SRS 1.162: overrides of the per-field replace-or-add default rather than the
+                // mode itself, so an untouched row keeps what `replaceByDefault` decided.
+                var offerFlipped by remember { mutableStateOf(emptySet<Int>()) }
 
                 // **Ticked on arrival, and reset when a new offer arrives.** All on matches
                 // FR-511's rows and FR-608's steps; defaulting to none would mean pressing
@@ -420,6 +423,7 @@ class CaptureActivity : ComponentActivity() {
                 LaunchedEffect(standingOffer) {
                     offerAccepted = standingOffer?.changes?.indices?.toSet() ?: emptySet()
                     offerValues = emptyMap()
+                    offerFlipped = emptySet()
                 }
 
                 // FR-1227's answer for the sheet currently open, or null while nothing has been
@@ -710,13 +714,18 @@ class CaptureActivity : ComponentActivity() {
                                 if (on) offerAccepted + index else offerAccepted - index
                         },
                         onOfferEdit = { index, text -> offerValues = offerValues + (index to text) },
+                        offerFlipped = offerFlipped,
+                        onOfferFlip = { index ->
+                            offerFlipped =
+                                if (index in offerFlipped) offerFlipped - index else offerFlipped + index
+                        },
                         onUpdateContact = {
                             val offer = cardSave as? CardSaveResult.UpdateOffered
                             // **What the user agreed to, not what was offered** (SRS 1.159).
                             // `acceptedChanges` is the single place that applies the ticks and the
                             // corrections, and it is the same function a test can call.
                             val agreed = offer?.let {
-                                acceptedChanges(it.changes, offerAccepted, offerValues)
+                                acceptedChanges(it.changes, offerAccepted, offerValues, offerFlipped)
                             }.orEmpty()
                             if (offer != null && agreed.isNotEmpty()) {
                                 cardSave = CardSaveResult.Saving

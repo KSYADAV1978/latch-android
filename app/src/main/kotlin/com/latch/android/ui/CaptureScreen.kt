@@ -35,7 +35,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -245,6 +247,25 @@ fun CaptureScreen(
     val undo = undoOffer(saveState, now)
 
     Surface(
+        // **The sheet is bounded, and `weight` below does nothing without this** (SRS 1.161).
+        //
+        // `CaptureActivity` is a floating dialog whose window is WRAP_CONTENT, so the composition
+        // is measured with an effectively unbounded height: the inner `weight(1f, fill = false)`
+        // then has no remaining space to compute, takes its full intrinsic height, and pushes the
+        // action row past the window's edge, where the platform clips it. The row is not scrolled
+        // off — it is *gone*, and nothing on screen says so.
+        //
+        // Measured on a device: the window was `[160,145][1280,3036]` and the primary answer laid
+        // out near y3097. Shortening the labels bought one line and the next long caption spent
+        // it, which is what a palliative does.
+        //
+        // Bounding the Surface gives the Column a real maximum, so the weighted child takes what
+        // is left after the actions and scrolls inside it. Ninety per cent rather than all of it,
+        // because this is a floating sheet over the app the user came from and it should still
+        // look like one.
+        modifier = Modifier.heightIn(
+            max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp,
+        ),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
@@ -272,6 +293,22 @@ fun CaptureScreen(
         Column(modifier = Modifier.padding(20.dp)) {
         Column(
             modifier = Modifier
+            // **Bounded directly, because `weight` cannot bound it here** (SRS 1.161).
+            //
+            // `CaptureActivity` is a floating dialog with a WRAP_CONTENT window, so the
+            // composition is measured with an effectively infinite maximum height. A Column
+            // computes a weighted child's share from that maximum, so the share is infinite
+            // too: this column took its full intrinsic height, the action row was laid out
+            // past the window edge, and the platform clipped it away. Measured on a device —
+            // content ending at y2924 against a window bottom of 2994, and `uiautomator`
+            // reporting **no scrollable region at all**, which is the tell: an unbounded
+            // scroll node sizes to its content, so there is nothing left to scroll.
+            //
+            // `heightIn` is a constraint and does not care what the parent's maximum is.
+                .heightIn(
+                    max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
+                        - ACTION_ROW_RESERVE,
+                )
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1231,3 +1268,12 @@ internal fun inboxReasonText(reason: InboxReason): Int = when (reason) {
 
 private val OFFER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
 private val OFFER_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy, HH:mm")
+
+/**
+ * How much of the sheet is kept for the action row, whatever the content does (SRS 1.161).
+ *
+ * Reserved rather than negotiated: an action the user cannot reach is worse than a sheet that
+ * scrolls a little sooner, and this project has now paid for that three times — the capture sheet
+ * on 2 Sep, the home screen and this one on 6 Sep.
+ */
+private val ACTION_ROW_RESERVE = 140.dp

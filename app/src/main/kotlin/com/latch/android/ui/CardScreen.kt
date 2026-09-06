@@ -23,6 +23,7 @@ import com.latch.android.cards.cardUndoOffered
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
@@ -136,6 +137,9 @@ fun CardScreen(
     offerValues: Map<Int, String> = emptyMap(),
     onOfferTick: (Int, Boolean) -> Unit = { _, _ -> },
     onOfferEdit: (Int, String) -> Unit = { _, _ -> },
+    /** SRS 1.162: rows whose replace-or-add the user flipped away from the default. */
+    offerFlipped: Set<Int> = emptySet(),
+    onOfferFlip: (Int) -> Unit = {},
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -149,6 +153,25 @@ fun CardScreen(
     // gallery. B2 put Latch's own home screen behind it — high-contrast text at the same
     // size as the fields — and the sheet became unreadable.
     Surface(
+        // **The sheet is bounded, and `weight` below does nothing without this** (SRS 1.161).
+        //
+        // `CaptureActivity` is a floating dialog whose window is WRAP_CONTENT, so the composition
+        // is measured with an effectively unbounded height: the inner `weight(1f, fill = false)`
+        // then has no remaining space to compute, takes its full intrinsic height, and pushes the
+        // action row past the window's edge, where the platform clips it. The row is not scrolled
+        // off — it is *gone*, and nothing on screen says so.
+        //
+        // Measured on a device: the window was `[160,145][1280,3036]` and the primary answer laid
+        // out near y3097. Shortening the labels bought one line and the next long caption spent
+        // it, which is what a palliative does.
+        //
+        // Bounding the Surface gives the Column a real maximum, so the weighted child takes what
+        // is left after the actions and scrolls inside it. Ninety per cent rather than all of it,
+        // because this is a floating sheet over the app the user came from and it should still
+        // look like one.
+        modifier = Modifier.heightIn(
+            max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp,
+        ),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
@@ -162,7 +185,25 @@ fun CardScreen(
             )
 
             Column(
-                modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                // **Bounded directly, because `weight` cannot bound it here** (SRS 1.161).
+                //
+                // `CaptureActivity` is a floating dialog with a WRAP_CONTENT window, so the
+                // composition is measured with an effectively infinite maximum height. A Column
+                // computes a weighted child's share from that maximum, so the share is infinite
+                // too: this column took its full intrinsic height, the action row was laid out
+                // past the window edge, and the platform clipped it away. Measured on a device —
+                // content ending at y2924 against a window bottom of 2994, and `uiautomator`
+                // reporting **no scrollable region at all**, which is the tell: an unbounded
+                // scroll node sizes to its content, so there is nothing left to scroll.
+                //
+                // `heightIn` is a constraint and does not care what the parent's maximum is.
+                    .heightIn(
+                        max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
+                            - ACTION_ROW_RESERVE,
+                    )
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // FR-1229. **First, above everything**, because it answers a question that comes
@@ -402,6 +443,8 @@ fun CardScreen(
                             label = stringResource(fieldLabel(change.field)),
                             stored = change.stored,
                             existing = change.existing,
+                            replaces = change.replaces != (index in offerFlipped),
+                            onFlip = { onOfferFlip(index) },
                             value = offerValues[index] ?: change.captured,
                             ticked = index in offerAccepted,
                             onTick = { on -> onOfferTick(index, on) },
@@ -589,6 +632,8 @@ private fun OfferRow(
     label: String,
     stored: String?,
     existing: List<String>,
+    replaces: Boolean,
+    onFlip: () -> Unit,
     value: String,
     ticked: Boolean,
     onTick: (Boolean) -> Unit,
@@ -616,6 +661,19 @@ private fun OfferRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // SRS 1.162. Only where there is something to replace: with an empty field the
+            // question does not arise, and a control offering a choice with one answer is noise
+            // on a sheet this tight.
+            if (existing.isNotEmpty()) {
+                TextButton(onClick = onFlip, enabled = ticked) {
+                    Text(
+                        stringResource(
+                            if (replaces) R.string.card_update_mode_replace
+                            else R.string.card_update_mode_add
+                        )
+                    )
+                }
+            }
             OutlinedTextField(
                 value = value,
                 onValueChange = onEdit,
@@ -661,3 +719,12 @@ private fun fieldLabel(field: ContactField): Int = when (field) {
     ContactField.ADDRESS -> R.string.card_field_address
     ContactField.URL -> R.string.card_field_url
 }
+
+/**
+ * How much of the sheet is kept for the action row, whatever the content does (SRS 1.161).
+ *
+ * Reserved rather than negotiated: an action the user cannot reach is worse than a sheet that
+ * scrolls a little sooner, and this project has now paid for that three times — the capture sheet
+ * on 2 Sep, the home screen and this one on 6 Sep.
+ */
+private val ACTION_ROW_RESERVE = 140.dp

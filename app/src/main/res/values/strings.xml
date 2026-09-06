@@ -104,7 +104,15 @@
       holds something "Not on the contact yet" is false — it hides the consequence, which is that
       accepting adds a second value rather than correcting the first.
     -->
-    <string name="card_update_adds_to">Already there: %1$s \u2014 ticking this adds another, it does not replace it</string>
+    <string name="card_update_adds_to">Already there: %1$s</string>
+    <!--
+      SRS 1.162. The mode is a choice, not a rule: a website and an address are singular
+      in practice and a card's version of one you already have is almost always a
+      re-reading, while people genuinely have several numbers and addresses. The button
+      says what accepting will do, and flips it.
+    -->
+    <string name="card_update_mode_replace">Replaces it</string>
+    <string name="card_update_mode_add">Adds another</string>
     <string name="card_update_nothing_ticked">Nothing is ticked, so there is nothing to update. Tick a line, or close.</string>
     <string name="card_update_edit_hint">Correct it before you accept it \u2014 Latch read this off the card and may have it wrong.</string>
     <string name="card_update_create_new">Save as new</string>

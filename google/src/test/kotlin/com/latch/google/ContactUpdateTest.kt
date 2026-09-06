@@ -337,12 +337,105 @@ class ExistingValuesTest {
     }
 
     @Test
-    fun `existing values never reach the write`() {
-        // They are for the sentence on screen and nothing else. The merged body already carries
-        // the stored values because it sends each named field whole.
+    fun `existing values are for the sentence on screen, not the write`() {
+        // Asserted on a phone, because SRS 1.162 makes a *website* replace by default and this
+        // test is about `existing` being display-only rather than about the mode. It failed when
+        // that default changed, which is the test doing its job.
+        val withPhone = stored.copy(phones = listOf("011 2000 0000" to "WORK"))
+        val card = CardDraft(phones = listOf(CardPhone("+91 90000 00001", "MOBILE")))
+        val change = contactChanges(withPhone, card).single()
+        assertEquals(listOf("011 2000 0000"), change.existing, "named on screen")
+        val update = mergedContactUpdate(withPhone, card, listOf(change))
+        assertEquals(2, update.write.phones.size, "and the stored one still goes to Google")
+    }
+}
+
+/**
+ * SRS 1.162: replace or add, per field, flippable.
+ *
+ * **The two dangerous directions are opposite ones**, which is why a blanket rule was wrong.
+ * Replacing a phone number destroys the office line a card does not print; adding a website
+ * leaves two, one of them a misreading. Both are asserted here.
+ */
+class ReplaceOrAddTest {
+
+    private val stored = ContactRecord(
+        resourceName = "people/c1",
+        etag = "%e",
+        phones = listOf("011 2000 0000" to "WORK"),
+        emails = listOf("old@acme.test" to "WORK"),
+        addresses = listOf("Old Road, Delhi"),
+        urls = listOf("www.wrong.test"),
+    )
+
+    @Test
+    fun `a website the contact already has is replaced by default`() {
         val card = CardDraft(urls = listOf("www.right.test"))
-        val changes = contactChanges(stored, card)
-        val update = mergedContactUpdate(stored, card, changes)
-        assertEquals(listOf("www.wrong.test", "www.right.test"), update.write.urls)
+        val change = contactChanges(stored, card).single()
+        assertTrue(change.replaces, "one website is one website")
+        val update = mergedContactUpdate(stored, card, acceptedChanges(listOf(change), setOf(0)))
+        assertEquals(listOf("www.right.test"), update.write.urls, "the wrong one is gone")
+    }
+
+    @Test
+    fun `an address the contact already has is replaced by default`() {
+        val card = CardDraft(addresses = listOf("New Road, Delhi"))
+        val change = contactChanges(stored, card).single()
+        assertTrue(change.replaces)
+    }
+
+    @Test
+    fun `a phone number is added, never replaced by default`() {
+        // The case the old blanket rule was right about: replacing would destroy the office
+        // line the card does not print.
+        val card = CardDraft(phones = listOf(CardPhone("+91 90000 00001", "MOBILE")))
+        val change = contactChanges(stored, card).single()
+        assertFalse(change.replaces)
+        val update = mergedContactUpdate(stored, card, acceptedChanges(listOf(change), setOf(0)))
+        assertEquals(2, update.write.phones.size, "both numbers survive")
+    }
+
+    @Test
+    fun `an email is added, never replaced by default`() {
+        val card = CardDraft(emails = listOf(CardEmail("new@acme.test", "WORK")))
+        assertFalse(contactChanges(stored, card).single().replaces)
+    }
+
+    @Test
+    fun `several existing values always means add`() {
+        // There is no answer to "which of these three would you replace", and guessing at one is
+        // how an update loses something.
+        val two = stored.copy(urls = listOf("www.a.test", "www.b.test"))
+        val card = CardDraft(urls = listOf("www.c.test"))
+        assertFalse(contactChanges(two, card).single().replaces)
+    }
+
+    @Test
+    fun `the user can flip a default either way`() {
+        val card = CardDraft(urls = listOf("www.right.test"))
+        val change = contactChanges(stored, card).single()
+        // Flipped off replace: both survive.
+        val added = mergedContactUpdate(
+            stored, card, acceptedChanges(listOf(change), setOf(0), flipped = setOf(0)),
+        )
+        assertEquals(listOf("www.wrong.test", "www.right.test"), added.write.urls)
+
+        // And a phone flipped *to* replace drops the stored one, because the user said so.
+        val phoneCard = CardDraft(phones = listOf(CardPhone("+91 90000 00001", "MOBILE")))
+        val phoneChange = contactChanges(stored, phoneCard).single()
+        val replaced = mergedContactUpdate(
+            stored, phoneCard, acceptedChanges(listOf(phoneChange), setOf(0), flipped = setOf(0)),
+        )
+        assertEquals(1, replaced.write.phones.size)
+    }
+
+    @Test
+    fun `a field with no accepted row is left exactly as it was`() {
+        // The row was unticked, so the field is not in the mask and not in the body — and even
+        // if it were, nothing about it may change.
+        val card = CardDraft(urls = listOf("www.right.test"))
+        val update = mergedContactUpdate(stored, card, emptyList())
+        assertEquals(listOf("www.wrong.test"), update.write.urls)
+        assertEquals(emptyList(), update.fields)
     }
 }
