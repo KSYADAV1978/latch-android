@@ -54,19 +54,34 @@ class RereadRegionTest {
 
     @Test
     fun `a card already filling the frame is not re-read`() {
-        // The guard that keeps the cost proportional: a good photograph pays nothing.
-        assertFalse(rereadWorthwhile(currentWidth = 2000, availableWidth = 2040))
+        // The region is nearly the whole image, so it decodes at the same sample size and there is
+        // no resolution to gain. A good photograph pays nothing.
+        assertFalse(rereadWorthwhile(sample = 2, regionSample = 2))
+        assertFalse(rereadWorthwhile(sample = 1, regionSample = 1))
     }
 
     @Test
-    fun `a card at a third of the frame is re-read`() {
-        // 673 px today against 1346 available — the case the requirement exists for.
-        assertTrue(rereadWorthwhile(currentWidth = 673, availableWidth = 1346))
+    fun `a card small enough to decode whole is re-read`() {
+        // The case the requirement exists for: the frame needed halving, the region does not.
+        assertTrue(rereadWorthwhile(sample = 2, regionSample = 1))
+        assertTrue(rereadWorthwhile(sample = 4, regionSample = 1))
     }
 
     @Test
-    fun `an empty reading is never re-read`() {
-        assertFalse(rereadWorthwhile(currentWidth = 0, availableWidth = 4000))
+    fun `the guard cannot be fooled by a turned card`() {
+        // **The defect a device found.** The first version compared the region's width before
+        // against its width after — but `padded` is measured in the upright frame and `region` in
+        // the source frame, and a quarter turn swaps those axes. On a card laid sideways it
+        // compared a height against a width and declined a pass that would have doubled the
+        // resolution, logging an "available" smaller than the current, which is impossible.
+        // Comparing sample sizes has no axis to get wrong.
+        assertTrue(rereadWorthwhile(sample = 2, regionSample = 1))
+    }
+
+    @Test
+    fun `a nonsensical sample size is never re-read`() {
+        assertFalse(rereadWorthwhile(sample = 0, regionSample = 1))
+        assertFalse(rereadWorthwhile(sample = 2, regionSample = 0))
     }
 
     // ---- the three frames -----------------------------------------------------------------------

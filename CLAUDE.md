@@ -1460,13 +1460,18 @@ photograph** — a card small in the frame *and* laid sideways logged `reread 59
 296px angle=-89.2` and came back with the name complete, the email exact and the number carrying
 its `+91 11`, where earlier framings of that card lost the name to a department line and dropped
 the country code. The **guard holds** — a card filling the frame logged no reread and read
-perfectly, so a good photograph pays nothing. **OPEN: the line order after levelling.** The run
-that rotated returned the lines in **reverse card order**, name last; the name was still right, but
-by the v1.134 email rule rescuing it rather than by the ordering, which is what levelling exists to
-fix. The arithmetic says the rotation is right, so either the convention is inverted or something
-else reverses it — recorded as unresolved rather than guessed at. The third run could not settle it
-because the card filled the frame and the guard correctly suppressed the reread; **the fixture
-needed is a card both turned and small enough to trigger it.**
+perfectly, so a good photograph pays nothing. **The levelling works, after two defects the run found** (SRS 1.140). A
+card upside down and small in the frame now logs `angle=-178.8` in and **`angle=-0.8` out**, with
+the recognised lines in **card order — name, title, company, contact** — where every earlier rotated
+capture returned them reversed. Two things were wrong. The **guard compared an upright-frame height
+against a source-frame width**, since a quarter turn swaps those axes; it logged `skipped 835px of
+714px available`, an "available" smaller than the current, which is impossible — it now compares the
+two **sample sizes**, which is the whole of the resolution gain and has no axis to get wrong. And
+the **levelling counted the EXIF turn twice**: ML Kit reports its corner points in the *input
+bitmap's* frame, not the upright one, so the angle already contains it. `-textAngle` alone, and no
+rotation passed to the second pass. **`withoutTopChrome` rests on the same wrong premise and is
+deliberately left alone** — its swap only matters when EXIF rotation is non-zero, screenshots carry
+none, and it was device-verified on 31 Aug; the comment there now says so.
 
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same

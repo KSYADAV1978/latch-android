@@ -140,20 +140,11 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         if (region.width <= 0 || region.height <= 0) return null
 
         val regionSample = sampleSizeFor(region.width, region.height)
-        // The comparison is the region's width in the image frame, before and after — which is a
-        // proxy for the resolution gain and not a measurement along the writing, since the text
-        // may be turned within the region. It is the right proxy because the gain is the ratio of
-        // the two sample sizes and applies to both axes equally. What it stops is a card that
-        // already fills the frame paying for a second recognition it cannot benefit from: there
-        // the region is nearly the whole image, its own sample size is the same, and the ratio
-        // is one.
-        val currentWidth = if (rotation % 180 == 0) padded.width else padded.height
-        val availableWidth = (if (rotation % 180 == 0) region.width else region.height) / regionSample
-        if (!rereadWorthwhile(currentWidth, availableWidth)) {
+        if (!rereadWorthwhile(sample, regionSample)) {
             // **Said out loud, because "no reread line" had two meanings.** A pass that was never
             // considered and one the guard declined looked identical in the log, and the second
             // device run of FR-1228 could not tell which had happened.
-            log("reread skipped ${currentWidth}px of ${availableWidth}px available")
+            log("reread skipped sample=$sample region sample=$regionSample")
             return null
         }
 
@@ -162,19 +153,26 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         // `inReadingOrder` is handed an upright image rather than asked to group rows out of boxes
         // that are all turned. That is SRS 1.134's collapse fixed at its cause.
         val angle = dominantTextAngle(blocks)
-        val levelled = uprightAndLevel(cropped, rotation, angle)
-        val alreadyUpright = levelled !== cropped
+        val levelled = levelled(cropped, angle)
+        val turned = levelled !== cropped
         log(
-            "reread ${region.width}x${region.height} sample=$regionSample" +
-                " from ${currentWidth}px angle=${"%.1f".format(angle)}"
+            "reread ${region.width}x${region.height} sample=$sample->$regionSample" +
+                " angle=${"%.1f".format(angle)}"
         )
         return try {
-            // Where the bitmap was physically turned, the turn is done and ML Kit is told nothing;
-            // where it was not, the EXIF rotation still has to reach it.
-            recognise(levelled, if (alreadyUpright) 0 else rotation)
+            // **No rotation is passed, turned or not.** The angle is measured in the file's own
+            // frame, so either it was near zero — the writing already runs horizontally in the
+            // file — or it has just been rotated away. Passing the EXIF turn here is what counted
+            // it twice.
+            val second = recogniseBlocks(levelled, 0)
+            // **What angle the writing runs at *after* the levelling**, which is the one number
+            // that says whether the rotation took effect. Near zero means it did; near the angle
+            // it started at means it did not, or went the wrong way. Content-free: a number.
+            log("reread after angle=${"%.1f".format(dominantTextAngle(second))}")
+            assemble(second)
         } finally {
             levelled.recycle()
-            if (alreadyUpright) cropped.recycle()
+            if (turned) cropped.recycle()
         }
     }
 
@@ -198,22 +196,28 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
     }
 
     /**
-     * FR-1228: the region turned upright and levelled, in one operation.
+     * FR-1228: the region turned so its writing runs horizontally.
      *
-     * **Two rotations compose here and the order is the whole of the correctness.** The region was
-     * decoded from the *file*, so it still needs the EXIF turn to be the right way up; the text
-     * angle is measured in that upright frame, so it is subtracted afterwards. Doing them as one
-     * `Matrix` costs a single resample rather than two.
+     * **Only the text's own angle, and the EXIF rotation is deliberately absent** — which took a
+     * device to establish (SRS 1.140). The first version composed the two, on the documented
+     * premise that ML Kit reports its boxes in the *upright* frame, so that the EXIF turn still had
+     * to be applied and the angle then subtracted. A measurement says otherwise: a card at
+     * `angle=179.2` came back from the second pass at `angle=90.8`, a turn of 88 degrees where 179
+     * was asked for, and 179.2 minus 90 is exactly the EXIF rotation being counted twice.
+     *
+     * **So the corner points are in the input bitmap's own frame**, and the angle they give already
+     * contains whatever the EXIF turn contributed. Rotating by its negative therefore levels the
+     * writing and squares the image in one step, which is why the second pass now hands ML Kit no
+     * rotation at all.
      *
      * Returns the original where there is nothing to do, so the common path allocates nothing.
      */
-    private fun uprightAndLevel(bitmap: Bitmap, exifRotation: Int, textAngle: Double): Bitmap {
-        val total = exifRotation - textAngle
-        if (!worthLevelling(textAngle) && exifRotation % 360 == 0) return bitmap
+    private fun levelled(bitmap: Bitmap, textAngle: Double): Bitmap {
+        if (!worthLevelling(textAngle)) return bitmap
         return try {
             Bitmap.createBitmap(
                 bitmap, 0, 0, bitmap.width, bitmap.height,
-                Matrix().apply { postRotate(total.toFloat()) },
+                Matrix().apply { postRotate(-textAngle.toFloat()) },
                 true,
             )
         } catch (outOfMemory: OutOfMemoryError) {
@@ -369,10 +373,13 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         val latinPass = async { blocksOf(latin(), image) }
         val devanagariPass = async { blocksOf(devanagari(), image) }
         val merged = mergeByScript(latinPass.await(), devanagariPass.await())
-        // ML Kit reports boxes in the **upright** frame, so a quarter-turn swaps which of the
-        // bitmap's dimensions is "height". Passing the bitmap's own height for a rotated
-        // capture would measure the band against the wrong edge — on a landscape photo of a
-        // document that is the difference between trimming a status bar and trimming a margin.
+        // **This rests on a premise a device disproved** (SRS 1.140): ML Kit reports its boxes in
+        // the *input bitmap's* frame, not the upright one, so the swap below is wrong. It is
+        // harmless and is left alone deliberately — the chrome rule exists for a screenshot's
+        // status bar, screenshots carry no EXIF rotation, and with a rotation of zero the two
+        // branches agree. Changing it would touch a rule verified on a device on 31 August to fix
+        // a case that cannot arise; it would matter the day this rule were asked about a
+        // photograph, and that is what this comment is for.
         val uprightHeight = if (rotationDegrees % 180 == 0) bitmap.height else bitmap.width
         inReadingOrder(withoutTopChrome(merged, uprightHeight))
     }

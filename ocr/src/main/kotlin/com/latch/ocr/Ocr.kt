@@ -294,14 +294,25 @@ const val REREAD_MARGIN: Double = 0.06
 /**
  * FR-1228: is a second pass worth its cost?
  *
- * **Only where it would actually gain resolution**, so a card already filling the frame pays
- * nothing. [currentWidth] is how wide the text is in the bitmap that was just read; [availableWidth]
- * is how wide the same text would be if its region were decoded from the source. The threshold is
- * a **half again**, because a second recognition costs real time against NFR-101's 2.5 s and a
- * gain of a few per cent would not move a glyph across the threshold that matters.
+ * **The two sample sizes are the whole story**, and the first version of this got it wrong in a
+ * way a device found. It compared the region's width before against its width after — which is the
+ * same quantity only when the image is not turned, because `padded` is measured in the **upright**
+ * frame and `region` in the **source** frame, and a quarter turn swaps those axes. On a card laid
+ * sideways it therefore compared a height against a width and declined a pass that would have
+ * doubled the resolution, logging `skipped 835px of 714px available` — an "available" smaller than
+ * the current, which is impossible and was the tell.
+ *
+ * Nothing about the axes matters. The whole image was decoded at [sample] and the region will be
+ * decoded at [regionSample]; the linear gain is the ratio of those two and applies to both axes
+ * equally. A card filling the frame gives a region nearly as large as the image, so the two sample
+ * sizes agree and the ratio is one.
+ *
+ * The threshold is a **half again**, because a second recognition costs real time against
+ * NFR-101's 2.5 s and a gain of a few per cent would not move a glyph across the threshold that
+ * matters.
  */
-fun rereadWorthwhile(currentWidth: Int, availableWidth: Int): Boolean =
-    currentWidth > 0 && availableWidth >= currentWidth * REREAD_GAIN
+fun rereadWorthwhile(sample: Int, regionSample: Int): Boolean =
+    sample > 0 && regionSample > 0 && sample.toDouble() / regionSample >= REREAD_GAIN
 
 /** See [rereadWorthwhile]. */
 const val REREAD_GAIN: Double = 1.5
