@@ -284,6 +284,9 @@ Pixel 6 Pro, Android 17 (API 37), Play services 26.32.62, debug build.
 | **FR-204 — the in-app help topic** | 6 Sep 2026 | **Pass, and on the half that matters.** Reached from the dates section, which until SRS 1.149 had no control at all. It states the mechanism (Android 11 package visibility, and that Latch cannot declare it for another app), lists **WhatsApp** with its own reason — *selects whole messages rather than a range of text, so there is nothing for the toolbar to act on* — carries the caveat that the list is what has been checked rather than everything that could be on it, and **ends with what to do instead**: share, screenshot, tile. That last part is the pass condition; a topic that stopped at the mechanism would have met the requirement's words and told the user nothing. |
 | **FR-1230 — a text selection as a contact, both directions** | 6 Sep 2026 | **Pass, and the negative is the stronger half.** `Kickoff 8 September 2027 at 9am` showed **no card action at all** — Close, Export .ics, Save, exactly as before the slice — which is SRS 1.151's 0-of-113 measurement seen on a screen rather than in a test. A six-line signature block then showed **"Save as contact instead"** as a *quiet* TextButton and never the filled one, because a text capture can only reach `AVAILABLE`. Opening it gave name, company, job title, phone and email each in its own box, with `Regards,` carried into the notes as FR-1223 requires rather than dropped. **The caption was the text one** — *Read from the text you selected* — and not the photograph's *the card will not be here to check against*, which would have been false of a message still open in the app behind it. **Nothing was written**: no `LatchTiming` decision line, `latch.db` untouched. |
 | **NFR-101 for text, after two slices touched the capture path** | 6 Sep 2026 | **Pass.** `content ready, ocr=false, chars=31 in 1ms` for the ordinary capture and `chars=101 in 0ms` for the signature, no spinner at any point. FR-1230 adds a classification to the text path and this is the standing re-check that it stayed synchronous. |
+| **FR-1231 — the offer, watched eight times** | 6 Sep 2026 | **Pass on the logic; the layout is SRS 1.165 and is open.** A card was saved, its job title changed **by hand in Google Contacts**, and the card re-photographed. Every clause holds: the offer quotes **the hand-typed value**, which exists only in Google and which Latch has never seen; it tells a replacement (`Now: …`) from an addition (`Already there: …`); it shows `Replaces it` on a website and an address after SRS 1.162; **Save is withdrawn**; there are two answers and no default; and FR-1227's weaker line stands down although the card forms a person key. **Nothing was written across eight photographs** — no `LatchTiming` decision beyond `UpdateOffered`, `latch.db` untouched. **What it found:** four defects in the offer itself (SRS 1.159, 1.160, 1.162) and a fifth still open (1.165). |
+| **The OCR instability, measured in passing** | 6 Sep 2026 | **Eight photographs of one card gave `chars` of 400, 400, 402, 400, 399, 398, 397, 401**, and the website read three different ways across them — two of the three wrong. This is SRS 1.123 quantified on a real card, and it is the evidence behind SRS 1.159's correction of 1.152: a field that does not round-trip stably never converges, so it would be re-offered for ever. |
+| **FR-1232 — undo of an update** | — | **NOT RUN.** Blocked by SRS 1.165: the `Update` control cannot be reached on the photographed path. It is the most consequential unverified row in this pillar — after the patch the previous values exist nowhere else, and an undo that deleted rather than restored would be data loss on a contact the user owned before Latch touched it. |
 Also established in passing, none of it reachable from a JVM test: the OAuth grant works end
 to end (so the debug SHA-1 is registered and the account is a test user), `KeystoreCipher`
 encrypts against a real Keystore, a completed setup survives a cold start, and the stored
@@ -1647,6 +1650,38 @@ read it, and appearing in the share flyout while doing nothing is worse than bei
 
 **FR-514, FR-516, NFR-301, FR-1101, FR-1214 — traceability only.** Each was already implemented
 and none carried its requirement number. No behaviour changed.
+
+### Open defect — FR-1231's Update is unreachable on a photographed card (SRS 1.165)
+
+**Not diagnosed. Recorded with what was ruled out**, so the next attempt does not repeat the four
+that failed.
+
+**The symptom.** Open the card sheet from a **photograph** with an FR-1231 offer standing: the
+action row is laid out past the bottom edge of the floating window and `uiautomator` reports **no
+scrollable region at all**. Open the same build's card sheet from a **text selection**: the
+scrollable region is **exactly 1820 px** — `SHEET_CONTENT_MAX` at this density — and the actions
+sit inside the window.
+
+**Ruled out by measurement, not by reasoning.**
+
+| Suspected | Ruled out how |
+|---|---|
+| Stale install | The device's `base.apk` md5 matches the built artifact byte for byte |
+| Wrong nesting | A brace-depth walk puts the offer rows inside the scrolling column and the action row outside it — the intended shape |
+| Constant missing or wrong | `heightIn(max = SHEET_CONTENT_MAX)` is on the scrolling column; the constant is defined and is 520.dp |
+| A window-derived cap | Removed at SRS 1.164; the cap is a compile-time constant and cannot be inflated |
+
+**The instrument.** `uiautomator`'s `scrollable` flag is what tells a *wrong* cap from an *absent*
+one — an unbounded scroll node sizes to its own content and reports nothing to scroll. Check that
+before checking arithmetic.
+
+**What differs between the two paths** is data rather than layout: `previews` is non-empty, `readBy`
+is `PHOTO`, and an offer is standing. None of those touches a constraint, which is why this is
+recorded as undiagnosed rather than as a hypothesis.
+
+**Do not repeat the mistake that produced it.** SRS 1.164 was declared fixed after verifying on the
+text path — the one that was not failing. Any candidate fix has to be watched on a **photographed
+card with an offer standing**, which is the only configuration that has ever failed.
 
 ### Device pass backlog — Step 0's three slices
 

@@ -7,7 +7,7 @@ Copy everything below the line into a fresh session.
 I am developing **Latch** at `C:\dev\latch-android` — an Android + Windows app that captures dates
 and business cards into Google Calendar, Tasks and Contacts. Read `CLAUDE.md` and `docs/SRS.md`
 first; they are the authoritative record and they are long. `docs/SRS.md`'s revision table now runs
-to **1.157**.
+to **1.165**.
 
 ## Standing rules — these override defaults and stay in force all session
 
@@ -37,6 +37,20 @@ repository for publication, and wrote the release and launch documents. What it 
 `CLAUDE.md` under *The ship-v1.0 run*, and each slice has an SRS row (1.150 to 1.157).
 
 ## What is now owed, in the order it bites
+
+### 0. One open defect, found by the device pass and not diagnosed
+
+**FR-1231's `Update` cannot be reached on a photographed card** (SRS 1.165). The same build reaches
+it on a text capture, where the scrolling region caps at exactly `SHEET_CONTENT_MAX`. A stale
+install, a wrong nesting and a missing constant are all ruled out by measurement — see the **Open
+defect** block in `CLAUDE.md` for what was checked and how.
+
+**FR-1232's undo restore is blocked behind it** and is the most consequential unverified row in the
+card pillar: after the patch the previous values exist nowhere else.
+
+**Any candidate fix must be watched on a photographed card with an offer standing.** That is the
+only configuration that has ever failed, and verifying on the text path is how the last attempt
+came to be declared fixed when it was not.
 
 ### 1. The device pass — the largest debt by far
 
