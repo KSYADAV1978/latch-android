@@ -45,6 +45,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.latch.wire.whenFields
 import com.latch.android.R
 import com.latch.android.cards.CardOffer
 import com.latch.android.capture.CapturedText
@@ -1205,32 +1206,16 @@ internal fun Note(text: String) {
 
 @Composable
 private fun whenLine(candidate: DatedCandidate): String {
-    val date = candidate.date?.value?.format(DATE_FORMAT)
-    // **A to-do shows no time, because a to-do is saved with none** (SRS 1.167).
-    //
-    // §8.1: Google Tasks has no time of day, and `ItemDrafts`' TASK branch sets `dueDate` alone
-    // — the time is discarded. This line read it straight off the candidate, so flipping FR-507's
-    // badge to TASK left `9:00 am` on screen for an item that would reach Google without one:
-    // the screen showing one thing and the account receiving another, which is SRS 1.66's defect
-    // and the class this record has been bitten by most.
-    //
-    // It also undid FR-507's own reading. The cost of an override is disclosed *before* the tap —
-    // "keeps the day but not the time" — and the sheet then quietly implied the time had survived
-    // it. Found on a device by flipping the badge and reading the line.
-    val time = candidate.time?.value
-        ?.takeIf { candidate.classification.itemType != ItemType.TASK }
-        ?.format(TIME_FORMAT)
-
-    // **A range shows both its ends** (SRS 1.168). FR-504 asks that *the resolved interpretation*
-    // be displayed, and the resolved interpretation of "from 20 September to 24 September" is a
-    // span — of which this line was showing the opening half. `ItemDrafts` has always written the
-    // close as `spanEnd`, so the sheet was quietly narrower than the event it was about to create.
-    //
-    // Dropped for a to-do for the same reason the time is: a to-do has one date, not a span, and
-    // the badge's own cost note says so before the tap.
-    val isTask = candidate.classification.itemType == ItemType.TASK
-    val endDate = candidate.endDate?.value?.takeIf { !isTask }?.format(DATE_FORMAT)
-    val endTime = candidate.endTime?.value?.takeIf { !isTask }?.format(TIME_FORMAT)
+    // **The decision is `whenFields` in `:wire`, beside the code that writes the item** (SRS
+    // 1.169). This line had drifted from `draftItems` twice in one hour — a time kept on a to-do
+    // that Google Tasks discards, and the closing half of a range dropped — and both were found on
+    // a phone because the decision lived here, where no test could reach it. What is left in this
+    // function is formatting, which is a locale's business and NFR-402's.
+    val fields = whenFields(candidate, candidate.classification.itemType)
+    val date = fields.date?.format(DATE_FORMAT)
+    val time = fields.time?.format(TIME_FORMAT)
+    val endDate = fields.endDate?.format(DATE_FORMAT)
+    val endTime = fields.endTime?.format(TIME_FORMAT)
 
     val opens = when {
         date != null && time != null -> "$date, $time"

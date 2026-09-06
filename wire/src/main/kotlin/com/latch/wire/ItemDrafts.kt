@@ -7,6 +7,7 @@ import com.latch.parser.ParseContext
 import com.latch.parser.ParseResult
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
@@ -269,3 +270,41 @@ fun candidateBlocker(candidate: DatedCandidate): DraftBlocker? {
     return if (needsDate) DraftBlocker.NEEDS_A_DATE else null
 }
 
+
+/**
+ * Which of a candidate's four date and time fields the confirmation sheet may show (SRS 1.169).
+ *
+ * **Beside `draftItems` on purpose, because these two must agree and twice they did not.** The
+ * sheet is the only thing standing between a parse and somebody's calendar, and its *when* line
+ * had drifted from what `draftItems` writes in two independent ways inside one hour on 6 Sep
+ * 2026: it kept a time on a to-do that Google Tasks discards (SRS 1.167), and it dropped the
+ * closing half of a range that FR-502 writes as a span (SRS 1.168). Both were found by looking at
+ * a phone, because the decision lived in a Compose function no test could reach.
+ *
+ * **It returns fields rather than a sentence.** NFR-402 keeps display text in each client's own
+ * resources, and a date's spelling is a locale's business; what is decided here is *which* values
+ * a client is entitled to show, which is the part that has to match the write.
+ */
+data class WhenFields(
+    val date: LocalDate? = null,
+    val time: LocalTime? = null,
+    val endDate: LocalDate? = null,
+    val endTime: LocalTime? = null,
+)
+
+/**
+ * @param type the item type **after** any FR-507 override, not the parser's classification: the
+ *   override is the whole reason this can differ from the candidate.
+ */
+fun whenFields(candidate: DatedCandidate, type: ItemType): WhenFields {
+    // A to-do carries one date and nothing else. §8.1: Google Tasks has no time of day, and
+    // `draftItems` sets `dueDate` alone — so a sheet showing a time or a span would be showing
+    // something the save discards, which is the defect this function exists to make testable.
+    if (type == ItemType.TASK) return WhenFields(date = candidate.date?.value)
+    return WhenFields(
+        date = candidate.date?.value,
+        time = candidate.time?.value,
+        endDate = candidate.endDate?.value,
+        endTime = candidate.endTime?.value,
+    )
+}
