@@ -43,6 +43,7 @@ import com.latch.android.cards.soleContactPayload
 import com.latch.android.ui.CardChooser
 import com.latch.android.ui.CardScreen
 import com.latch.cards.CardParse
+import com.latch.google.acceptedChanges
 import com.latch.android.cards.CardReading
 import com.latch.cards.classifyCard
 import com.latch.cards.holdsContact
@@ -404,6 +405,23 @@ class CaptureActivity : ComponentActivity() {
                 }
                 var choosing by remember { mutableStateOf(false) }
 
+                // FR-1205 on the update path (SRS 1.159). Held here rather than inside the sheet
+                // for `SheetEdits`' reason: `onUpdateContact` reads the same two values the rows
+                // are drawn from, so the screen cannot show one thing and send another.
+                var offerAccepted by remember { mutableStateOf(emptySet<Int>()) }
+                var offerValues by remember { mutableStateOf(emptyMap<Int, String>()) }
+
+                // **Ticked on arrival, and reset when a new offer arrives.** All on matches
+                // FR-511's rows and FR-608's steps; defaulting to none would mean pressing
+                // "Update the contact" and having nothing happen, which SRS 1.100 records as a
+                // control that does nothing. Keyed on the offer itself, so answering one offer
+                // and being shown another does not inherit the first one's ticks.
+                val standingOffer = cardSave as? CardSaveResult.UpdateOffered
+                LaunchedEffect(standingOffer) {
+                    offerAccepted = standingOffer?.changes?.indices?.toSet() ?: emptySet()
+                    offerValues = emptyMap()
+                }
+
                 // FR-1227's answer for the sheet currently open, or null while nothing has been
                 // asked. Keyed on the *key* rather than on the draft, so typing a job title does
                 // not re-scan 3,000 contacts and correcting a name does.
@@ -685,15 +703,28 @@ class CaptureActivity : ComponentActivity() {
                         // FR-1231 accepted. On the application's scope for `onSave`'s reason:
                         // the capture window closes on a tap outside it and a patch in flight
                         // must still finish.
+                        offerAccepted = offerAccepted,
+                        offerValues = offerValues,
+                        onOfferTick = { index, on ->
+                            offerAccepted =
+                                if (on) offerAccepted + index else offerAccepted - index
+                        },
+                        onOfferEdit = { index, text -> offerValues = offerValues + (index to text) },
                         onUpdateContact = {
                             val offer = cardSave as? CardSaveResult.UpdateOffered
-                            if (offer != null) {
+                            // **What the user agreed to, not what was offered** (SRS 1.159).
+                            // `acceptedChanges` is the single place that applies the ticks and the
+                            // corrections, and it is the same function a test can call.
+                            val agreed = offer?.let {
+                                acceptedChanges(it.changes, offerAccepted, offerValues)
+                            }.orEmpty()
+                            if (offer != null && agreed.isNotEmpty()) {
                                 cardSave = CardSaveResult.Saving
                                 app.appScope.launch {
                                     cardSave = app.cardSaver.update(
                                         stored = offer.stored,
                                         draft = sheet.edited,
-                                        changes = offer.changes,
+                                        changes = agreed,
                                     )
                                     cardSavedAt = Instant.now()
                                 }

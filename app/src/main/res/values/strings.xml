@@ -86,6 +86,14 @@
     <string name="card_update_adds">%1$s: add %2$s</string>
     <string name="card_update_nothing_written">Nothing has been written. Latch never removes anything from a contact \u2014 it only adds and replaces what is listed above.</string>
     <string name="card_update_accept">Update the contact</string>
+    <!--
+      SRS 1.159. FR-1205 says every field is editable before any write, and an update is a write.
+      The current value stays a plain line; only the value that would be written is a box.
+    -->
+    <string name="card_update_now">Now: %1$s</string>
+    <string name="card_update_will_add">Not on the contact yet</string>
+    <string name="card_update_nothing_ticked">Nothing is ticked, so there is nothing to update. Tick a line, or close.</string>
+    <string name="card_update_edit_hint">Correct it before you accept it \u2014 Latch read this off the card and may have it wrong.</string>
     <string name="card_update_create_new">Save as a new contact</string>
     <string name="card_updated">The contact was updated.</string>
     <!--

@@ -125,6 +125,17 @@ fun CardScreen(
     onUpdateContact: () -> Unit = {},
     /** FR-1231 declined: this is somebody else, or a second record the user wants. */
     onCreateAnyway: () -> Unit = {},
+    /**
+     * FR-1205 on the update path (SRS 1.159): which rows are ticked, and what they now say.
+     *
+     * Held by the caller rather than by this composable for `SheetEdits`' reason: the sheet and
+     * the write must read one value, or a screen that decided for itself would eventually show
+     * one thing and send another.
+     */
+    offerAccepted: Set<Int> = emptySet(),
+    offerValues: Map<Int, String> = emptyMap(),
+    onOfferTick: (Int, Boolean) -> Unit = { _, _ -> },
+    onOfferEdit: (Int, String) -> Unit = { _, _ -> },
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -382,29 +393,27 @@ fun CardScreen(
                 // not merely absent - nothing on this path composes prose to put in a contact.
                 is CardSaveResult.UpdateOffered -> {
                     Note(stringResource(R.string.card_update_offered))
-                    saveResult.changes.forEach { change ->
-                        val stored = change.stored
-                        Text(
-                            text = if (stored == null) {
-                                stringResource(
-                                    R.string.card_update_adds,
-                                    stringResource(fieldLabel(change.field)),
-                                    change.captured,
-                                )
-                            } else {
-                                stringResource(
-                                    R.string.card_update_replaces,
-                                    stringResource(fieldLabel(change.field)),
-                                    stored,
-                                    change.captured,
-                                )
-                            },
-                            style = MaterialTheme.typography.bodySmall,
+                    // FR-1205 and SRS 1.159: a tick and an editable value per line. FR-511's
+                    // per-date checkbox and FR-608's per-step tick, a third time — the developer
+                    // must be able to take the job title, decline the address, and correct the
+                    // website the recogniser got wrong, all without leaving the offer.
+                    saveResult.changes.forEachIndexed { index, change ->
+                        OfferRow(
+                            label = stringResource(fieldLabel(change.field)),
+                            stored = change.stored,
+                            value = offerValues[index] ?: change.captured,
+                            ticked = index in offerAccepted,
+                            onTick = { on -> onOfferTick(index, on) },
+                            onEdit = { text -> onOfferEdit(index, text) },
                         )
                     }
+                    Note(stringResource(R.string.card_update_edit_hint))
                     // Said out loud because it is the promise the requirement makes: an offer
                     // that has already written something is not an offer.
                     Note(stringResource(R.string.card_update_nothing_written))
+                    if (offerAccepted.isEmpty()) {
+                        Note(stringResource(R.string.card_update_nothing_ticked))
+                    }
                 }
 
                 is CardSaveResult.Updated -> Note(stringResource(R.string.card_updated))
@@ -482,7 +491,10 @@ fun CardScreen(
                         ActionLabel(stringResource(R.string.card_update_create_new))
                     }
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onUpdateContact) {
+                    // **Disabled rather than hidden when nothing is ticked.** A control that
+                    // vanishes leaves the user wondering what they did; one that is visible and
+                    // off, beside a line saying why, is the same information without the puzzle.
+                    TextButton(onClick = onUpdateContact, enabled = offerAccepted.isNotEmpty()) {
                         ActionLabel(stringResource(R.string.card_update_accept))
                     }
                 }
@@ -560,6 +572,49 @@ fun CardChooser(
                 }
             }
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.capture_dismiss)) }
+        }
+    }
+}
+
+/**
+ * One line of FR-1231's offer: a tick, what the contact holds now, and what would be written.
+ *
+ * **Only the new value is a box.** The stored value is what the user is deciding *against* and
+ * editing it would write a value nobody read off anything; the captured value is a guess the
+ * recogniser made and is exactly what FR-1205 requires be correctable.
+ */
+@Composable
+private fun OfferRow(
+    label: String,
+    stored: String?,
+    value: String,
+    ticked: Boolean,
+    onTick: (Boolean) -> Unit,
+    onEdit: (String) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Checkbox(checked = ticked, onCheckedChange = onTick)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                // An addition and a replacement read differently, and the difference is what the
+                // user is judging: one displaces something, the other does not.
+                text = if (stored == null) stringResource(R.string.card_update_will_add)
+                else stringResource(R.string.card_update_now, stored),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = value,
+                onValueChange = onEdit,
+                label = { Text(label) },
+                enabled = ticked,
+                singleLine = false,
+                maxLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

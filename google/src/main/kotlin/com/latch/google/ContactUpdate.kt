@@ -31,6 +31,15 @@ data class ContactFieldChange(
     val field: ContactField,
     val stored: String?,
     val captured: String,
+    /**
+     * The label the card gave this value — `MOBILE`, `WORK` — or null where it gave none.
+     *
+     * **Carried rather than looked up** (SRS 1.159). `mergedContactUpdate` used to find the type
+     * by matching the value back against the captured draft, which was fragile before FR-1205's
+     * editing reached this path and would have broken *silently* after it: a corrected number
+     * matches nothing, so the type would quietly become null.
+     */
+    val type: String? = null,
 )
 
 /**
@@ -84,14 +93,14 @@ fun contactChanges(stored: ContactRecord, captured: CardDraft): List<ContactFiel
     replacement(ContactField.ORGANISATION, stored.organisation, captured.organisation)?.let { add(it) }
     replacement(ContactField.JOB_TITLE, stored.jobTitle, captured.jobTitle)?.let { add(it) }
 
-    captured.phones.map { it.number }.filter { it.isNotBlank() }.distinct().forEach { number ->
-        if (stored.phones.none { sameNumber(it.first, number) }) {
-            add(ContactFieldChange(ContactField.PHONE, null, number))
+    captured.phones.filter { it.number.isNotBlank() }.distinctBy { it.number }.forEach { phone ->
+        if (stored.phones.none { sameNumber(it.first, phone.number) }) {
+            add(ContactFieldChange(ContactField.PHONE, null, phone.number, phone.type))
         }
     }
-    captured.emails.map { it.address }.filter { it.isNotBlank() }.distinct().forEach { address ->
-        if (stored.emails.none { normaliseEmail(it.first) == normaliseEmail(address) }) {
-            add(ContactFieldChange(ContactField.EMAIL, null, address))
+    captured.emails.filter { it.address.isNotBlank() }.distinctBy { it.address }.forEach { email ->
+        if (stored.emails.none { normaliseEmail(it.first) == normaliseEmail(email.address) }) {
+            add(ContactFieldChange(ContactField.EMAIL, null, email.address, email.type))
         }
     }
     captured.addresses.filter { it.isNotBlank() }.distinct().forEach { address ->
@@ -167,10 +176,10 @@ fun mergedContactUpdate(
         displayName = changed(changes, ContactField.NAME) ?: stored.displayName,
         organisation = changed(changes, ContactField.ORGANISATION) ?: stored.organisation,
         jobTitle = changed(changes, ContactField.JOB_TITLE) ?: stored.jobTitle,
-        phones = stored.phones + additions(changes, ContactField.PHONE)
-            .map { number -> number to captured.phones.firstOrNull { it.number == number }?.type },
-        emails = stored.emails + additions(changes, ContactField.EMAIL)
-            .map { address -> address to captured.emails.firstOrNull { it.address == address }?.type },
+        phones = stored.phones + changes.filter { it.field == ContactField.PHONE }
+            .map { it.captured to it.type },
+        emails = stored.emails + changes.filter { it.field == ContactField.EMAIL }
+            .map { it.captured to it.type },
         addresses = stored.addresses + additions(changes, ContactField.ADDRESS),
         urls = stored.urls + additions(changes, ContactField.URL),
     )
@@ -228,4 +237,32 @@ internal fun fieldNames(touched: Set<ContactField>): List<String> = buildList {
     if (ContactField.EMAIL in touched) add("emailAddresses")
     if (ContactField.ADDRESS in touched) add("addresses")
     if (ContactField.URL in touched) add("urls")
+}
+
+/**
+ * FR-1205 on the update path: what the user actually agreed to (SRS 1.159).
+ *
+ * **Each line of an offer is a row with a tick and an editable value**, which is FR-511's per-date
+ * checkbox and FR-608's per-step tick a third time. This applies both answers and is the single
+ * place that decides them, so the sheet and the write cannot disagree — the reason `SheetEdits`
+ * exists on the date side.
+ *
+ * **Two ways to decline and neither writes an empty field**: untick the row, or blank its value.
+ * A line edited back to what is already stored is dropped too — it would be a change that changes
+ * nothing, and naming a field in `updatePersonFields` for that is how a field gets emptied.
+ */
+fun acceptedChanges(
+    changes: List<ContactFieldChange>,
+    /** Indices of the rows still ticked. */
+    accepted: Set<Int>,
+    /** Corrections, by row index. Absent means the captured value stands. */
+    values: Map<Int, String> = emptyMap(),
+): List<ContactFieldChange> = changes.mapIndexedNotNull { index, change ->
+    if (index !in accepted) return@mapIndexedNotNull null
+    val value = (values[index] ?: change.captured).trim()
+    if (value.isBlank()) return@mapIndexedNotNull null
+    if (change.stored != null && value.equals(change.stored, ignoreCase = true)) {
+        return@mapIndexedNotNull null
+    }
+    change.copy(captured = value)
 }

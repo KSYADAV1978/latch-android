@@ -222,3 +222,76 @@ class ContactIdentityScanTest {
         assertEquals(null, search.identityResourceName)
     }
 }
+
+/**
+ * FR-1205 on the update path (SRS 1.159).
+ *
+ * **What this must never do is write something nobody agreed to.** An unticked row, a blanked
+ * value and a value edited back to what is already stored are three ways of saying no, and each
+ * has to reach the same place: out of the patch entirely, so `updatePersonFields` never names its
+ * field. A field named in that mask whose value is absent is a field **emptied**.
+ */
+class AcceptedChangesTest {
+
+    private val changes = listOf(
+        ContactFieldChange(ContactField.JOB_TITLE, "Manager", "Advisor"),
+        ContactFieldChange(ContactField.URL, null, "www.mec.co.test"),
+        ContactFieldChange(ContactField.ADDRESS, null, "Some Street, Delhi"),
+    )
+
+    @Test
+    fun `all ticked keeps every line`() {
+        assertEquals(3, acceptedChanges(changes, setOf(0, 1, 2)).size)
+    }
+
+    @Test
+    fun `an unticked line is dropped`() {
+        // The developer's own case: take the job title, decline the address and the website.
+        val kept = acceptedChanges(changes, setOf(0))
+        assertEquals(1, kept.size)
+        assertEquals(ContactField.JOB_TITLE, kept.single().field)
+    }
+
+    @Test
+    fun `nothing ticked writes nothing`() {
+        assertEquals(emptyList(), acceptedChanges(changes, emptySet()))
+    }
+
+    @Test
+    fun `a corrected value is what is kept`() {
+        // The reason editing exists: the recogniser read the domain wrong, twice, differently.
+        val kept = acceptedChanges(changes, setOf(1), mapOf(1 to "www.mecl.co.test"))
+        assertEquals("www.mecl.co.test", kept.single().captured)
+    }
+
+    @Test
+    fun `a blanked value declines the line`() {
+        // The second way to say no. It must not become a write of an empty field.
+        assertEquals(emptyList(), acceptedChanges(changes, setOf(0), mapOf(0 to "   ")))
+    }
+
+    @Test
+    fun `a value edited back to what is stored is dropped`() {
+        // A change that changes nothing still names its field in `updatePersonFields`, and a
+        // field named there is a field the request is licensed to overwrite.
+        assertEquals(emptyList(), acceptedChanges(changes, setOf(0), mapOf(0 to "manager")))
+    }
+
+    @Test
+    fun `the type survives an edit`() {
+        // SRS 1.159: carried on the change rather than looked up by matching the value back
+        // against the draft, which an edit breaks silently.
+        val phone = listOf(ContactFieldChange(ContactField.PHONE, null, "+91 90000 00001", "MOBILE"))
+        val kept = acceptedChanges(phone, setOf(0), mapOf(0 to "+91 90000 00002"))
+        assertEquals("MOBILE", kept.single().type)
+    }
+
+    @Test
+    fun `the merged write carries the corrected value and its type`() {
+        val stored = ContactRecord(resourceName = "people/c1", etag = "%e")
+        val phone = listOf(ContactFieldChange(ContactField.PHONE, null, "+91 90000 00001", "MOBILE"))
+        val kept = acceptedChanges(phone, setOf(0), mapOf(0 to "+91 90000 00002"))
+        val update = mergedContactUpdate(stored, com.latch.core.model.CardDraft(), kept)
+        assertEquals("+91 90000 00002" to "MOBILE", update.write.phones.single())
+    }
+}
