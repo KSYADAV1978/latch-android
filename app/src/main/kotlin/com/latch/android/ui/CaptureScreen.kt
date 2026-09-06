@@ -1206,7 +1206,20 @@ internal fun Note(text: String) {
 @Composable
 private fun whenLine(candidate: DatedCandidate): String {
     val date = candidate.date?.value?.format(DATE_FORMAT)
-    val time = candidate.time?.value?.format(TIME_FORMAT)
+    // **A to-do shows no time, because a to-do is saved with none** (SRS 1.167).
+    //
+    // §8.1: Google Tasks has no time of day, and `ItemDrafts`' TASK branch sets `dueDate` alone
+    // — the time is discarded. This line read it straight off the candidate, so flipping FR-507's
+    // badge to TASK left `9:00 am` on screen for an item that would reach Google without one:
+    // the screen showing one thing and the account receiving another, which is SRS 1.66's defect
+    // and the class this record has been bitten by most.
+    //
+    // It also undid FR-507's own reading. The cost of an override is disclosed *before* the tap —
+    // "keeps the day but not the time" — and the sheet then quietly implied the time had survived
+    // it. Found on a device by flipping the badge and reading the line.
+    val time = candidate.time?.value
+        ?.takeIf { candidate.classification.itemType != ItemType.TASK }
+        ?.format(TIME_FORMAT)
     return when {
         date != null && time != null -> "$date, $time"
         date != null -> date

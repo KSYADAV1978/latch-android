@@ -25,6 +25,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
@@ -673,11 +677,14 @@ private fun OfferRow(
                     )
                 }
             }
+            val (keyboard, actions) = doneKeyboard()
             OutlinedTextField(
                 value = value,
                 onValueChange = onEdit,
                 label = { Text(label) },
                 enabled = ticked,
+                keyboardOptions = keyboard,
+                keyboardActions = actions,
                 singleLine = false,
                 maxLines = 3,
                 modifier = Modifier.fillMaxWidth(),
@@ -688,10 +695,13 @@ private fun OfferRow(
 
 @Composable
 private fun Field(labelRes: Int, value: String?, onChange: (String) -> Unit) {
+    val (keyboard, actions) = doneKeyboard()
     OutlinedTextField(
         value = value.orEmpty(),
         onValueChange = onChange,
         label = { Text(stringResource(labelRes)) },
+        keyboardOptions = keyboard,
+        keyboardActions = actions,
         // Not single-line: an address wraps, and a box that hid most of it would be a
         // field the user cannot check — which is the whole of what FR-1224 asks of them.
         singleLine = false,
@@ -738,3 +748,22 @@ private fun fieldLabel(field: ContactField): Int = when (field) {
  * an unbounded scroll node sizes to its own content and reports nothing to scroll.
  */
 private val SHEET_CONTENT_MAX = 520.dp
+
+/**
+ * FR-1205's fields need a way *out* (SRS 1.166).
+ *
+ * **Reported from use: "when I click in any editable box I cannot come out of it."** Every box on
+ * this sheet is multi-line — an address wraps, and a box that hid most of it would be one the user
+ * cannot check, which is the whole of what FR-1224 asks of them. But a multi-line field's Enter key
+ * inserts a newline, so there was no key on the keyboard that dismissed it: the user was left with
+ * the keyboard up, covering the actions, and no obvious way back.
+ *
+ * `ImeAction.Done` puts that key there and `clearFocus` is what it does. The fields stay
+ * multi-line, so nothing about checking a wrapped address changes.
+ */
+@Composable
+private fun doneKeyboard(): Pair<KeyboardOptions, KeyboardActions> {
+    val focus = LocalFocusManager.current
+    return KeyboardOptions(imeAction = ImeAction.Done) to
+        KeyboardActions(onDone = { focus.clearFocus() })
+}
