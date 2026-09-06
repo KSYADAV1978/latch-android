@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.media.ExifInterface
 import android.net.Uri
@@ -138,11 +139,66 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         if (!rereadWorthwhile(currentWidth, availableWidth)) return null
 
         val cropped = decodeRegion(uri, region, regionSample) ?: return null
-        log("reread ${region.width}x${region.height} sample=$regionSample from ${currentWidth}px")
+        // FR-1228's second half: the writing is levelled before it is read again, so that
+        // `inReadingOrder` is handed an upright image rather than asked to group rows out of boxes
+        // that are all turned. That is SRS 1.134's collapse fixed at its cause.
+        val angle = dominantTextAngle(blocks)
+        val levelled = uprightAndLevel(cropped, rotation, angle)
+        val alreadyUpright = levelled !== cropped
+        log(
+            "reread ${region.width}x${region.height} sample=$regionSample" +
+                " from ${currentWidth}px angle=${"%.1f".format(angle)}"
+        )
         return try {
-            recognise(cropped, rotation)
+            // Where the bitmap was physically turned, the turn is done and ML Kit is told nothing;
+            // where it was not, the EXIF rotation still has to reach it.
+            recognise(levelled, if (alreadyUpright) 0 else rotation)
         } finally {
-            cropped.recycle()
+            levelled.recycle()
+            if (alreadyUpright) cropped.recycle()
+        }
+    }
+
+    /**
+     * FR-1228: the angle of a block's own baseline, from its corner points.
+     *
+     * **The corner points describe the text's quadrilateral, where `boundingBox` is the
+     * axis-aligned rectangle around it** — on level writing the two agree and on turned writing
+     * only the corners know. They come clockwise from the text's top-left, so the first edge is
+     * the baseline direction.
+     *
+     * Zero where ML Kit gave none, which the median then ignores as a block with nothing to say.
+     */
+    private fun blockAngle(corners: Array<android.graphics.Point>?): Double {
+        val points = corners ?: return 0.0
+        if (points.size < 2) return 0.0
+        val dx = (points[1].x - points[0].x).toDouble()
+        val dy = (points[1].y - points[0].y).toDouble()
+        if (dx == 0.0 && dy == 0.0) return 0.0
+        return Math.toDegrees(kotlin.math.atan2(dy, dx))
+    }
+
+    /**
+     * FR-1228: the region turned upright and levelled, in one operation.
+     *
+     * **Two rotations compose here and the order is the whole of the correctness.** The region was
+     * decoded from the *file*, so it still needs the EXIF turn to be the right way up; the text
+     * angle is measured in that upright frame, so it is subtracted afterwards. Doing them as one
+     * `Matrix` costs a single resample rather than two.
+     *
+     * Returns the original where there is nothing to do, so the common path allocates nothing.
+     */
+    private fun uprightAndLevel(bitmap: Bitmap, exifRotation: Int, textAngle: Double): Bitmap {
+        val total = exifRotation - textAngle
+        if (!worthLevelling(textAngle) && exifRotation % 360 == 0) return bitmap
+        return try {
+            Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height,
+                Matrix().apply { postRotate(total.toFloat()) },
+                true,
+            )
+        } catch (outOfMemory: OutOfMemoryError) {
+            bitmap
         }
     }
 
@@ -318,7 +374,10 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
                     continuation.resume(
                         text.textBlocks.mapNotNull { block ->
                             val box = block.boundingBox ?: return@mapNotNull null
-                            TextBlock(block.text, box.left, box.top, box.right, box.bottom)
+                            TextBlock(
+                                block.text, box.left, box.top, box.right, box.bottom,
+                                angle = blockAngle(block.cornerPoints),
+                            )
                         }
                     )
                 }

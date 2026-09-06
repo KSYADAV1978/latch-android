@@ -222,8 +222,19 @@ data class TextBlock(
     val top: Int,
     val right: Int,
     val bottom: Int,
+    /**
+     * FR-1228: how far this block's baseline is turned from horizontal, in degrees.
+     *
+     * **Defaulted, so every existing caller and fixture is untouched.** It comes from ML Kit's
+     * corner points, which describe the text's own quadrilateral rather than the axis-aligned box
+     * the other four fields hold — and that difference is the entire reason a rotated card
+     * scrambles: `inReadingOrder` groups rows by vertical overlap of *boxes*, and a turned card's
+     * boxes all overlap everything.
+     */
+    val angle: Double = 0.0,
 ) {
     val height: Int get() = (bottom - top).coerceAtLeast(1)
+    val width: Int get() = (right - left).coerceAtLeast(1)
 }
 
 /**
@@ -345,6 +356,39 @@ fun sourceRect(
  */
 fun betterReading(first: String, second: String): String =
     if (second.length >= first.length) second else first
+
+/**
+ * FR-1228: the angle the writing on this image actually runs at.
+ *
+ * **The median and not the mean**, because one block read crookedly — a logo, a stray mark caught
+ * as a character — would drag an average and cannot move a median. Blocks narrower than a few
+ * characters are dropped first for the same reason: a two-letter box has almost no baseline to
+ * measure and its angle is mostly noise.
+ *
+ * Returns 0 where there is nothing to measure, which the caller reads as "leave the image alone".
+ */
+fun dominantTextAngle(blocks: List<TextBlock>): Double {
+    val measurable = blocks.filter { it.width >= MIN_ANGLE_WIDTH }.map { it.angle }.sorted()
+    if (measurable.isEmpty()) return 0.0
+    val middle = measurable.size / 2
+    return if (measurable.size % 2 == 1) measurable[middle]
+    else (measurable[middle - 1] + measurable[middle]) / 2.0
+}
+
+/** A box narrower than this has too little baseline for its angle to mean anything. */
+const val MIN_ANGLE_WIDTH: Int = 40
+
+/**
+ * FR-1228: is the writing turned far enough to be worth straightening?
+ *
+ * **Two degrees**, because below that the rotation costs an allocation and a resample to buy
+ * nothing — `inReadingOrder`'s row grouping tolerates a slight tilt perfectly well, and it is the
+ * larger turns that collapse every line into a single row.
+ */
+fun worthLevelling(angle: Double): Boolean = kotlin.math.abs(angle) >= LEVEL_THRESHOLD_DEGREES
+
+/** See [worthLevelling]. */
+const val LEVEL_THRESHOLD_DEGREES: Double = 2.0
 
 /** Devanagari's Unicode block. The test that decides which recogniser owns a region. */
 fun hasDevanagari(text: String): Boolean = text.any { it.code in 0x0900..0x097F }

@@ -1447,9 +1447,13 @@ makes that cost nothing. Every failure returns null and keeps pass one — FR-12
 never a precondition. `sourceRect` is tested hardest because a mistake there throws nothing: it
 would re-read the wrong part of the picture at high resolution and return confident nonsense. The
 property test (every rotation maps a full frame back to the whole file) caught a hand-written
-expectation being wrong while the code was right. **Deskew is NOT in this slice**: `TextBlock`
-carries a box and not corner points, so the text angle is unavailable and SRS 1.134's row-grouping
-collapse is still routed around by the email rule rather than fixed.
+expectation being wrong while the code was right. **Deskew is in it too** (SRS 1.138): `TextBlock` gained an
+`angle` from ML Kit's corner points, `dominantTextAngle` takes the **median** so one crooked block
+cannot drag it, boxes under 40 px are ignored, and below 2 degrees nothing is done. The EXIF turn
+and the levelling compose in one `Matrix` — the region came from the *file* so it needs the EXIF
+turn, and the angle was measured in the upright frame so it is subtracted after. It levels reading
+**order**, not recognition: ML Kit already reads turned text, and what changes is that the order
+stops depending on how the card was laid down.
 
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same
