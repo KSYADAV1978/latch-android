@@ -30,7 +30,24 @@ internal object RelativeDateRule : DateRule {
         Regex("""\btonight\b|\baaj\s+raat\b""") to 0,
     )
 
-    /** Lower confidence: recognised, but the writer may have meant yesterday. */
+    /**
+     * FR-514: recognised, but the writer may have meant yesterday.
+     *
+     * **"kal" is both tomorrow and yesterday in Hindi**, and no amount of context in a captured
+     * message settles which. The requirement's answer is the forward reading at a *strictly
+     * lower* confidence — resolved so that design principle 1 holds (a date was found and is not
+     * invented), and lowered so that FR-512's threshold can route the capture to the Inbox for
+     * confirmation rather than saving a guess.
+     *
+     * **The confidence is the whole of the requirement's mechanism**, which is why the two live
+     * on the same line: `Confidence.MEDIUM` here against `HIGH` for an unambiguous "tomorrow" is
+     * what makes FR-512 able to see the difference at all. SRS 1.21 records the consequence and
+     * it is not comfortable: MEDIUM is 0.75 and the default threshold is 0.6, so a deployment
+     * that wants these confirmed has to say so.
+     *
+     * FR-504's "the resolved interpretation shall be displayed" is met by the confirmation
+     * sheet's when-line, which shows the forward date before anything is saved.
+     */
     private val HINGLISH_AMBIGUOUS = setOf("kal")
 
     private val WEEKDAYS = mapOf(

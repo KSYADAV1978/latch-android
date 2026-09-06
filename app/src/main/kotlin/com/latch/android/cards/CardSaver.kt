@@ -204,6 +204,14 @@ sealed interface CardSaveResult {
  * lesson is that an item written before duplicate detection exists becomes unmanageable; this file
  * exists in the slice after the check rather than beside it for that reason.
  *
+ * **FR-1214 — nothing reaches Google Contacts for a card the user has not saved — is structural
+ * rather than careful.** This class is the only thing in the application that calls
+ * `createContact`, and every one of its entry points is named for an act the user performed:
+ * [save] behind the Save button, `createAnyway` behind FR-1231's second answer, and the FR-1212
+ * drain behind a save that has already happened. There is no path that writes on open, on
+ * recognition or on a decode. That is FR-703's rule on a third destination, and it is the reason
+ * FR-1231 is an *offer* rather than a patch.
+ *
  * **The metadata is composed once, here, and never rewritten.** FR-1207's record is provenance —
  * what was captured and when — so Phase C's update will change fields and leave it alone. That is
  * SRS 1.18's write-once reading, which this project has already watched hold on a device: after an

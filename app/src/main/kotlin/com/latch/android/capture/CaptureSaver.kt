@@ -669,7 +669,13 @@ class CaptureSaver(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            // FR-806: offline is a delay, not a failure. Anything that will not come right
+            // FR-806, and NFR-301 is what it is for: *capture shall function fully offline; only
+        // the write to Google requires connectivity.* Everything above this line — the
+        // recognition, the parse, the classification, the confirmation — has already happened
+        // without a network, because FR-501 puts all of it on the device. This is the one step
+        // that needs one, and the queue is how a capture completes anyway.
+        //
+        // FR-806: offline is a delay, not a failure. Anything that will not come right
             // on its own still is one, and is reported rather than hidden in a queue the
             // user would watch never drain.
             if (isWorthRetrying(failure)) {

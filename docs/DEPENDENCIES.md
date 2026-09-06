@@ -4,6 +4,13 @@ NFR-501: third-party dependencies shall be minimised and each justified in writi
 dependency is a maintenance obligation on a product with no revenue (FR-1107), so the
 default answer is no and this file records the exceptions.
 
+**FR-1101 is enforced by this list and nowhere else.** The requirement is that the app contains
+no advertising, no in-app purchase and no paid tier — and on Android all three arrive as
+dependencies: Play Billing, an ad SDK, an analytics SDK to measure either. There is no code to
+inspect for their absence, because absence is not a thing code says; what says it is that no
+such artifact appears below, and that NFR-501 makes adding one a written decision rather than a
+line in a build file. A future reader checking FR-1101 should read this table, not the source.
+
 ## Measured APK impact
 
 Release build, R8 and resource shrinking enabled, each dependency measured on its own
@@ -445,12 +452,25 @@ turns the run red with `Unable to instantiate application`, before any test body
 taken transitively through `ext:junit`, for the reason recorded under `kotlin-test-junit5`
 below: a dependency whose classes we import should be one we declare.
 
-**This is a canary, not a test layer, and the distinction is the justification.** Espresso,
-Compose UI test and a fixture harness are all deliberately absent, and adding them is a new
-NFR-501 decision rather than an extension of this one. Assertions about behaviour belong in
-the reducer tests, where they are free and cannot flake — `SetupStateTest` already holds
-AC-15 and AC-16 that way. The only thing bought here is the knowledge that the app gets off
-the ground.
+**This was a canary and is now a small test layer, and the justification is unchanged because
+the artifacts are.** The three `androidx.test` dependencies still supply nothing but a runner
+and `ActivityScenario`; what grew is what is written against them. Espresso, Compose UI test
+and a fixture harness remain deliberately absent, and adding either is a new NFR-501 decision
+rather than an extension of this one — every assertion in the suite is over a store, a file or
+a recogniser, and an assertion about a *screen* belongs in the pure function the screen calls.
+
+The layer exists because a whole class of defect is invisible without it: a platform call whose
+stubbed behaviour under JVM unit tests **inverts** the real one. `BitmapFactory` is a throwing
+stub in the `android.jar` unit tests compile against — the same property that makes the parser
+corpus cheap — and it hid a dead image path through three commits with 328 tests green.
+`SQLiteOpenHelper`, `SharedPreferences` and the Keystore have exactly that standing.
+
+*(CLAUDE.md recorded this paragraph as stale on 2 Sep 2026 and left it alone because that
+session had been told not to touch this file. Corrected here, on the first occasion the file was
+open for another reason.)*
+
+Assertions about behaviour that a JVM test can reach still belong there, where they are free and
+cannot flake — `SetupStateTest` holds AC-15 and AC-16 that way.
 
 Two operational notes. It does **not** run under `./gradlew build`; it needs a device and the
 task is `connectedDebugAndroidTest`, so it catches nothing unless someone runs it — there is

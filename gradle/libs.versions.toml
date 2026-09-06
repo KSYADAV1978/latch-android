@@ -4,6 +4,11 @@ kotlin = "2.2.21"
 jvmTarget = "17"
 
 compileSdk = "37"
+# FR-516: 26 and no lower. `java.time` is available natively from API 26, so every date and time
+# calculation in this project runs the same code on the phone, on the desktop client and under
+# the JVM test suite — with no core library desugaring and no third-party date library, which
+# NFR-501 would otherwise have to justify. Lowering this number is not a compatibility decision;
+# it is a decision to add desugaring or a dependency, and FR-516 forbids the second.
 minSdk = "26"
 targetSdk = "37"
 
