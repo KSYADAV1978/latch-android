@@ -1490,8 +1490,13 @@ down and further away than it had been framed, and nothing the app displayed cou
 picture reached the recogniser. **It caught a bug in itself on its first run**: the preview applied
 the EXIF turn *and then* the text angle, the same double-count SRS 1.140 had removed from
 `levelled` an hour earlier and which was not carried across, so the card showed sideways while the
-reader had it upright. One rule, both places. After the fix: the card upright and legible, and its
-framing visible without reading logcat.
+reader had it upright. One rule, both places. After the fix: the card upright and legible. **Cropped to
+the region the reader read** (SRS 1.143) rather than the whole frame, on the developer's question:
+the second pass reads a region and wins nearly every capture, so the frame is not what the fields
+came from — and at thumbnail height a card filling two fifths of a frame cannot be checked against
+anything. It proved itself immediately: on a card reading `JSW Steel Limited` the Company field said
+`SWsteel Limited`, the stylised logo losing its `J`, with the wrong field and the evidence for it on
+screen together for the first time in this pillar.
 
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same

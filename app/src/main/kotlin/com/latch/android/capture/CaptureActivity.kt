@@ -1109,7 +1109,7 @@ class CaptureActivity : ComponentActivity() {
                         if (texts.size == 1) {
                             cardPreview.value = runCatching {
                                 CardPhotoEncoder(this@CaptureActivity)
-                                    .preview(uri, result.textAngle)
+                                    .preview(uri, result.textAngle, result.readRegion)
                             }.getOrNull()
                         }
                     }

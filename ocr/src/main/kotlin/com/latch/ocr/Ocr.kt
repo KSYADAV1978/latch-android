@@ -90,6 +90,15 @@ sealed interface OcrResult {
          * difference between a preview that reassures and one that verifies.
          */
         val textAngle: Double = 0.0,
+        /**
+         * FR-1229: the part of the file the reader actually read, in the file's own coordinates.
+         *
+         * **Null where the whole image was read**, which is the honest distinction: a card filling
+         * the frame is read entire, and a preview cropped to the writing would then show something
+         * narrower than what was recognised. Present where FR-1228's second pass ran, because
+         * *that* is the image the fields came from.
+         */
+        val readRegion: PixelRect? = null,
     ) : OcrResult
 
     data class Failed(val reason: OcrFailure) : OcrResult

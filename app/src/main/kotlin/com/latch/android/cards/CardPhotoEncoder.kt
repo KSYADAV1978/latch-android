@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.media.ExifInterface
 import android.net.Uri
+import com.latch.ocr.PixelRect
 import com.latch.ocr.worthLevelling
 import java.io.ByteArrayOutputStream
 
@@ -37,8 +38,19 @@ class CardPhotoEncoder(private val context: Context) {
      * **It is not retained** (FR-1211). This is a bitmap in memory for as long as the sheet is on
      * screen, from a file that is deleted when the capture closes.
      */
-    fun preview(uri: Uri, textAngle: Double, side: Int = PREVIEW_SIDE): Bitmap? = runCatching {
-        val decoded = decodeAtMost(uri, side) ?: return null
+    fun preview(
+        uri: Uri,
+        textAngle: Double,
+        region: PixelRect? = null,
+        side: Int = PREVIEW_SIDE,
+    ): Bitmap? = runCatching {
+        // **Cropped to what the reader read, where it read a crop** (SRS 1.143). Showing the whole
+        // frame showed something the recogniser only partly used — and at thumbnail size a card
+        // occupying two fifths of a frame is a stamp nobody can check their fields against. The
+        // crop puts the card across the whole thumbnail, and a crop that went wrong shows itself
+        // rather than hiding in a log.
+        val decoded = (region?.let { decodeRegionAtMost(uri, it, side) } ?: decodeAtMost(uri, side))
+            ?: return null
         // **The EXIF turn is deliberately not applied, and the first version applied it** (SRS
         // 1.142). The angle is measured in the file's own frame, so it already contains whatever
         // EXIF contributed — turning by both put the preview 180 degrees out and the card sideways
@@ -52,6 +64,34 @@ class CardPhotoEncoder(private val context: Context) {
             true,
         )
     }.getOrNull()
+
+    /** One rectangle of the file, no larger than a thumbnail needs. See [preview]. */
+    @Suppress("DEPRECATION")
+    private fun decodeRegionAtMost(uri: Uri, region: PixelRect, side: Int): Bitmap? = try {
+        var sample = 1
+        while (region.width / (sample * 2) >= side && region.height / (sample * 2) >= side) {
+            sample *= 2
+        }
+        openStream(uri)?.use { stream ->
+            val decoder = android.graphics.BitmapRegionDecoder.newInstance(stream, false)
+            try {
+                decoder?.decodeRegion(
+                    android.graphics.Rect(region.left, region.top, region.right, region.bottom),
+                    BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    },
+                )
+            } finally {
+                decoder?.recycle()
+            }
+        }
+    } catch (unreadable: Exception) {
+        // A format the region decoder will not open. The whole frame is still a fair preview.
+        null
+    } catch (outOfMemory: OutOfMemoryError) {
+        null
+    }
 
     /** Decoded no larger than a thumbnail needs; the bounds pass allocates nothing. */
     private fun decodeAtMost(uri: Uri, side: Int): Bitmap? {

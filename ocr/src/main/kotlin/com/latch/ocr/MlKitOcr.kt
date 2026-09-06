@@ -83,14 +83,17 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
             ?: return@withContext OcrResult.Failed(OcrFailure.UNREADABLE_SOURCE)
         val rotation = rotationDegreesFor(exifOrientation(uri))
         var appliedAngle = 0.0
+        var readRegion: PixelRect? = null
 
         val text = try {
             val blocks = recogniseBlocks(bitmap, rotation)
             appliedAngle = dominantTextAngle(blocks)
             val first = assemble(blocks)
             // FR-1228: read the card again at the resolution of its own text.
-            val second = rereadText(uri, blocks, bitmap, sample, rotation, source).orEmpty()
+            val reread = rereadRegion(uri, blocks, bitmap, sample, rotation, source)
+            val second = reread?.text.orEmpty()
             betterReading(first, second).also { kept ->
+                if (kept === second) readRegion = reread?.region
                 // **Which reading won, and it is not inferable from anything else.** A second pass
                 // that fired and then lost looks identical in the log to one that fired and won,
                 // and the difference is the whole question of whether FR-1228 is earning its cost.
@@ -108,7 +111,7 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         }
 
         text.trim().takeIf(String::isNotEmpty)
-            ?.let { OcrResult.Text(it, textAngle = appliedAngle) }
+            ?.let { OcrResult.Text(it, textAngle = appliedAngle, readRegion = readRegion) }
             ?: OcrResult.Failed(OcrFailure.NO_TEXT_FOUND)
     }
 
@@ -126,14 +129,16 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
      * re-read that corner — which is why the caller takes the *longer* of the two texts and why a
      * failure costs nothing rather than costing the capture.
      */
-    private suspend fun rereadText(
+    private class Reread(val text: String, val region: PixelRect)
+
+    private suspend fun rereadRegion(
         uri: Uri,
         blocks: List<TextBlock>,
         bitmap: Bitmap,
         sample: Int,
         rotation: Int,
         source: Rect,
-    ): String? {
+    ): Reread? {
         val union = textUnion(blocks) ?: return null
         val uprightWidth = if (rotation % 180 == 0) bitmap.width else bitmap.height
         val uprightHeight = if (rotation % 180 == 0) bitmap.height else bitmap.width
@@ -171,7 +176,7 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
             // that says whether the rotation took effect. Near zero means it did; near the angle
             // it started at means it did not, or went the wrong way. Content-free: a number.
             log("reread after angle=${"%.1f".format(dominantTextAngle(second))}")
-            assemble(second)
+            Reread(assemble(second), region)
         } finally {
             levelled.recycle()
             if (turned) cropped.recycle()
