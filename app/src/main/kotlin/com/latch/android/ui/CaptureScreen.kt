@@ -476,6 +476,14 @@ fun CaptureScreen(
                         }
                     }
                 }
+                // FR-1003 and SRS 1.171. **Nothing but Close where the layer is off.** Latch has
+                // just refused this capture with a reason; offering to save or export it
+                // contradicts the refusal, and `onSave` guards on `captured != null && result !=
+                // null` — which a refused capture has neither of — so both controls were silent.
+                // A tap that does nothing is indistinguishable from a broken app (SRS 1.100), and
+                // here it would be read as Latch ignoring its own setting.
+                if (layerDisabled) return@FlowRow
+
                 // FR-1005. Shown only where there is something to export, which is anything
                 // the sheet could draft.
                 if (onExportIcs != null && result != null && captured != null) {
