@@ -43,6 +43,23 @@ class CardPhotoEncoder(private val context: Context) {
         textAngle: Double,
         region: PixelRect? = null,
         side: Int = PREVIEW_SIDE,
+    ): Bitmap? = asSeen(uri, textAngle, region, side)
+
+    /**
+     * The photograph as the reader saw it: cropped to the region it read, levelled by its angle.
+     *
+     * **One function, because there are two places that must not disagree** (SRS 1.148). FR-1229's
+     * thumbnail is what the user checks; FR-1226's contact picture is what the account keeps, and
+     * they were composed by different code that made different choices — the picture applied the
+     * EXIF turn and no crop, the thumbnail the crop and no EXIF. A user who approved a cropped,
+     * levelled card got an uncropped one in their contacts. That is SRS 1.142's defect a second
+     * time and in the more expensive direction, since a contact photograph outlives the sheet.
+     */
+    private fun asSeen(
+        uri: Uri,
+        textAngle: Double,
+        region: PixelRect?,
+        side: Int,
     ): Bitmap? = runCatching {
         // **Cropped to what the reader read, where it read a crop** (SRS 1.143). Showing the whole
         // frame showed something the recogniser only partly used — and at thumbnail size a card
@@ -117,9 +134,19 @@ class CardPhotoEncoder(private val context: Context) {
      * Null rather than an exception: FR-1226 says a photograph that fails must not fail the
      * contact, and the caller turns this into [CardPhotoUpload.FAILED] beside a successful save.
      */
-    fun squareJpeg(uri: Uri): ByteArray? = runCatching {
-        val source = decodeScaled(uri) ?: return null
-        val rotated = applyExifRotation(uri, source)
+    fun squareJpeg(
+        uri: Uri,
+        textAngle: Double = 0.0,
+        region: PixelRect? = null,
+    ): ByteArray? = runCatching {
+        // **What the sheet showed, at the size a contact photograph needs** (SRS 1.148). This
+        // read the file and applied the EXIF turn until the user pointed out that the picture in
+        // their account was uncropped while the thumbnail they had approved was not. Falling back
+        // to the old path where the reading gives nothing to go on keeps a photograph rather than
+        // dropping one, which is FR-1226's own rule about failure.
+        val rotated = asSeen(uri, textAngle, region, CONTACT_PHOTO_SIDE)
+            ?: decodeScaled(uri)?.let { applyExifRotation(uri, it) }
+            ?: return null
 
         val placement = letterboxPlacement(rotated.width, rotated.height) ?: return null
         val canvasBitmap = Bitmap.createBitmap(
@@ -234,4 +261,16 @@ const val PREVIEW_SIDE: Int = 480
  * found nothing in produces no preview, and numbering the previews rather than the photographs
  * would then label the second card "Photo 1" — which is the confusion this pairs the two against.
  */
-data class CardPreview(val side: Int, val image: Bitmap)
+data class CardPreview(
+    val side: Int,
+    val image: Bitmap,
+    /**
+     * The turn and the crop this thumbnail was made with (SRS 1.148).
+     *
+     * **Carried on the preview rather than looked up again**, so FR-1226's contact picture is
+     * composed from the same three values as the thumbnail the user approved and cannot drift
+     * from it. Looking them up a second time is exactly how the two came to disagree.
+     */
+    val textAngle: Double = 0.0,
+    val region: PixelRect? = null,
+)

@@ -52,6 +52,7 @@ import com.latch.data.StoredUndoOffer
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.delay
+import androidx.compose.material3.HorizontalDivider
 
 /**
  * FR-101: first launch runs setup. It is not "first launch" that is tested, but whether an
@@ -406,7 +407,14 @@ private fun Home(
     ) {
         Text(stringResource(R.string.home_headline), style = MaterialTheme.typography.headlineMedium)
         Text(stringResource(R.string.home_setup_pending), style = MaterialTheme.typography.bodyMedium)
-        Text(stringResource(R.string.home_try_it), style = MaterialTheme.typography.bodyMedium)
+
+        // ---- What needs answering, above the sections and outside them (SRS 1.149) -------------
+        //
+        // **Not a section, deliberately.** Everything below this block is a standing place the
+        // user can go; everything in it is something that has happened and may need answering,
+        // and most of it is absent most of the time. Filing an alert under a heading would make
+        // the heading itself appear and disappear, and would put FR-807's ten-second offer
+        // below furniture.
 
         // FR-908: "shall fall back to the primary calendar and **inform the user**". Their
         // captures are about to start landing somewhere they did not choose, which is the one
@@ -425,6 +433,9 @@ private fun Home(
         // FR-807, where the capture window has gone. The countdown is read here rather than
         // trusted to a timer, and the offer disappears of its own accord when it lapses —
         // the store sweeps it, and this stops drawing it a fraction earlier.
+        //
+        // **First of everything that is not the app's own name**, because it has ten seconds to
+        // live: a control that pushed this countdown down the screen would spend them.
         if (undoOffer != null) {
             val remaining by produceState(undoOffer.secondsLeft(Instant.now()), undoOffer) {
                 while (value > 0) {
@@ -443,43 +454,9 @@ private fun Home(
             }
         }
 
-        // FR-1201a and FR-1202. **A filled button, and the only one on this screen that is not
-        // about something having gone wrong**: it is an action the user comes here to take, where
-        // the Inbox, Recipes and Settings below are places to go. Its label names a business card
-        // rather than a contact because the button *is* FR-1202's card-versus-date election —
-        // pressing it declares what the photograph will be, so nothing has to be detected
-        // afterwards and no mode is ever switched.
-        //
-        // **Below FR-807's undo offer, deliberately.** That offer has ten seconds to live and a
-        // new control pushing its countdown down the screen would spend them.
-        Button(onClick = onCaptureCard) {
-            Text(stringResource(R.string.home_capture_card))
-        }
-        if (cameraMissing) {
-            Text(
-                text = stringResource(R.string.home_capture_card_no_camera),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-
-        // FR-704: an unobtrusive count, and nothing at all when there is none. The second half
-        // of that requirement — "and shall not nag" — is why this is a line of text and a text
-        // button rather than a badge, a colour or a notification.
-        if (inboxCount > 0) {
-            Text(
-                text = pluralStringResource(R.plurals.home_inbox_pending, inboxCount, inboxCount),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            TextButton(onClick = onOpenInbox) {
-                Text(stringResource(R.string.home_open_inbox))
-            }
-        }
-
-        // FR-806's "visible to the user", and the whole of it for now — this is the only
-        // screen the app has until Settings (FR-1000) lands. Nothing is drawn when the queue
-        // is empty: a permanent "0 waiting" is noise, and NFR-104's habit of not nagging
-        // applies to a count as much as to a notification.
+        // FR-806's "visible to the user". Nothing is drawn when the queue is empty: a permanent
+        // "0 waiting" is noise, and NFR-104's habit of not nagging applies to a count as much as
+        // to a notification.
         if (queue.waiting > 0) {
             Text(
                 text = pluralStringResource(R.plurals.home_queue_waiting, queue.waiting, queue.waiting),
@@ -520,18 +497,6 @@ private fun Home(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        // FR-602/FR-603. Always available, unlike the counts above: a recipe list with
-        // nothing in it is impossible — eight ship — so there is no empty state to hide.
-        TextButton(onClick = onOpenRecipes) {
-            Text(stringResource(R.string.recipes_open))
-        }
-
-        // FR-1000, and FR-109's promise kept: "Every choice made during setup shall be
-        // changeable afterwards in Settings, and the setup screens shall say so."
-        TextButton(onClick = onOpenSettings) {
-            Text(stringResource(R.string.settings_open))
-        }
-
         // FR-806's manual retry, which its own note recorded as absent until Settings existed.
         // Offered whenever anything is in the queue at all, given-up entries included: those
         // are revived by the tap, because the user has usually done something between the
@@ -541,7 +506,112 @@ private fun Home(
                 Text(stringResource(R.string.home_queue_retry))
             }
         }
+
+        // ---- The four things this app does, each in its own words (SRS 1.149) ------------------
+        //
+        // **Grouped from a dogfooding report, and the report was about intuitiveness rather than
+        // about a defect**: one flat column of buttons says what the app *can do* and nothing
+        // about what any of it is *for*. The two pillars in particular look alike from here — a
+        // card and a date are captured by different gestures, land in different Google products
+        // and are undone by different calls — and a screen listing them as adjacent buttons
+        // hides that.
+        //
+        // **Each note says what the section produces**, not what it is called: "becomes a
+        // contact", "become events and to-dos". A heading the user has to translate is a heading
+        // that has not been read.
+
+        Section(
+            title = stringResource(R.string.home_section_cards),
+            note = stringResource(R.string.home_section_cards_note),
+        ) {
+            // FR-1201a and FR-1202. **A filled button, and the only one on this screen that is
+            // not about something having gone wrong**: it is an action the user comes here to
+            // take, where the Inbox, Recipes and Settings are places to go. Its label names a
+            // business card rather than a contact because the button *is* FR-1202's
+            // card-versus-date election — pressing it declares what the photograph will be, so
+            // nothing has to be detected afterwards and no mode is ever switched.
+            Button(onClick = onCaptureCard) {
+                Text(stringResource(R.string.home_capture_card))
+            }
+            if (cameraMissing) {
+                Text(
+                    text = stringResource(R.string.home_capture_card_no_camera),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
+        Section(
+            title = stringResource(R.string.home_section_dates),
+            note = stringResource(R.string.home_try_it),
+        ) {
+            // **There is no button here, and that is the section's own point.** This pillar has
+            // no home-screen entry at all: FR-203 to FR-207 are reached from other applications,
+            // by selecting text or sharing to Latch. The note is the whole of what this screen
+            // can offer it — and until the note had a heading of its own it read as a caption
+            // for the card button above it.
+            //
+            // FR-704: an unobtrusive count, and nothing at all when there is none. The second
+            // half of that requirement — "and shall not nag" — is why this is a line of text
+            // and a text button rather than a badge, a colour or a notification.
+            if (inboxCount > 0) {
+                Text(
+                    text = pluralStringResource(R.plurals.home_inbox_pending, inboxCount, inboxCount),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                TextButton(onClick = onOpenInbox) {
+                    Text(stringResource(R.string.home_open_inbox))
+                }
+            }
+        }
+
+        Section(
+            title = stringResource(R.string.home_section_recipes),
+            note = stringResource(R.string.home_section_recipes_note),
+        ) {
+            // FR-602/FR-603. Always available, unlike the counts above: a recipe list with
+            // nothing in it is impossible — eight ship — so there is no empty state to hide.
+            TextButton(onClick = onOpenRecipes) {
+                Text(stringResource(R.string.recipes_open))
+            }
+        }
+
+        Section(
+            title = stringResource(R.string.home_section_settings),
+            note = stringResource(R.string.home_section_settings_note),
+        ) {
+            // FR-1000, and FR-109's promise kept: "Every choice made during setup shall be
+            // changeable afterwards in Settings, and the setup screens shall say so."
+            TextButton(onClick = onOpenSettings) {
+                Text(stringResource(R.string.settings_open))
+            }
+        }
     }
+}
+
+/**
+ * One labelled group on the home screen (SRS 1.149).
+ *
+ * **A rule above the heading rather than a card around the group.** This screen is a scrolling
+ * column of prose and text buttons; boxing each group would put four borders in competition with
+ * the single filled button the screen has, and FR-1201a's card action is the thing that must stay
+ * findable. A rule and a heading separate without ranking.
+ */
+@Composable
+private fun Section(
+    title: String,
+    note: String,
+    content: @Composable () -> Unit,
+) {
+    HorizontalDivider(modifier = Modifier.padding(top = 4.dp))
+    Text(text = title, style = MaterialTheme.typography.titleSmall)
+    Text(
+        text = note,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    content()
 }
 
 /**

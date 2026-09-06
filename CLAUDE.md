@@ -1507,6 +1507,21 @@ fold — and made FR-1226's contact picture the first side that was *read* rathe
 file, so the label, the thumbnail and the attachment name one photograph between them. **The
 four-shot layout and the numbered label are BUILT and UNWATCHED**; the phone was unplugged.
 
+**FR-1226's picture is FR-1229's thumbnail now** (SRS 1.148). The developer found it in their own
+account: the contact photo was uncropped while the preview they had approved was not. The two were
+composed by different code making different choices — the thumbnail cropped to the read region and
+levelled by the text angle with no EXIF turn, the picture the EXIF turn with no crop and no angle.
+One function composes both, and `CardPreview` carries the angle and region so the picture is made
+from the same three values as the thumbnail rather than looking them up again. The old path
+survives as a fallback where the reading gives nothing to go on, because FR-1226 says a photograph
+that fails must not fail the contact. **BUILT and UNWATCHED**: no card has been saved since.
+
+**The home screen has four sections** (SRS 1.149) — Business cards, Dates and to-dos, Recipes,
+Settings — asked for as intuitiveness rather than reported as a defect. Alerts stay above them and
+outside them: a section is a standing place to go, an alert is something that happened and mostly
+is not there. The dates section has **no button and that is its point**, that pillar being reached
+from other applications. **BUILT and UNWATCHED.**
+
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same
 framing did before. Then photograph one filling the frame and confirm **no** reread line — the

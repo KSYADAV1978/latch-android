@@ -605,14 +605,22 @@ class CaptureActivity : ComponentActivity() {
                                 // Now the label, the thumbnail and the attachment name one
                                 // photograph between them. Choosing a different one is a question
                                 // no requirement asks.
-                                val wanted = cardPreviews.value.firstOrNull()?.side ?: 1
+                                //
+                                // **And it is composed from the preview's own numbers** (SRS
+                                // 1.148), so the picture in the account is the picture on the
+                                // sheet: same side, same turn, same crop.
+                                val shown = cardPreviews.value.firstOrNull()
                                 val jpeg = if (!sheet.attachPhoto) null else {
-                                    cardPhotoFiles(cacheDir).getOrNull(wanted - 1)?.let { file ->
-                                        runCatching {
-                                            CardPhotoEncoder(this@CaptureActivity)
-                                                .squareJpeg(cardPhotoUriFor(this@CaptureActivity, file))
-                                        }.getOrNull()
-                                    }
+                                    cardPhotoFiles(cacheDir)
+                                        .getOrNull((shown?.side ?: 1) - 1)?.let { file ->
+                                            runCatching {
+                                                CardPhotoEncoder(this@CaptureActivity).squareJpeg(
+                                                    uri = cardPhotoUriFor(this@CaptureActivity, file),
+                                                    textAngle = shown?.textAngle ?: 0.0,
+                                                    region = shown?.region,
+                                                )
+                                            }.getOrNull()
+                                        }
                                 }
                                 cardSave = app.cardSaver.save(
                                     draft = sheet.edited,
@@ -1129,7 +1137,14 @@ class CaptureActivity : ComponentActivity() {
                         runCatching {
                             CardPhotoEncoder(this@CaptureActivity)
                                 .preview(uri, result.textAngle, result.readRegion)
-                        }.getOrNull()?.let { previews += CardPreview(index + 1, it) }
+                        }.getOrNull()?.let {
+                            previews += CardPreview(
+                                side = index + 1,
+                                image = it,
+                                textAngle = result.textAngle,
+                                region = result.readRegion,
+                            )
+                        }
                         // **Published as each side finishes**, not at the end. The sheet is on
                         // screen throughout the read, and a preview that appears only once every
                         // side is done leaves the longest gap exactly where the doubt is.

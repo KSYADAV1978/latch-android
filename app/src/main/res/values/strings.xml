@@ -575,12 +575,24 @@
       what is or is not built belongs under review whenever a slice lands.
     -->
     <string name="home_setup_pending">Setup is done. Captures are parsed, shown and saved to Google, every save can be undone for ten seconds, and anything Latch is unsure about waits in your Inbox instead of guessing.</string>
-    <string name="home_try_it">Select text in any app and choose Latch from the toolbar, or share text, a screenshot or a PDF to Latch.</string>
+    <string name="home_try_it">Select text in any app and choose Latch, or share text, a screenshot or a PDF to Latch. The dates in it become events and to-dos in your Google Calendar and Tasks. There is nothing to press here \u2014 you start from the app you are reading.</string>
     <!--
       FR-1201a and FR-1202. The label says "business card" rather than "contact" because the
       button *is* the card-versus-date choice: it has to name what the user is about to point the
       camera at, or the photograph arrives having declared nothing.
     -->
+    <!--
+      SRS 1.149: the home screen's four sections. Each note says what the section *produces*
+      rather than restating its heading, and each is one sentence — a paragraph under a heading
+      on a screen of buttons is a paragraph nobody reads.
+    -->
+    <string name="home_section_cards">Business cards</string>
+    <string name="home_section_cards_note">Photograph a card and it becomes a new contact in your Google Contacts. Latch reads the card, and you check every field before it is saved \u2014 the card is not kept.</string>
+    <string name="home_section_dates">Dates and to-dos</string>
+    <string name="home_section_recipes">Recipes</string>
+    <string name="home_section_recipes_note">Turn one captured date into a chain \u2014 a reminder the week before, a follow-up the day after. Eight are built in; edit them or write your own.</string>
+    <string name="home_section_settings">Settings</string>
+    <string name="home_section_settings_note">Where captures are saved, how dates are read, which ways of capturing are switched on. Every choice you made during setup can be changed here.</string>
     <string name="home_capture_card">Capture a business card</string>
     <!--
       No camera application on the device, which is rare and is not an error the user can fix
