@@ -120,6 +120,12 @@
       with FR-1225 there may be several and it is the first that is used.
     -->
     <!--
+      FR-1229: the photograph as the recogniser saw it. The caption says *read* rather than
+      *taken*, because the whole value of the picture is that it is not the one the camera showed.
+    -->
+    <string name="card_preview_description">The photo Latch read, turned upright</string>
+    <string name="card_preview_caption">This is what Latch read, turned upright. If it is cut off or the wrong way round, retake it.</string>
+    <!--
       FR-1227. Says what was found and what it was matched on, so the user can judge it — "a
       contact with this name and number" is checkable, where "possible duplicate" is not. It never
       blocks the save, and the wording is careful not to imply that it might.

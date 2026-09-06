@@ -82,9 +82,11 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         val bitmap = decodeBitmap(uri)
             ?: return@withContext OcrResult.Failed(OcrFailure.UNREADABLE_SOURCE)
         val rotation = rotationDegreesFor(exifOrientation(uri))
+        var appliedAngle = 0.0
 
         val text = try {
             val blocks = recogniseBlocks(bitmap, rotation)
+            appliedAngle = dominantTextAngle(blocks)
             val first = assemble(blocks)
             // FR-1228: read the card again at the resolution of its own text.
             val second = rereadText(uri, blocks, bitmap, sample, rotation, source).orEmpty()
@@ -106,7 +108,7 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         }
 
         text.trim().takeIf(String::isNotEmpty)
-            ?.let { OcrResult.Text(it) }
+            ?.let { OcrResult.Text(it, textAngle = appliedAngle) }
             ?: OcrResult.Failed(OcrFailure.NO_TEXT_FOUND)
     }
 

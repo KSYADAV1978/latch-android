@@ -38,6 +38,11 @@ import com.latch.android.cards.CardPersonWarning
 import com.latch.android.cards.CardPhotoUpload
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 
 /**
  * FR-1205 and FR-1213: the card preview.
@@ -86,6 +91,15 @@ fun CardScreen(
     /** FR-1226 and FR-1212: there is no network, so a photograph would be dropped rather than sent. */
     photoWouldBeHeld: Boolean = false,
     /**
+     * FR-1229: the photograph as the recogniser saw it, turned as the reader turned it.
+     *
+     * **It verifies rather than reassures**, which is the whole reason it is this image and not
+     * the file. A camera's own confirm screen shows what the camera captured; this shows what
+     * Latch read, so a card that arrived upside down, cropped short or further away than it was
+     * framed says so *before* the fields below are trusted.
+     */
+    preview: ImageBitmap? = null,
+    /**
      * FR-1227: a contact carrying the same name and mobile is already in the account.
      *
      * **It never disables anything.** The user is holding the card and Latch is not; a line that
@@ -122,6 +136,22 @@ fun CardScreen(
                 modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // FR-1229. **First, above everything**, because it answers a question that comes
+                // before every field: is this even the picture I took? A preview below the fields
+                // would be checked after they had already been believed.
+                if (preview != null) {
+                    Image(
+                        bitmap = preview,
+                        contentDescription = stringResource(R.string.card_preview_description),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 160.dp)
+                            .clip(MaterialTheme.shapes.medium),
+                    )
+                    Note(stringResource(R.string.card_preview_caption))
+                }
+
                 // FR-1224, and it belongs **before the first box** rather than among them. It was
                 // landing mid-list — between the phone boxes and the address — where it reads as a
                 // caption for whichever field happens to sit above it (SRS 1.113).

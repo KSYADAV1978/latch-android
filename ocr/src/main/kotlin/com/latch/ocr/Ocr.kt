@@ -76,7 +76,21 @@ sealed interface OcrResult {
      * [pages] is null for an image, which has no pages to cap, and present for a PDF whether
      * or not the cap bit — the screen needs the totals either way.
      */
-    data class Text(val value: String, val pages: PageCoverage? = null) : OcrResult
+    data class Text(
+        val value: String,
+        val pages: PageCoverage? = null,
+        /**
+         * FR-1229: the angle the writing ran at in the file, which is the turn the reader had to
+         * undo to level it. Zero where the image was already square with the writing.
+         *
+         * **Reported so a screen can show what was actually read.** The developer photographed a
+         * card flat and close and the camera's own confirm screen showed it upside down and
+         * further away — and there was no way to tell, from anything the app displayed, which of
+         * those two pictures had reached the recogniser. A number the app can act on is the
+         * difference between a preview that reassures and one that verifies.
+         */
+        val textAngle: Double = 0.0,
+    ) : OcrResult
 
     data class Failed(val reason: OcrFailure) : OcrResult
 }

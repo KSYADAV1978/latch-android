@@ -75,6 +75,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import com.latch.android.cards.cardPersonWarning
 import com.latch.wire.cardPersonKeys
+import androidx.compose.ui.graphics.asImageBitmap
 
 /**
  * What this screen has to show, which since FR-215 is not always known when it opens.
@@ -134,6 +135,14 @@ class CaptureActivity : ComponentActivity() {
 
     /** FR-1225: how many photographs this capture holds, and how many of them yielded text. */
     private val cardCoverage = MutableStateFlow<CardPhotoCoverage?>(null)
+
+    /**
+     * FR-1229: the photograph as the reader saw it, for the sheet to show.
+     *
+     * The **first** photograph, which is FR-1226's rule for the same reason — it is the front, and
+     * a strip of every side would cost the space the fields need.
+     */
+    private val cardPreview = MutableStateFlow<android.graphics.Bitmap?>(null)
 
     /**
      * FR-1225: a photograph is being recognised into the capture in hand.
@@ -216,6 +225,7 @@ class CaptureActivity : ComponentActivity() {
                 val saveState by app.captureSaver.state.collectAsState()
                 val captureContent by content.collectAsState()
                 val coverage by cardCoverage.collectAsState()
+                val previewBitmap by cardPreview.collectAsState()
                 val readingPhoto by readingCardPhoto.collectAsState()
                 val settings by app.settings.collectAsState()
 
@@ -532,6 +542,8 @@ class CaptureActivity : ComponentActivity() {
                         } else null,
                         // FR-1212's consequence, said before the save rather than after it.
                         photoWouldBeHeld = destinations == null,
+                        // FR-1229: what the reader saw, not what the camera showed.
+                        preview = previewBitmap?.asImageBitmap(),
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
                         saveResult = cardSave,
@@ -1074,6 +1086,7 @@ class CaptureActivity : ComponentActivity() {
             val app = application as LatchApplication
             val referrer = referrerPackage()
             val files = cardPhotoFiles(cacheDir)
+            cardPreview.value = null
             val texts = mutableListOf<String>()
             val payloads = mutableListOf<String>()
 
@@ -1089,7 +1102,17 @@ class CaptureActivity : ComponentActivity() {
                     // counted rather than forgotten — that difference is the whole of what
                     // FR-1225's coverage line reports.
                     is OcrResult.Failed -> Unit
-                    is OcrResult.Text -> texts += result.value
+                    is OcrResult.Text -> {
+                        texts += result.value
+                        // FR-1229. The first photograph only, and rendered exactly as it was read:
+                        // decoded small and turned by the angle the reader turned it.
+                        if (texts.size == 1) {
+                            cardPreview.value = runCatching {
+                                CardPhotoEncoder(this@CaptureActivity)
+                                    .preview(uri, result.textAngle)
+                            }.getOrNull()
+                        }
+                    }
                 }
             }
 

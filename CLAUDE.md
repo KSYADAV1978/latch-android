@@ -1483,6 +1483,16 @@ address came out **backwards**. `betterReading` now keeps the second unless it i
 shorter (four fifths) — length tests "the crop missed the card", not which reading is better. After
 the fix both sides `kept=second` and the address is in printed order.
 
+**FR-1229 — the sheet shows what the reader saw** (SRS 1.142). **BUILT and WATCHED 6 Sep 2026.**
+A thumbnail above the fields, turned by the angle the reader applied, because a camera's own
+confirm screen shows what the *camera* captured — the developer watched one present a card upside
+down and further away than it had been framed, and nothing the app displayed could say which
+picture reached the recogniser. **It caught a bug in itself on its first run**: the preview applied
+the EXIF turn *and then* the text angle, the same double-count SRS 1.140 had removed from
+`levelled` an hour earlier and which was not carried across, so the card showed sideways while the
+reader had it upright. One rule, both places. After the fix: the card upright and legible, and its
+framing visible without reading logcat.
+
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same
 framing did before. Then photograph one filling the frame and confirm **no** reread line — the

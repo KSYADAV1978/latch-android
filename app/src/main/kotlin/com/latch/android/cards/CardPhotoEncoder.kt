@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.media.ExifInterface
 import android.net.Uri
+import com.latch.ocr.worthLevelling
 import java.io.ByteArrayOutputStream
 
 /**
@@ -22,6 +23,53 @@ import java.io.ByteArrayOutputStream
  * which shipped a dead image path for a whole slice. The instrumented suite is where this belongs.
  */
 class CardPhotoEncoder(private val context: Context) {
+
+    /**
+     * FR-1229: the photograph as the recogniser saw it, small enough to sit on the sheet.
+     *
+     * **Levelled by [textAngle], which is the point.** The camera application's own confirm screen
+     * showed a card upside down and further away than it had been framed, and nothing the app
+     * displayed could say which of those two pictures had reached the reader — so a preview that
+     * merely repeated the file would reassure without verifying. Turning it by the angle the
+     * reader actually applied makes the thumbnail a statement about the pipeline rather than
+     * about the camera.
+     *
+     * **It is not retained** (FR-1211). This is a bitmap in memory for as long as the sheet is on
+     * screen, from a file that is deleted when the capture closes.
+     */
+    fun preview(uri: Uri, textAngle: Double, side: Int = PREVIEW_SIDE): Bitmap? = runCatching {
+        val decoded = decodeAtMost(uri, side) ?: return null
+        // **The EXIF turn is deliberately not applied, and the first version applied it** (SRS
+        // 1.142). The angle is measured in the file's own frame, so it already contains whatever
+        // EXIF contributed — turning by both put the preview 180 degrees out and the card sideways
+        // on screen. That is `levelled`'s rule, and the preview is only honest if it is the same
+        // rule: a thumbnail turned differently from the image the reader saw would be a picture of
+        // something that never happened.
+        if (!worthLevelling(textAngle)) return decoded
+        Bitmap.createBitmap(
+            decoded, 0, 0, decoded.width, decoded.height,
+            Matrix().apply { postRotate(-textAngle.toFloat()) },
+            true,
+        )
+    }.getOrNull()
+
+    /** Decoded no larger than a thumbnail needs; the bounds pass allocates nothing. */
+    private fun decodeAtMost(uri: Uri, side: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val header = openStream(uri) ?: return null
+        header.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= side && bounds.outHeight / (sample * 2) >= side) {
+            sample *= 2
+        }
+        return openStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            })
+        }
+    }
 
     /**
      * The photograph at [uri], fitted and encoded, or null where it cannot be read.
@@ -135,3 +183,6 @@ class CardPhotoEncoder(private val context: Context) {
         context.contentResolver.openInputStream(uri)
     }.getOrNull()
 }
+
+/** FR-1229: big enough to judge framing and orientation, small enough to decode on the sheet. */
+const val PREVIEW_SIDE: Int = 480
