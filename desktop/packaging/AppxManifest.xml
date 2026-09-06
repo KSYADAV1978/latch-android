@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  FR-305's MSIX package manifest, and with it FR-301 and FR-306 (SRS 1.153).
+
+  Three requirements land in this one file and that is the finding rather than a convenience.
+  FR-301's optional launch at sign-in, FR-306's Windows share target and FR-305's Store package
+  are not three pieces of work: they are an identity, a capability list and two extensions. Two
+  of them are *only* reachable from here — Windows will not let an unpackaged application declare
+  either a startup task or a share target — so recording FR-306 in a backlog as a small task of
+  its own was misleading, and it is recorded against FR-305 now.
+
+  PLACEHOLDERS. Three values here are the publisher's and cannot be invented in a checkout:
+
+    Identity/@Name          the Store-reserved package name
+    Identity/@Publisher     the subject of the signing certificate, character for character
+    Identity/@Version       the version being submitted
+
+  `Package-Msix.ps1` substitutes them and refuses to run with any left standing, because a
+  manifest whose Publisher does not match the certificate produces a package that builds, signs
+  and then fails to install with an error naming neither.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+    xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+    xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap uap3 uap5 desktop rescap">
+
+  <Identity
+      Name="__PACKAGE_NAME__"
+      Publisher="__PUBLISHER__"
+      Version="__VERSION__"
+      ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Latch</DisplayName>
+    <PublisherDisplayName>__PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!--
+      §2.3's sentence, not a marketing one. The Store shows this beside the name and it is the
+      first thing a reviewer reads; FR-1102's privacy policy has to agree with it.
+    -->
+    <Description>Captures dates and deadlines from text anywhere on your PC and saves them to your own Google Calendar and Tasks. Nothing is sent anywhere else.</Description>
+  </Properties>
+
+  <Dependencies>
+    <!--
+      10.0.17763 (1809) is where `windows.startupTask` for a full-trust application settled. The
+      client needs nothing newer: FR-303's recogniser has been present since 10.0.10240 and
+      NFR-203's DPAPI predates Windows 10 entirely.
+    -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22631.0" />
+  </Dependencies>
+
+  <Resources>
+    <!-- NFR-402: English (India) at v1.0, with every string externalised for translation. -->
+    <Resource Language="en-IN" />
+  </Resources>
+
+  <Capabilities>
+    <!--
+      **`runFullTrust` and nothing else, and the emptiness is the point.**
+
+      This is a Win32 application inside a package, so `runFullTrust` is what it needs to run at
+      all. What it deliberately does not declare is as much of AC-17's evidence as the
+      `ALLOWED_HOSTS` guard is: no `broadFileSystemAccess`, no `appDiagnostics`, no
+      `userAccountInformation`, no `contacts` — the contacts pillar is Android-only (§5.11.7) and
+      the desktop reaches Google over HTTPS like everything else rather than through Windows.
+
+      A reviewer will ask why the application spawns `powershell.exe` three times. The answer is
+      in docs/RELEASE-WINDOWS.md and it is that each is a documented Windows API with no binding
+      reachable from a JVM: FR-303's `Windows.Media.Ocr`, FR-302's `RegisterHotKey`, NFR-203's
+      DPAPI. None of them needs a capability, which is why this list is one line.
+    -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="Latch" Executable="Latch.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="Latch"
+          Description="Capture dates into your Google Calendar and Tasks"
+          BackgroundColor="transparent"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          FR-301: "with optional launch at sign-in".
+
+          **`Enabled="false"`, and that is the requirement's own word.** *Optional* means the user
+          chooses; a startup task that begins enabled has made the choice for them on a machine
+          they have just installed software on. Windows then offers it in Settings → Startup apps
+          and in Task Manager, which is where a user looks for it — a better answer than the
+          Startup-folder shortcut `install-local.ps1` makes, because that one is invisible to
+          those screens until Windows notices it.
+        -->
+        <uap5:Extension Category="windows.startupTask" Executable="Latch.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="LatchStartup" Enabled="false" DisplayName="Latch" />
+        </uap5:Extension>
+
+        <!--
+          FR-306 [SHOULD]: "The app shall register as a Windows share target."
+
+          **This declaration is the whole of what a manifest can do, and it is not the whole
+          requirement** (SRS 1.153). It puts Latch in the Windows share flyout for text and for a
+          web link. What it cannot do is *receive* the share: that arrives as a `ShareTarget`
+          activation whose `ShareOperation` belongs to the activated process and is reachable only
+          through WinRT — so the PowerShell projection this client uses for FR-303 and NFR-203
+          cannot read it, being a different process, and an activation is not a callable API.
+
+          The shape that works is FR-302's: a stub compiled by the `csc.exe` inside Windows,
+          activated by the package, handing the shared text to the running JVM over the same kind
+          of channel the hotkey sidecar already uses. It needs the SDK's reference metadata, so it
+          is blocked on the same install as the packaging itself.
+
+          **Until that stub exists this extension must not be declared in a submitted package.**
+          Appearing in the share flyout and then doing nothing is worse than being absent, and it
+          is the same failure `ACTION_SEND_MULTIPLE` is deliberately not registered for on Android
+          (FR-205's note): a filter the app cannot honour is a promise it breaks in front of the
+          user. `Package-Msix.ps1` strips this block unless -WithShareTarget is passed.
+
+          text/uri-list carries the page URL as well as the text, which is FR-402's traceability
+          on the client where a browser can hand one over.
+        -->
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget Description="Capture the dates in this">
+            <uap:SupportedFileTypes>
+              <uap:SupportsAnyFileType />
+            </uap:SupportedFileTypes>
+            <uap:DataFormat>Text</uap:DataFormat>
+            <uap:DataFormat>Uri</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

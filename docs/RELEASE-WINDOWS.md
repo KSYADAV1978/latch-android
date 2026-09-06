@@ -59,6 +59,58 @@ Google, and `jdk.localedata` so a date reads correctly outside the root locale.
 `jpackage --type msi` produces an installer; an **MSIX** needs `MakeAppx.exe` from the Windows
 SDK, which is not installed on the machine this was built on. Both are publisher steps.
 
+**The manifest and the packaging script exist now** (SRS 1.153): `desktop/packaging/`.
+
+```
+powershell -ExecutionPolicy Bypass -File desktop\packaging\Package-Msix.ps1 `
+    -PackageName 12345Publisher.Latch `
+    -Publisher "CN=12345Publisher" `
+    -Version 1.0.0.0 `
+    -RuntimeImage desktop\build\jre
+```
+
+It refuses rather than approximating, and there are four things it will refuse for. Each is a
+publisher item and none can be done from a checkout:
+
+| It stops on | Because |
+|---|---|
+| No Windows SDK | `MakeAppx.exe` is not on this machine. Visual Studio Installer → Individual components → Windows 11 SDK, or the standalone download |
+| No `-RuntimeImage` | A package depending on a JVM already on the machine is what `install-local.ps1` does for dogfooding and is explicitly not good enough to ship. The jlink invocation is in §2 above — **take the measurement while you are there** |
+| No `desktop/packaging/Assets` | The Store needs the four tile images the manifest names. This repository has no artwork beyond the tray glyph, and generating it from nothing is not a thing a script should do |
+| A placeholder left in the manifest | Three values are yours: the reserved package name, the certificate subject character for character, and the version. A `Publisher` that does not match the certificate produces a package that builds, signs, and then **fails to install with an error naming neither** |
+
+**Nothing here generates a certificate**, deliberately, exactly as nothing generates the Android
+keystore. Store submission signs the package for you — which is FR-305's own stated reason for
+choosing the Store — and a self-signed certificate is only for installing a package locally to
+test it.
+
+### 3a. FR-301 and FR-306 are in that manifest, and one of them is not finished
+
+Both are packaging declarations rather than application code, which is why they had no place to
+live until there was a manifest.
+
+**FR-301, launch at sign-in — done, and `Enabled="false"`.** *Optional* is the requirement's own
+word: a startup task that begins enabled has made the choice for the user on a machine they have
+just installed software on. Windows then offers it in Settings → Startup apps and in Task
+Manager, which is a better answer than `install-local.ps1`'s Startup-folder shortcut because
+those screens can see it.
+
+**FR-306, the Windows share target — declared, and the receiving half is not built.** The
+declaration puts Latch in the share flyout. Receiving the share is a `ShareTarget` **activation**
+whose `ShareOperation` belongs to the activated process and is reachable only through WinRT — so
+the PowerShell projection this client uses for FR-303 and NFR-203 cannot read it, being a
+different process, and an activation is not a callable API you can poll for.
+
+The shape that works is the one FR-302's hotkey sidecar already uses: a stub compiled by the
+`csc.exe` inside Windows, activated by the package, handing the shared text to the running JVM.
+It needs the SDK's reference metadata, so it is blocked on the same install as the packaging.
+
+**Until that stub exists the declaration must not be submitted**, and the script strips it unless
+`-WithShareTarget` is passed. Appearing in the share flyout and doing nothing is worse than being
+absent — the same reason `ACTION_SEND_MULTIPLE` is deliberately not registered on Android
+(FR-205's note): a filter the app cannot honour is a promise broken in front of the user.
+FR-306 is `[SHOULD]`, and this is a `[SHOULD]` deferred with its reasoning rather than dropped.
+
 Worth knowing before the first submission:
 
 - **Store distribution is what provides code signing.** FR-305 records that as the reason for
@@ -75,7 +127,6 @@ Worth knowing before the first submission:
 
 ### 4. Launch at sign-in (FR-301)
 
-FR-301 says "with optional launch at sign-in". Not built. On a Store-distributed MSIX the
-supported mechanism is a `windows.startupTask` extension in the package manifest, which is a
-packaging decision rather than application code — which is why it is recorded here rather than
-in the backlog with the rest.
+~~Not built.~~ **Built, in the manifest — see §3a.** This entry was right that it is a packaging
+decision rather than application code; what it did not know is that FR-306 is the same shape, and
+both are in `desktop/packaging/AppxManifest.xml` now.
