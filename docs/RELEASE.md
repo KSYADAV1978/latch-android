@@ -2,6 +2,8 @@
 
 FR-1108 makes three things a **release gate**, and shipping FR-1004 and FR-208 has since added
 three more. Shipping §5.11's business-card pillar has added a seventh, which is item 0 below.
+A **Knowingly unmet at submission** section was added on 6 Sep 2026 and is not optional reading:
+it names the `[MUST]` requirements this release ships without.
 This file is the whole list, and it exists because the distance between each of those decisions
 and the day someone opens the Play Console is months — long enough that nothing in the code will
 remind them.
@@ -167,6 +169,46 @@ grep -rn "LatchCardOcr" app/src/main
 
 Nothing should match at submission. Removing it also retires the classifier-tuning workflow that
 depends on it, so do it when FR-1222's corpus is closed and not before.
+
+---
+
+## Knowingly unmet at submission
+
+Requirements that are **`[MUST]` and not met**, recorded here with a date so that submission is a
+decision taken with them in view rather than one taken without noticing them. This section is not
+a to-do list; it is what a reader of this file has to have read before filing.
+
+### FR-401, FR-402, FR-403 — the browser extension ⛔ **deferred 6 Sep 2026**
+
+Not built, and deferred out of v1.0 deliberately. SRS 1.154 carries the decision in full.
+
+Why it is not a slice that was skipped: §4.2 requires each client to parse and write
+independently, so the extension must derive §7.2's `source_hash` and `item_key` itself — which
+§7.2 names as the likeliest place three clients drift, and whose remedy SRS 1.52 settled as
+sharing the *compiled* code rather than trusting conformance vectors. For a browser that means
+Kotlin/JS across `:core-model`, `:parser`, `:recipes` and `:wire` — 40 files, ~4,340 lines,
+`java.time` in 25 of them — plus `kotlinx-datetime` (which is not `java.time`) and a synchronous
+SHA-256 that Web Crypto does not provide.
+
+**It could not have shipped in this release in any case**, and that is what made deferring
+cheap: FR-001's Chrome Extension OAuth client does not exist, and Chrome Web Store publication is
+a gate of its own on top of §8.6's OAuth verification.
+
+**What this obliges at submission.** Nothing in the Play or Store listing may describe or imply a
+browser extension. §4.1's architecture diagram still shows three clients because the architecture
+is unchanged — the extension is owed, not withdrawn — but the *product* ships as two.
+
+### NFR-502 and FR-1222 — the two corpora
+
+Both are `[MUST]` with numeric floors that only real-world data can close, and both are short.
+NFR-502 asks for 300 real captured strings and stands at **113**; FR-1222 asks for 120 real
+business cards and stands at **11**. Neither number may be met with invented entries — each
+requirement says so, and FR-1222 says it citing NFR-502's own experience.
+
+These are the developer's to settle before submission, and the options are to ship with the gap
+recorded here, to hold the release until the data exists, or to amend the targets — which this
+repository's conventions warn against, a target moved to meet it being no longer a measurement of
+anything.
 
 ---
 

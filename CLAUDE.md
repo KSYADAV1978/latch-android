@@ -1554,6 +1554,20 @@ numbers.
 DEVICE-OWED**, built in one session with no device attached and nothing written to the
 developer's Google account.
 
+**v1.0 ships as two clients, and the third is deferred rather than withdrawn.** FR-401, FR-402
+and FR-403 — the Manifest V3 browser extension — are `[MUST]` and are not built. The decision was
+taken on 6 Sep 2026 with the alternatives measured, and it is written up in SRS 1.154, quoted in
+§5.4 itself and carried in `docs/RELEASE.md` under a new **Knowingly unmet at submission**
+heading. The short of it: §4.2 forbids the extension depending on another client, so it must
+derive §7.2's identity itself, and SRS 1.52 settled that such a client shares *compiled* code
+rather than trusting vectors — which for a browser means Kotlin/JS across four modules (40 files,
+~4,340 lines, `java.time` in 25), `kotlinx-datetime` which is not `java.time`, and a synchronous
+SHA-256 that Web Crypto does not offer. It could not have shipped in this release regardless:
+FR-001's Chrome Extension OAuth client does not exist and the Chrome Web Store is its own gate.
+
+**§4.1's diagram keeps its third arrow.** The architecture is unchanged; the release is what
+changed. Nothing in a store listing may describe a browser extension.
+
 **FR-204 — the in-app help topic** (SRS 1.150). Home screen → *Dates and to-dos* → "Latch is not
 in my text menu". §8.3 documented the mechanism and nothing in the app told a user any of it.
 The list ships with **one** entry, WhatsApp, because that is the only application anybody has
@@ -1569,6 +1583,18 @@ eleven read a numeric date as a telephone number. A text capture reaches `AVAILA
 **FR-1231, FR-1232, FR-1233 — FR-804 on contacts** (SRS 1.152). An identity match offers,
 field by field, with the stored value quoted; nothing is written while the offer stands; undo
 restores and there is no branch in `CardCreated.Updated` that deletes.
+
+**FR-305, FR-306 and FR-301 — one package manifest** (SRS 1.153). `desktop/packaging/` holds an
+`AppxManifest.xml` and a `Package-Msix.ps1` that refuses rather than approximating. FR-306's
+share target and FR-301's startup task are packaging declarations that only a packaged
+application may make, so neither is application code — FR-306 was blocked on FR-305 rather than
+merely unbuilt, which its own backlog entry did not say. **FR-306's receiving half is not built**
+and the script strips the declaration unless asked: a `ShareTarget` activation is reachable only
+through WinRT from the activated process, so the PowerShell projection this client uses cannot
+read it, and appearing in the share flyout while doing nothing is worse than being absent.
+
+**FR-514, FR-516, NFR-301, FR-1101, FR-1214 — traceability only.** Each was already implemented
+and none carried its requirement number. No behaviour changed.
 
 ### Device pass backlog — Step 0's three slices
 
