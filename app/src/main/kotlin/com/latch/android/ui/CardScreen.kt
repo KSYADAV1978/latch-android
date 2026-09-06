@@ -401,6 +401,7 @@ fun CardScreen(
                         OfferRow(
                             label = stringResource(fieldLabel(change.field)),
                             stored = change.stored,
+                            existing = change.existing,
                             value = offerValues[index] ?: change.captured,
                             ticked = index in offerAccepted,
                             onTick = { on -> onOfferTick(index, on) },
@@ -587,6 +588,7 @@ fun CardChooser(
 private fun OfferRow(
     label: String,
     stored: String?,
+    existing: List<String>,
     value: String,
     ticked: Boolean,
     onTick: (Boolean) -> Unit,
@@ -599,10 +601,18 @@ private fun OfferRow(
         Checkbox(checked = ticked, onCheckedChange = onTick)
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                // An addition and a replacement read differently, and the difference is what the
-                // user is judging: one displaces something, the other does not.
-                text = if (stored == null) stringResource(R.string.card_update_will_add)
-                else stringResource(R.string.card_update_now, stored),
+                // **Three sentences, because there are three situations** (SRS 1.160), and the
+                // one in the middle is the one that was missing: a field that already holds
+                // something the card does not match. Saying "not on the contact yet" there is
+                // false, and false in the direction that hides what accepting would do.
+                text = when {
+                    stored != null -> stringResource(R.string.card_update_now, stored)
+                    existing.isNotEmpty() -> stringResource(
+                        R.string.card_update_adds_to,
+                        existing.joinToString("; "),
+                    )
+                    else -> stringResource(R.string.card_update_will_add)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

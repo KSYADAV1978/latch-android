@@ -85,16 +85,29 @@
     <string name="card_update_replaces">%1$s: %2$s \u2192 %3$s</string>
     <string name="card_update_adds">%1$s: add %2$s</string>
     <string name="card_update_nothing_written">Nothing has been written. Latch never removes anything from a contact \u2014 it only adds and replaces what is listed above.</string>
-    <string name="card_update_accept">Update the contact</string>
+    <!--
+      SRS 1.160. Short, and the same two words the Windows client uses for the same question
+      (docs/DOGFOODING.md: "**Update** moves the one you have. **Create new** writes a second").
+      Three long labels wrapped the action row onto three lines and pushed the primary answer
+      past the bottom edge of a floating dialog window, where it could not be reached at all.
+      Matching the desktop's vocabulary is a consistency win that happens to fit.
+    -->
+    <string name="card_update_accept">Update</string>
     <!--
       SRS 1.159. FR-1205 says every field is editable before any write, and an update is a write.
       The current value stays a plain line; only the value that would be written is a box.
     -->
     <string name="card_update_now">Now: %1$s</string>
     <string name="card_update_will_add">Not on the contact yet</string>
+    <!--
+      SRS 1.160. FR-1231 asks for the current values, and for an addition to a field that already
+      holds something "Not on the contact yet" is false — it hides the consequence, which is that
+      accepting adds a second value rather than correcting the first.
+    -->
+    <string name="card_update_adds_to">Already there: %1$s \u2014 ticking this adds another, it does not replace it</string>
     <string name="card_update_nothing_ticked">Nothing is ticked, so there is nothing to update. Tick a line, or close.</string>
     <string name="card_update_edit_hint">Correct it before you accept it \u2014 Latch read this off the card and may have it wrong.</string>
-    <string name="card_update_create_new">Save as a new contact</string>
+    <string name="card_update_create_new">Save as new</string>
     <string name="card_updated">The contact was updated.</string>
     <!--
       FR-1232. Deliberately not "Undone. Nothing was kept.": the contact is still there and is

@@ -40,6 +40,20 @@ data class ContactFieldChange(
      * matches nothing, so the type would quietly become null.
      */
     val type: String? = null,
+    /**
+     * What the field already holds, where this change is an **addition** to a list (SRS 1.160).
+     *
+     * **FR-1231 asks the offer to name "the fields that would change and their current values",
+     * and for a multi-valued field [stored] cannot do it.** [stored] is the value a change would
+     * *replace*, which for an addition is nothing — so the sheet said "not on the contact yet"
+     * about a website the contact demonstrably had. That is false in the direction that hides the
+     * consequence: accepting adds a second website rather than correcting the first, and the user
+     * had no way to know before pressing.
+     *
+     * Empty where the field genuinely holds nothing, which is a different sentence and a
+     * different decision.
+     */
+    val existing: List<String> = emptyList(),
 )
 
 /**
@@ -95,22 +109,22 @@ fun contactChanges(stored: ContactRecord, captured: CardDraft): List<ContactFiel
 
     captured.phones.filter { it.number.isNotBlank() }.distinctBy { it.number }.forEach { phone ->
         if (stored.phones.none { sameNumber(it.first, phone.number) }) {
-            add(ContactFieldChange(ContactField.PHONE, null, phone.number, phone.type))
+            add(ContactFieldChange(ContactField.PHONE, null, phone.number, phone.type, existing = stored.phones.map { it.first }))
         }
     }
     captured.emails.filter { it.address.isNotBlank() }.distinctBy { it.address }.forEach { email ->
         if (stored.emails.none { normaliseEmail(it.first) == normaliseEmail(email.address) }) {
-            add(ContactFieldChange(ContactField.EMAIL, null, email.address, email.type))
+            add(ContactFieldChange(ContactField.EMAIL, null, email.address, email.type, existing = stored.emails.map { it.first }))
         }
     }
     captured.addresses.filter { it.isNotBlank() }.distinct().forEach { address ->
         if (stored.addresses.none { folded(it) == folded(address) }) {
-            add(ContactFieldChange(ContactField.ADDRESS, null, address))
+            add(ContactFieldChange(ContactField.ADDRESS, null, address, existing = stored.addresses))
         }
     }
     captured.urls.filter { it.isNotBlank() }.distinct().forEach { url ->
         if (stored.urls.none { folded(it) == folded(url) }) {
-            add(ContactFieldChange(ContactField.URL, null, url))
+            add(ContactFieldChange(ContactField.URL, null, url, existing = stored.urls))
         }
     }
 }

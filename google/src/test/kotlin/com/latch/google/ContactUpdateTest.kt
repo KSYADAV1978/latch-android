@@ -295,3 +295,54 @@ class AcceptedChangesTest {
         assertEquals("+91 90000 00002" to "MOBILE", update.write.phones.single())
     }
 }
+
+/**
+ * FR-1231's "and their current values", for a field that holds several (SRS 1.160).
+ *
+ * **The failure this pins is a caption that lies in the reassuring direction.** An addition to a
+ * field that already holds something was described as *not on the contact yet*, which hid the one
+ * consequence the user needed before pressing: accepting adds a second value rather than
+ * correcting the first.
+ */
+class ExistingValuesTest {
+
+    private val stored = ContactRecord(
+        resourceName = "people/c1",
+        etag = "%e",
+        urls = listOf("www.wrong.test"),
+        addresses = listOf("Old Road, Delhi"),
+    )
+
+    @Test
+    fun `an addition names what the field already holds`() {
+        val card = CardDraft(urls = listOf("www.right.test"))
+        val change = contactChanges(stored, card).single { it.field == ContactField.URL }
+        assertEquals(null, change.stored, "an addition replaces nothing")
+        assertEquals(listOf("www.wrong.test"), change.existing, "but the field is not empty")
+    }
+
+    @Test
+    fun `an addition to a genuinely empty field names nothing`() {
+        val empty = ContactRecord(resourceName = "people/c1", etag = "%e")
+        val card = CardDraft(urls = listOf("www.right.test"))
+        val change = contactChanges(empty, card).single()
+        assertEquals(emptyList(), change.existing)
+    }
+
+    @Test
+    fun `the address carries its existing values too`() {
+        val card = CardDraft(addresses = listOf("New Road, Delhi"))
+        val change = contactChanges(stored, card).single { it.field == ContactField.ADDRESS }
+        assertEquals(listOf("Old Road, Delhi"), change.existing)
+    }
+
+    @Test
+    fun `existing values never reach the write`() {
+        // They are for the sentence on screen and nothing else. The merged body already carries
+        // the stored values because it sends each named field whole.
+        val card = CardDraft(urls = listOf("www.right.test"))
+        val changes = contactChanges(stored, card)
+        val update = mergedContactUpdate(stored, card, changes)
+        assertEquals(listOf("www.wrong.test", "www.right.test"), update.write.urls)
+    }
+}
