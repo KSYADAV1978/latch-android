@@ -38,6 +38,7 @@ import com.latch.android.cards.startCardPhotoSet
 import com.latch.android.setup.SetupEvent
 import com.latch.android.setup.SetupOutcome
 import com.latch.recipes.newRecipe
+import com.latch.android.ui.HelpScreen
 import com.latch.android.ui.InboxScreen
 import com.latch.android.ui.RecipesScreen
 import com.latch.android.ui.NotificationAccessScreen
@@ -324,6 +325,11 @@ class MainActivity : ComponentActivity() {
                                     onToggleMonitored = { app.toggleMonitoredPackage(it) },
                                 )
 
+                                // FR-204: the help topic, reached from the dates section it
+                                // is about. It reads and does nothing else — no store, no
+                                // network, no state — so it takes only a way back.
+                                HomeScreen.HELP -> HelpScreen(onBack = { screen = HomeScreen.HOME })
+
                                 HomeScreen.HOME -> Home(
                                     queue = app.queueStatus.collectAsState().value,
                                     grantNeedsConsent = app.grantNeedsConsent.collectAsState().value,
@@ -346,6 +352,7 @@ class MainActivity : ComponentActivity() {
                                         app.inboxCoordinator.refresh()
                                         screen = HomeScreen.INBOX
                                     },
+                                    onOpenHelp = { screen = HomeScreen.HELP },
                                     onOpenRecipes = {
                                         app.refreshRecipes()
                                         screen = HomeScreen.RECIPES
@@ -395,6 +402,8 @@ private fun Home(
     /** FR-1201a: nothing on this phone handles `ACTION_IMAGE_CAPTURE`. */
     cameraMissing: Boolean = false,
     onOpenInbox: () -> Unit = {},
+    /** FR-204: why Latch is sometimes absent from the text-selection toolbar. */
+    onOpenHelp: () -> Unit = {},
     /** FR-602/FR-603: the recipe list, which is also where a user's own are made. */
     onOpenRecipes: () -> Unit = {},
     /** FR-1000. FR-109 promised at setup that every choice would be changeable here. */
@@ -564,6 +573,15 @@ private fun Home(
                     Text(stringResource(R.string.home_open_inbox))
                 }
             }
+
+            // FR-204. **The only control this section has, and it is a help topic**, which is
+            // not the contradiction it looks like: the note above says captures start in
+            // another application, and the one thing that can go wrong there is Latch not
+            // appearing in that application's text menu. A user who has just hit that opens
+            // Latch to ask why, so the answer lives where they arrive.
+            TextButton(onClick = onOpenHelp) {
+                Text(stringResource(R.string.help_selection_open))
+            }
         }
 
         Section(
@@ -624,4 +642,4 @@ private fun StoredUndoOffer.secondsLeft(now: Instant): Int {
 }
 
 /** The three places this app can be. See the note at the `when` that switches between them. */
-private enum class HomeScreen { HOME, INBOX, RECIPES, SETTINGS, NOTIFICATIONS }
+private enum class HomeScreen { HOME, INBOX, RECIPES, SETTINGS, NOTIFICATIONS, HELP }

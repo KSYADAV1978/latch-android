@@ -167,6 +167,22 @@ of a screenshot loses.
 
 ---
 
+## One thing to collect while you use it
+
+**When Latch is *not* in the text-selection toolbar, write down which app it was.**
+
+FR-204 requires an in-app list of apps that do not offer the action, and it is on the home screen
+under *Dates and to-dos* — "Latch is not in my text menu". It currently has **one** entry,
+WhatsApp, because that is the only one anybody has checked. It is a list about other people's
+software and there is no way to compose it from here: a plausible fifth entry would mislead a user
+about four of them.
+
+If you hit one, the useful note is the app's name and **whether you could select a range of text
+at all**. Those are the two different reasons and they get different sentences on the screen: an
+app that selects whole messages can never offer it, and an app that selects text properly but
+still does not show Latch has simply not declared the visibility — something its authors could
+change and Latch cannot.
+
 ## What is already known to be missing
 
 Not worth reporting; all of it is written up:

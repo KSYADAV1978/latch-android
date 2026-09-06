@@ -593,6 +593,22 @@
     <string name="home_section_recipes_note">Turn one captured date into a chain \u2014 a reminder the week before, a follow-up the day after. Eight are built in; edit them or write your own.</string>
     <string name="home_section_settings">Settings</string>
     <string name="home_section_settings_note">Where captures are saved, how dates are read, which ways of capturing are switched on. Every choice you made during setup can be changed here.</string>
+    <!--
+      FR-204's in-app help topic. The heading is the question a user actually arrives with —
+      "it is not there" — rather than the mechanism, which is the answer and comes second.
+    -->
+    <string name="help_selection_open">Latch is not in my text menu</string>
+    <string name="help_selection_title">When Latch is not in the text menu</string>
+    <string name="help_selection_intro">Selecting text and choosing Latch is one of four ways to capture, and it is the only one that depends on the app you are reading. Some apps do not offer it, for two different reasons.</string>
+    <string name="help_selection_mechanism">Android only shows Latch in the selection toolbar if the app you are reading lets it. Apps built for Android 11 or later have to declare that they allow other apps’ text actions, and some have not. Latch cannot declare this for them, and there is nothing you or Latch can change in that app.</string>
+    <string name="help_selection_known_heading">Apps known not to offer it</string>
+    <string name="help_selection_known_note">This list is what has actually been checked, not everything that could be on it. If you find another, please say so.</string>
+    <string name="help_selection_app_whatsapp">WhatsApp</string>
+    <string name="help_selection_reason_no_selection">Selects whole messages rather than a range of text, so there is nothing for the toolbar to act on. No app update will change this.</string>
+    <string name="help_selection_reason_no_queries">Has not declared that it allows other apps’ text actions. Its authors could; Latch cannot do it for them.</string>
+    <string name="help_selection_instead_heading">What to do instead</string>
+    <string name="help_selection_instead">Share the message to Latch from the app’s own share button — that works everywhere. Or take a screenshot and share that: Latch reads the text out of it. Or use the Latch tile in Quick Settings, which captures whatever you have copied.</string>
+    <string name="help_selection_back">Back</string>
     <string name="home_capture_card">Capture a business card</string>
     <!--
       No camera application on the device, which is rare and is not an error the user can fix
