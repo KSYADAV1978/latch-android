@@ -509,3 +509,30 @@ private val BOILERPLATE = setOf(
     "company", "corp", "corporation", "certified", "mini", "ratna", "government", "enterprise",
     "enterprises", "iso", "group", "india", "indian",
 )
+
+/**
+ * FR-1230: is there a contact in this text worth *offering* to save?
+ *
+ * **It decides what is offered and never what is written**, which is FR-1202's rule and the
+ * reason this can be a heuristic at all. A wrong `true` costs a button the user ignores; the
+ * sheet behind it is still FR-1205's, every field editable and nothing written without a save.
+ *
+ * **A name or an email address, and deliberately not a telephone number.** Measured against
+ * NFR-502's 113 real captured strings (SRS 1.151): the wider rule — anything `cardSaveBlocker`
+ * would accept — fired on **eleven** of them, and every one fired on the phone rule. `12-09-2026`
+ * and `shipping 2027.10.14` are seven digits, and no pattern distinguishes a numeric date from a
+ * number somebody dials. Latch would have offered to save a renewal date as a person. This rule
+ * fires on **none** of the 113, and on the corpus's own real email signature it finds the name,
+ * the job title, the number and the address.
+ *
+ * That refusal is FR-1227's, arrived at from the other side: there a mobile number alone was
+ * refused as an identity because a quarter of cards have none; here a number alone is refused as
+ * *evidence* because a date has the same shape.
+ */
+fun holdsContact(classification: CardClassification): Boolean {
+    val draft = classification.draft
+    return !draft.displayName.isNullOrBlank() ||
+        !draft.givenName.isNullOrBlank() ||
+        !draft.familyName.isNullOrBlank() ||
+        draft.emails.isNotEmpty()
+}

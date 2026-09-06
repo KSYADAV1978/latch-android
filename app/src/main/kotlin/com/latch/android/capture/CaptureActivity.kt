@@ -42,7 +42,9 @@ import com.latch.android.cards.soleContactPayload
 import com.latch.android.ui.CardChooser
 import com.latch.android.ui.CardScreen
 import com.latch.cards.CardParse
+import com.latch.android.cards.CardReading
 import com.latch.cards.classifyCard
+import com.latch.cards.holdsContact
 import com.latch.cards.parseCard
 import com.latch.android.LatchApplication
 import com.latch.android.R
@@ -355,9 +357,25 @@ class CaptureActivity : ComponentActivity() {
                 // found — computed here and passed down, so the screen renders it and decides
                 // nothing.
                 val payloads by cardPayloads.collectAsState()
+                // FR-1230. **Detected, and detection is why the button is not permanent.** The
+                // action row already carries Close, Export .ics and Save; a fourth control on
+                // every date capture, for a case that arises rarely, is the misplaced caution
+                // SRS 1.113 records twice. `holdsContact` is a name or an email address and
+                // nothing else — measured on NFR-502's 113 real strings, where the wider rule
+                // fired eleven times and every one of the eleven read a numeric date as a
+                // telephone number (SRS 1.151).
+                //
+                // Computed only for a text capture: an image already offers the action, and an
+                // image's recognised text arrives late, so classifying it here would put a
+                // classification on NFR-101's critical path for an answer nothing reads.
+                val textHoldsContact = remember(captured?.text, request) {
+                    request !is CaptureRequest.Image && request !is CaptureRequest.Pdf &&
+                        captured?.text?.let { holdsContact(classifyCard(it.lines())) } == true
+                }
                 val offer = cardOffer(
                     isImage = request is CaptureRequest.Image,
                     decodedContactPayloads = payloads?.size ?: 0,
+                    textHoldsContact = textHoldsContact,
                 )
                 var cardState by remember { mutableStateOf<CardSheetState?>(null) }
                 var cardSave by remember { mutableStateOf<CardSaveResult>(CardSaveResult.Idle) }
@@ -409,10 +427,23 @@ class CaptureActivity : ComponentActivity() {
                         // recognised text is already here — `:ocr` ran it for the dates — so this
                         // costs nothing beyond the classification, and reusing it is the reason
                         // FR-1220 says to use `:ocr` unchanged.
+                        //
+                        // FR-1230 arrives at the same call with `TEXT`: an email signature is
+                        // lines, exactly as a photographed card is, and one classification serves
+                        // both. What differs is what the sheet then says about how far to trust
+                        // it, and the message where nothing could be read — a text selection that
+                        // yields no contact is not "no code in this image".
                         else -> {
-                            val state = photoCardState(captured?.text.orEmpty(), coverage)
-                            if (state == null) cardMessage = R.string.card_no_code
-                            else cardState = state
+                            val text = captured?.text.orEmpty()
+                            val isImageLike = request is CaptureRequest.Image ||
+                                request is CaptureRequest.Pdf
+                            val reading =
+                                if (isImageLike) CardReading.PHOTO else CardReading.TEXT
+                            val state = classifiedCardState(text, coverage, reading)
+                            if (state == null) {
+                                cardMessage = if (isImageLike) R.string.card_no_code
+                                else R.string.card_no_contact_in_text
+                            } else cardState = state
                         }
                     }
                 }
@@ -480,7 +511,7 @@ class CaptureActivity : ComponentActivity() {
                     if (open != null && open.fromPhoto && captured != null &&
                         (open.payload != captured.text || open.photos != coverage)
                     ) {
-                        photoCardState(captured.text, coverage)?.let { rebuilt ->
+                        classifiedCardState(captured.text, coverage)?.let { rebuilt ->
                             // FR-1226's tick travels with FR-1205's edits, and for the same
                             // reason: adding the back of a card must not silently untick a box the
                             // user set, which would send no photograph while the sheet said it
@@ -1028,7 +1059,12 @@ class CaptureActivity : ComponentActivity() {
      * opens and again each time a side is added, and the two producing different readings of one
      * capture is precisely the drift this pillar keeps finding.
      */
-    private fun photoCardState(text: String, photos: CardPhotoCoverage?): CardSheetState? {
+    private fun classifiedCardState(
+        text: String,
+        photos: CardPhotoCoverage?,
+        /** FR-1224/FR-1230: how far the sheet should ask the user to trust this, and why. */
+        reading: CardReading = CardReading.PHOTO,
+    ): CardSheetState? {
         val recognised = text.lines()
         val classified = classifyCard(recognised)
         // **A diagnostic that deliberately prints card content** (SRS 1.108), which nothing else
@@ -1036,7 +1072,11 @@ class CaptureActivity : ComponentActivity() {
         // cannot leak. It exists to build FR-1222's corpus from real cards, it is debug-only, and
         // it is recorded so that its removal is a decision rather than an oversight. It is item 0
         // on `docs/RELEASE.md`'s gate.
-        if (BuildConfig.DEBUG) {
+        //
+        // **Confined to the photographed path** (SRS 1.151). FR-1230 reaches this function with a
+        // text selection, which is not a card and cannot enter FR-1222's corpus — so logging it
+        // would print the user's own selected text for no purpose the diagnostic exists for.
+        if (BuildConfig.DEBUG && reading == CardReading.PHOTO) {
             Log.i("LatchCardOcr", "--- recognised ${recognised.size} line(s)")
             recognised.forEachIndexed { i, l -> Log.i("LatchCardOcr", "  [$i] $l") }
             Log.i("LatchCardOcr", "--- classified")
@@ -1065,10 +1105,13 @@ class CaptureActivity : ComponentActivity() {
             // No payload: FR-1208's hash comes from the recognised text for this path, which
             // SRS 1.30 records as wobblier than a decoded one and SRS 1.123 records as weaker
             // still once a camera is involved — every shutter press is a new image.
+            // On the text path this is the selection itself, so FR-1208's hash is exact and
+            // deterministic rather than a re-rendering away from differing — the wobble SRS 1.30
+            // and 1.123 record belongs to the recognisers, not to this path.
             payload = text,
             unplaced = classified.unplaced,
             photos = photos,
-            fromPhoto = true,
+            readBy = reading,
         )
     }
 

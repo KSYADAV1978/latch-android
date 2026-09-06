@@ -73,6 +73,13 @@
     <string name="card_unreadable">There is a code in this image, but Latch could not read a contact out of it.</string>
     <string name="card_title">Save as a contact</string>
     <string name="card_from_photo">Read from the photo. Check each field before saving — the card will not be here to check against afterwards.</string>
+    <!--
+      FR-1230. The same warning as the photographed path and deliberately not the same sentence:
+      the text is still open in the app it was selected from, so this one can say where to check
+      rather than warning that there is nowhere left to.
+    -->
+    <string name="card_from_text">Read from the text you selected — Latch guessed which line is which. Check each field against the message before saving.</string>
+    <string name="card_no_contact_in_text">Latch could not read a contact out of this text — no name and no email address in it.</string>
     <string name="card_field_notes">Notes</string>
     <string name="card_unplaced">The notes above are the lines Latch could not place. Edit or clear them before saving.</string>
     <string name="card_field_name">Name</string>

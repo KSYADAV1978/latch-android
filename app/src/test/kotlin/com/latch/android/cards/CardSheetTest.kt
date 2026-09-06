@@ -5,6 +5,7 @@ import com.latch.core.model.CardEmail
 import com.latch.core.model.CardPhone
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.latch.parser.DateParser
@@ -160,7 +161,7 @@ class CardSheetTest {
         // Correctness rather than politeness. A save taken while the back of the card was still
         // being recognised would write a contact missing everything on it — silently, and against
         // a card that is no longer in the user's hand to check against.
-        val state = CardSheetState(card, fromPhoto = true)
+        val state = CardSheetState(card, readBy = CardReading.PHOTO)
         assertNull(cardSaveBlocker(state), "the sheet was blocked with nothing being read")
         assertEquals(CardSaveBlocker.READING_A_PHOTO, cardSaveBlocker(state, readingPhoto = true))
     }
@@ -170,7 +171,7 @@ class CardSheetTest {
         // Both are true of an empty sheet mid-read, and the one that will resolve itself in a
         // second is the honest thing to say. Telling the user there is nothing to save about a
         // card whose only side is still being read would be wrong as well as unhelpful.
-        val empty = CardSheetState(CardDraft(), fromPhoto = true)
+        val empty = CardSheetState(CardDraft(), readBy = CardReading.PHOTO)
         assertEquals(CardSaveBlocker.NOTHING_TO_SAVE, cardSaveBlocker(empty))
         assertEquals(CardSaveBlocker.READING_A_PHOTO, cardSaveBlocker(empty, readingPhoto = true))
     }
@@ -216,7 +217,7 @@ class CardSheetTest {
         // **The assertion the whole requirement rests on.** FR-1227 may change what is offered and
         // never what happens: an inexact key that could refuse a write would be FR-1208 widened by
         // the back door, and would silently turn away a second person's card.
-        val state = CardSheetState(card, fromPhoto = true)
+        val state = CardSheetState(card, readBy = CardReading.PHOTO)
         assertNull(cardSaveBlocker(state), "an inexact match reached the save blocker")
         assertEquals(
             CardPersonWarning.PROBABLY_ALREADY_SAVED,
@@ -370,5 +371,62 @@ class CardNotesTest {
         // none of those.
         val onlyNote = CardDraft(note = "IS/S0 9001 & IS/S0 14001")
         assertEquals(CardSaveBlocker.NOTHING_TO_SAVE, cardSaveBlocker(CardSheetState(onlyNote)))
+    }
+}
+
+/**
+ * FR-1230: the card path offered on a text selection, and only where there is a contact in it.
+ *
+ * **The rule's cost is measured rather than argued** (SRS 1.151) — see `holdsContact` in `:cards`
+ * for the run against NFR-502's 113 real strings. What is pinned here is the shape of the offer:
+ * a text capture reaches `AVAILABLE` and can never reach `DETECTED`, because `DETECTED` reports a
+ * decoded code and there is no code in text.
+ */
+class TextCardOfferTest {
+
+    @Test
+    fun `a text capture with a contact in it offers the card path quietly`() {
+        assertEquals(
+            CardOffer.AVAILABLE,
+            cardOffer(isImage = false, decodedContactPayloads = 0, textHoldsContact = true),
+        )
+    }
+
+    @Test
+    fun `an ordinary text capture offers nothing`() {
+        assertEquals(
+            CardOffer.NONE,
+            cardOffer(isImage = false, decodedContactPayloads = 0, textHoldsContact = false),
+        )
+    }
+
+    @Test
+    fun `a text capture is never promoted`() {
+        // Guards the branch order. A payload count on a text capture is impossible — the decoder
+        // runs on images — but a later reader reordering this `when` would turn the quiet button
+        // into the filled one, and FR-1230's "the same explicit choice" is the quiet one.
+        assertEquals(
+            CardOffer.AVAILABLE,
+            cardOffer(isImage = false, decodedContactPayloads = 3, textHoldsContact = true),
+        )
+    }
+
+    @Test
+    fun `the image path is untouched`() {
+        assertEquals(
+            CardOffer.AVAILABLE,
+            cardOffer(isImage = true, decodedContactPayloads = 0),
+        )
+        assertEquals(
+            CardOffer.DETECTED,
+            cardOffer(isImage = true, decodedContactPayloads = 1),
+        )
+    }
+
+    @Test
+    fun `fromPhoto is true for a photograph and for nothing else`() {
+        assertTrue(CardSheetState(CardDraft(), readBy = CardReading.PHOTO).fromPhoto)
+        assertFalse(CardSheetState(CardDraft(), readBy = CardReading.TEXT).fromPhoto)
+        assertFalse(CardSheetState(CardDraft(), readBy = CardReading.GRAMMAR).fromPhoto)
     }
 }

@@ -29,8 +29,8 @@ data class CardSheetState(
      * FR-1223: lines the classifier could not place, shown rather than dropped.
      *
      * Empty for a QR card, where the grammar says which field each value belongs to. Non-empty
-     * only on the photographed path, where a card whose tagline vanished looks identical to one
-     * that never had it.
+     * only where the classifier ran — a photograph, or FR-1230's text selection — because a card
+     * whose tagline vanished looks identical to one that never had it.
      */
     val unplaced: List<String> = emptyList(),
     /**
@@ -55,16 +55,42 @@ data class CardSheetState(
      */
     val attachPhoto: Boolean = false,
     /**
-     * FR-1224: this draft was read off a photograph, not decoded from a grammar.
+     * FR-1224 and FR-1230: what read this draft.
      *
-     * **It changes what the sheet says and never what the save does.** A photographed card is a
-     * guess about somebody else's layout; the user is told so, and asked to check, because the
-     * card is gone afterwards and a plausible wrong name is not checkable from the contact.
+     * **It changes what the sheet says and never what the save does.** Anything the classifier
+     * produced is a guess about somebody else's layout, so the user is told so and asked to
+     * check — and the two guessed paths are told apart because the second half of the sentence
+     * differs. A photographed card is gone afterwards; a text selection is still in the
+     * application the user came from, so it can say where to check.
+     *
+     * **A three-valued reading rather than a second boolean** (SRS 1.151). `fromPhoto` beside a
+     * `fromText` would be two flags that must never both be true, which is the shape that drifts.
      */
-    val fromPhoto: Boolean = false,
+    val readBy: CardReading = CardReading.GRAMMAR,
 ) {
     /** What the sheet displays and what a save would write. */
     val edited: CardDraft get() = edits.applyTo(parsed)
+
+    /** FR-1225 and FR-1226 are photograph-only, and both ask this. */
+    val fromPhoto: Boolean get() = readBy == CardReading.PHOTO
+}
+
+/**
+ * How a draft came to exist, which is what decides how far it should be trusted.
+ *
+ * FR-1204's grammar is right or wrong; FR-1221's classifier is at best probably right. That is
+ * the whole distinction, and it is the reason Phase A settled the write path against a grammar
+ * before any classifier existed.
+ */
+enum class CardReading {
+    /** FR-1204: decoded from a vCard or MECARD payload. Field assignments came from the payload. */
+    GRAMMAR,
+
+    /** FR-1220: classified from recognised text on a photograph. The card is gone afterwards. */
+    PHOTO,
+
+    /** FR-1230: classified from a text selection — an email signature. The text is still there. */
+    TEXT,
 }
 
 /**
@@ -210,8 +236,20 @@ enum class CardOffer {
     AVAILABLE,
 }
 
-fun cardOffer(isImage: Boolean, decodedContactPayloads: Int): CardOffer = when {
-    !isImage -> CardOffer.NONE
+fun cardOffer(
+    isImage: Boolean,
+    decodedContactPayloads: Int,
+    /**
+     * FR-1230: this is a text capture and a contact can be read out of it. See
+     * `holdsContact` in `:cards` for what that means and for the measurement behind it.
+     */
+    textHoldsContact: Boolean = false,
+): CardOffer = when {
+    // **A text capture can never be DETECTED, only AVAILABLE**, and that is not a narrowing: a
+    // code is what `DETECTED` reports and there is no code in text. So FR-1230's "the same
+    // explicit choice FR-1202 requires" arrives as the quiet button, which is the whole of what
+    // this path can honestly offer.
+    !isImage -> if (textHoldsContact) CardOffer.AVAILABLE else CardOffer.NONE
     decodedContactPayloads > 0 -> CardOffer.DETECTED
     else -> CardOffer.AVAILABLE
 }

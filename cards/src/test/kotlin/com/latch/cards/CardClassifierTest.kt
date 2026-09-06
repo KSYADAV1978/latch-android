@@ -350,3 +350,60 @@ class CardOcrRepairTest {
         assertTrue(line === repairScriptBleed(line), "the untouched path allocated a new string")
     }
 }
+
+/**
+ * FR-1230: is there a contact in this text at all?
+ *
+ * **The negatives are the point and they are real captures**, taken verbatim from NFR-502's
+ * corpus (SRS 1.151). Each of the four numeric ones fired the rule that was rejected — every
+ * one of them classifies to a *telephone number*, because a numeric date is seven digits and no
+ * pattern tells the two apart. They are here so that a later widening of this rule goes red.
+ */
+class HoldsContactTest {
+
+    private fun holds(vararg lines: String) = holdsContact(classifyCard(lines.toList()))
+
+    @Test
+    fun `an email signature holds a contact`() {
+        // The signature of `real-world.tsv` row 82, as the lines a selection would carry.
+        assertTrue(
+            holds(
+                "Regards,",
+                "Gitanjali Gupta",
+                "Additional Secretary",
+                "NITI Aayog",
+                "23096829",
+            )
+        )
+    }
+
+    @Test
+    fun `an email address alone holds a contact`() {
+        // A signature trimmed to nothing but the address is still somebody, and it is the
+        // identifier the case is named after.
+        assertTrue(holds("anita.kapoor@northwind.in"))
+    }
+
+    @Test
+    fun `a numeric date does not`() {
+        assertFalse(holds("12-09-2026"))
+        assertFalse(holds("Renewal 2027-10-14"))
+        assertFalse(holds("shipping 2027.10.14"))
+        assertFalse(holds("Wedding reception on 21.11.2026 at 7 pm"))
+    }
+
+    @Test
+    fun `a telephone number alone does not`() {
+        // The refusal SRS 1.151 records, stated directly rather than only through a date that
+        // happens to look like one: a bare number is not evidence that there is a person here.
+        assertFalse(holds("call 23096829 today"))
+        assertFalse(holds("NITI Aayog, 23096829"))
+    }
+
+    @Test
+    fun `an ordinary capture does not`() {
+        assertFalse(holds("Kickoff 8 September 2027 at 9am"))
+        assertFalse(holds("PTM on Friday 12 September"))
+        assertFalse(holds("Ask about the uniform order"))
+    }
+}

@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.cards.CardEdits
+import com.latch.android.cards.CardReading
 import com.latch.android.cards.CardSaveBlocker
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
@@ -179,8 +180,15 @@ fun CardScreen(
                 // FR-1224, and it belongs **before the first box** rather than among them. It was
                 // landing mid-list — between the phone boxes and the address — where it reads as a
                 // caption for whichever field happens to sit above it (SRS 1.113).
-                if (state.fromPhoto) {
-                    Note(stringResource(R.string.card_from_photo))
+                // FR-1230 shares the warning and not the sentence: a text selection is still
+                // open in the application it came from, so this one says where to check rather
+                // than that there is nowhere left to.
+                when (state.readBy) {
+                    CardReading.PHOTO -> Note(stringResource(R.string.card_from_photo))
+                    CardReading.TEXT -> Note(stringResource(R.string.card_from_text))
+                    // FR-1204's grammar is right or wrong. Nothing was guessed, so nothing is
+                    // asked of the user beyond FR-1205's ordinary check.
+                    CardReading.GRAMMAR -> Unit
                 }
 
                 // FR-1226. **The only control in this application that sends an image anywhere**,
