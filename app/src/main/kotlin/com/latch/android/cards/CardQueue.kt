@@ -84,8 +84,21 @@ suspend fun drainCard(
         return CardDrainOutcome.KEPT
     }
 
-    return when (cardWriteDecision(search)) {
+    // **The drain asks FR-1208's question and not FR-1231's** (SRS 1.152), and that is a recorded
+    // narrowing rather than an oversight. FR-1231 is an *offer* and forbids writing while one
+    // stands; a drain has no screen to ask on. Creating produces at worst a visible duplicate,
+    // which §5.11.6 records as the safe direction, where silently patching somebody's contact
+    // with no offer is precisely what the requirement was written against. So no identity keys
+    // are passed, and `cardWriteDecision` reaches `Create` rather than `UpdateOffered` — which
+    // is structural: with no `identityMatch` there is no branch that could offer.
+    return when (cardWriteDecision(search, entry.draft)) {
         is CardWriteDecision.AlreadySaved -> CardDrainOutcome.RETIRED
+
+        // Unreachable: no identity match is fetched here, and `UpdateOffered` is produced only
+        // from one. Named rather than swept into an `else`, so that a future drain which *does*
+        // ask the identity question has to decide what it means here instead of inheriting a
+        // silent create.
+        is CardWriteDecision.UpdateOffered -> CardDrainOutcome.KEPT
 
         is CardWriteDecision.Create -> {
             val metadata = CardMetadata(

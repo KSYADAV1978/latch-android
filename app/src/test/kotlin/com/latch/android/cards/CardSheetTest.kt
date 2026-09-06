@@ -208,7 +208,7 @@ class CardSheetTest {
         // about the same card. A weaker line beside it would only muddle what happened.
         assertEquals(
             CardPersonWarning.NONE,
-            cardPersonWarning(listOf("p1"), matched = "people/c1", exactAlreadySaved = true),
+            cardPersonWarning(listOf("p1"), matched = "people/c1", strongerAnswerStands = true),
         )
     }
 

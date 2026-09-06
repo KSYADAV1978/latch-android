@@ -65,7 +65,7 @@ class CardSaverTest {
         assertNull(contacts.photoFor, "a photograph was sent that nobody asked for")
     }
 
-    private class FakeContacts : ContactsApi {
+    private class FakeContacts : ContactsApiFake() {
         /** Indexed by the source hash the created contact carried, which is the whole point. */
         val stored = mutableMapOf<String, ContactWrite>()
         val deleted = mutableListOf<String>()
@@ -99,6 +99,7 @@ class CardSaverTest {
         override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ): ContactDuplicateSearch {
             searches++
             if (failSearch) throw RuntimeException("search failed")
@@ -265,7 +266,7 @@ class CardSaverHoldTest {
         assertEquals(CardPhotoUpload.NOT_REQUESTED, held.photo)
     }
 
-    private class FailingContacts(private val alsoFailCreate: Boolean = false) : ContactsApi {
+    private class FailingContacts(private val alsoFailCreate: Boolean = false) : ContactsApiFake() {
         var created = 0
         override suspend fun createContact(person: ContactWrite): String {
             if (alsoFailCreate) throw RuntimeException("create failed")
@@ -277,6 +278,7 @@ class CardSaverHoldTest {
         override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ): ContactDuplicateSearch =
             throw RuntimeException("offline")
     }
@@ -302,7 +304,7 @@ class CardSaverHoldTest {
     fun `a write that fails after a clean check is held too`() = runTest {
         // The network can go between the check and the insert. Reporting a failure here would
         // lose a capture that had already been confirmed.
-        val contacts = object : ContactsApi {
+        val contacts = object : ContactsApiFake() {
             override suspend fun createContact(person: ContactWrite): String =
                 throw RuntimeException("network went")
             override suspend fun deleteContact(resourceName: String) = Unit
@@ -310,6 +312,7 @@ class CardSaverHoldTest {
             override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ) = ContactDuplicateSearch()
         }
         val saver = CardSaver(contacts, hold = { _, _, _, _ -> "entry-2" })

@@ -202,15 +202,17 @@ enum class CardPersonWarning {
  * @param personKeys what this card yields — empty where FR-1227 says the key degenerates, which is
  *   a card with no name or no labelled mobile.
  * @param matched the resource name a scan found, or null.
- * @param exactAlreadySaved FR-1208 has already answered, and its sentence is the stronger one. A
- *   second, weaker line beside "Already saved. Nothing was written again." would only muddle it.
+ * @param strongerAnswerStands a check that outranks this one has already spoken — FR-1208's
+ *   "Already saved. Nothing was written again.", or FR-1231's offer naming the very fields that
+ *   differ. Either says more about this person than *you may already have them* does, and a
+ *   weaker line beside a stronger one only muddles it.
  */
 fun cardPersonWarning(
     personKeys: List<String>,
     matched: String?,
-    exactAlreadySaved: Boolean = false,
+    strongerAnswerStands: Boolean = false,
 ): CardPersonWarning = when {
-    exactAlreadySaved -> CardPersonWarning.NONE
+    strongerAnswerStands -> CardPersonWarning.NONE
     personKeys.isEmpty() -> CardPersonWarning.NONE
     matched.isNullOrBlank() -> CardPersonWarning.NONE
     else -> CardPersonWarning.PROBABLY_ALREADY_SAVED

@@ -55,14 +55,83 @@ class ContactsRest(private val http: GoogleHttp) : ContactsApi {
     override suspend fun findContactBySourceHash(
         sourceHash: String,
         personKeys: List<String>,
+        identityKeys: List<String>,
     ): ContactDuplicateSearch =
-        findContactByHashPaged(sourceHash, personKeys) { token ->
+        findContactByHashPaged(sourceHash, personKeys, identityKeys) { token ->
             val page = http.get(connectionsUrl(token))
             ContactPage(
                 contacts = page.optJSONArray("connections").rows(),
                 nextPageToken = page.optString("nextPageToken"),
             )
         }
+
+    override suspend fun getContact(resourceName: String): ContactRecord =
+        contactRecordFrom(resourceName, http.get(getContactUrl(resourceName)))
+
+    override suspend fun updateContact(
+        resourceName: String,
+        etag: String,
+        update: ContactUpdate,
+    ): String {
+        // **The etag goes in the body, not a header.** The People API carries it as a field of
+        // the person being sent, and an update without it is refused with 400 — which is the
+        // whole reason `ContactRecord` carries one and `getContact` exists.
+        val body = update.write.toJson().put("etag", etag)
+        // PATCH, as `updateContactPhoto` is and for SRS 1.128's reason: a POST to a PATCH-only
+        // binding answers 404 with no reason string, which reads exactly like a contact that is
+        // not there.
+        val updated = http.patch(updateContactUrl(resourceName, update.fields), body)
+        return updated.optJSONObject("metadata")?.optString("etag").orEmpty()
+            .ifBlank { updated.optString("etag") }
+    }
+}
+
+/**
+ * FR-1231: what a contact holds now.
+ *
+ * **Only the first of each single-valued field.** A contact may carry several organisations; the
+ * offer names one employer and one job title because that is what a card carries, and reaching
+ * past the first would put Latch in the business of choosing which of somebody's jobs the card
+ * refers to.
+ */
+internal fun contactRecordFrom(resourceName: String, person: JSONObject): ContactRecord {
+    val name = person.optJSONArray("names")?.firstObject()
+    val organisation = person.optJSONArray("organizations")?.firstObject()
+    return ContactRecord(
+        resourceName = person.optString("resourceName").ifBlank { resourceName },
+        // The etag is on the person itself. Read from `metadata` too, because the People API has
+        // put it in both places across versions and an update refused for a missing etag reports
+        // nothing that names it.
+        etag = person.optString("etag").ifBlank {
+            person.optJSONObject("metadata")?.optString("etag").orEmpty()
+        },
+        displayName = name?.optString("displayName")?.takeIf { it.isNotBlank() },
+        givenName = name?.optString("givenName")?.takeIf { it.isNotBlank() },
+        familyName = name?.optString("familyName")?.takeIf { it.isNotBlank() },
+        organisation = organisation?.optString("name")?.takeIf { it.isNotBlank() },
+        jobTitle = organisation?.optString("title")?.takeIf { it.isNotBlank() },
+        phones = person.optJSONArray("phoneNumbers").valuesWithType("value", "type"),
+        emails = person.optJSONArray("emailAddresses").valuesWithType("value", "type"),
+        addresses = person.optJSONArray("addresses").values("formattedValue"),
+        urls = person.optJSONArray("urls").values("value"),
+    )
+}
+
+private fun JSONArray.firstObject(): JSONObject? =
+    if (length() == 0) null else optJSONObject(0)
+
+private fun JSONArray?.values(key: String): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { optJSONObject(it)?.optString(key)?.takeIf { v -> v.isNotBlank() } }
+}
+
+private fun JSONArray?.valuesWithType(key: String, typeKey: String): List<Pair<String, String?>> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { index ->
+        val entry = optJSONObject(index) ?: return@mapNotNull null
+        val value = entry.optString(key).takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        value to entry.optString(typeKey).takeIf { it.isNotBlank() }
+    }
 }
 
 private fun JSONArray?.rows(): List<ContactRow> {
@@ -71,7 +140,20 @@ private fun JSONArray?.rows(): List<ContactRow> {
         val person = optJSONObject(index) ?: return@mapNotNull null
         val name = person.optString("resourceName")
         if (name.isBlank()) return@mapNotNull null
-        ContactRow(name, person.optJSONArray("clientData").pairs())
+        // FR-1231: the addresses travel with the row so an identity can be derived for a
+        // contact Latch never created. Digested at the comparison, never stored.
+        ContactRow(
+            resourceName = name,
+            clientData = person.optJSONArray("clientData").pairs(),
+            emails = person.optJSONArray("emailAddresses").addresses(),
+        )
+    }
+}
+
+private fun JSONArray?.addresses(): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull {
+        optJSONObject(it)?.optString("value")?.takeIf { value -> value.isNotBlank() }
     }
 }
 

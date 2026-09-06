@@ -22,6 +22,7 @@ import com.latch.android.BuildConfig
 import com.latch.android.cards.CardDismiss
 import com.latch.android.cards.cardDismiss
 import com.latch.android.cards.CardCreated
+import com.latch.android.cards.cardUndoRestores
 import com.latch.android.cards.undoCardCreated
 import com.latch.android.cards.CardOffer
 import com.latch.android.cards.CardPhotoCoverage
@@ -387,6 +388,11 @@ class CaptureActivity : ComponentActivity() {
                 LaunchedEffect(cardSave, cardState) {
                     cardOfferStanding = cardState != null && when (val r = cardSave) {
                         is CardSaveResult.Saved, is CardSaveResult.Held -> true
+                        // FR-1231. **The offer holds the window**, which is FR-804's own
+                        // arrangement on the date side: a question about somebody's address book
+                        // that a tap outside the sheet could dismiss is a question the user never
+                        // knew they were asked. An accepted update holds it for its undo.
+                        is CardSaveResult.UpdateOffered, is CardSaveResult.Updated -> true
                         // **A failed undo holds the window too** (SRS 1.125), and only a failed
                         // one: the contact is still in the user's account and the sentence saying
                         // so is the only place they will learn it, so a stray tap outside must not
@@ -556,7 +562,13 @@ class CaptureActivity : ComponentActivity() {
                         personWarning = cardPersonWarning(
                             personKeys = personKeys,
                             matched = personMatch,
-                            exactAlreadySaved = cardSave is CardSaveResult.AlreadySaved,
+                            // FR-1227 is the weakest of the three answers and stands down for
+                            // either of the others: FR-1208's "already saved", and FR-1231's
+                            // offer, which names the fields that differ rather than guessing
+                            // that this may be the same person.
+                            strongerAnswerStands = cardSave is CardSaveResult.AlreadySaved ||
+                                cardSave is CardSaveResult.UpdateOffered ||
+                                cardSave is CardSaveResult.Updated,
                         ),
                         // FR-1225. Offered on a photographed card only, and never on one decoded
                         // from a grammar: a vCard payload is a complete record, and merging a
@@ -592,6 +604,12 @@ class CaptureActivity : ComponentActivity() {
                                 val created = when (val r = cardSave) {
                                     is CardSaveResult.Saved -> CardCreated.Written(r.resourceName)
                                     is CardSaveResult.Held -> CardCreated.Queued(r.entryId)
+                                    // FR-1232. **A restore, never a delete**, and the prior
+                                    // record travels with it because after the patch those
+                                    // values exist nowhere else - the same reason
+                                    // `CreatedItem.Updated` carries prior dates on the date side.
+                                    is CardSaveResult.Updated ->
+                                        CardCreated.Updated(r.resourceName, r.prior, r.etag, r.fields)
                                     else -> null
                                 }
                                 val removal = if (created == null) null else {
@@ -611,7 +629,9 @@ class CaptureActivity : ComponentActivity() {
                                 // NFR-303 names that a defect, and the date side has always left an
                                 // undo's outcome on screen.
                                 cardSave = CardSaveResult.Undone(
-                                    removed = removal != null && removal.removed == removal.attempted
+                                    removed = removal != null && removal.removed == removal.attempted,
+                                    // FR-1232: the sentence differs because the outcome does.
+                                    restored = created != null && cardUndoRestores(created),
                                 )
                             }
                         },
@@ -662,6 +682,38 @@ class CaptureActivity : ComponentActivity() {
                                 cardSavedAt = Instant.now()
                             }
                         },
+                        // FR-1231 accepted. On the application's scope for `onSave`'s reason:
+                        // the capture window closes on a tap outside it and a patch in flight
+                        // must still finish.
+                        onUpdateContact = {
+                            val offer = cardSave as? CardSaveResult.UpdateOffered
+                            if (offer != null) {
+                                cardSave = CardSaveResult.Saving
+                                app.appScope.launch {
+                                    cardSave = app.cardSaver.update(
+                                        stored = offer.stored,
+                                        draft = sheet.edited,
+                                        changes = offer.changes,
+                                    )
+                                    cardSavedAt = Instant.now()
+                                }
+                            }
+                        },
+                        // FR-1231 declined. **The identity check is not run again**: it has just
+                        // answered, the user has read the answer and rejected it, and asking
+                        // twice would either repeat the offer or - worse - produce a different
+                        // one from a scan that raced an edit.
+                        onCreateAnyway = {
+                            cardSave = CardSaveResult.Saving
+                            app.appScope.launch {
+                                cardSave = app.cardSaver.createAnyway(
+                                    draft = sheet.edited,
+                                    payload = sheet.payload,
+                                    layer = captured?.layer?.name ?: "SHARED_IMAGE",
+                                )
+                                cardSavedAt = Instant.now()
+                            }
+                        },
                         // SRS 1.104. Backing out returned to the capture sheet unconditionally,
                         // so a user who had just saved a contact from a QR with no dates in it
                         // was dropped onto an empty capture — reading as though nothing had
@@ -673,7 +725,12 @@ class CaptureActivity : ComponentActivity() {
                                 // to a capture they have dealt with would read as a failure.
                                 saved = cardSave is CardSaveResult.Saved ||
                                     cardSave is CardSaveResult.AlreadySaved ||
-                                    cardSave is CardSaveResult.Held,
+                                    cardSave is CardSaveResult.Held ||
+                                    // FR-1231: an accepted update is as finished as a save. An
+                                    // offer still standing is deliberately **not** here - the
+                                    // user has answered nothing yet, so backing out returns them
+                                    // to the capture rather than closing over an open question.
+                                    cardSave is CardSaveResult.Updated,
                                 // **Dates, not candidates** (SRS 1.147). `candidates.size`
                                 // counted the single `TASK_UNDATED` a capture with no date in it
                                 // always yields, so every photographed card claimed to hold one

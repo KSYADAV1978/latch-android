@@ -1,6 +1,8 @@
 package com.latch.android.cards
 
+import com.latch.google.ContactRecord
 import com.latch.google.ContactsApi
+import com.latch.google.restoreContactUpdate
 import java.time.Duration
 import java.time.Instant
 
@@ -18,6 +20,28 @@ sealed interface CardCreated {
 
     /** FR-1212 held it. Undo drops the entry, and the account never knew. */
     data class Queued(val entryId: String) : CardCreated
+
+    /**
+     * FR-1231 changed one. Undo **restores** it, and there is no branch here that deletes.
+     *
+     * **The requirement's own sentence is the reason it is a separate case rather than a flag**:
+     * *it shall never delete the contact — the contact was the user's before Latch touched it.*
+     * A boolean beside a resource name would put that guarantee in an `if`; a type with no delete
+     * in it puts the guarantee in the compiler, which is `CreatedItem`'s reasoning on the date
+     * side where an undo of an update that deleted would have been data loss on an item the user
+     * owned before Latch existed.
+     *
+     * [prior] is what the contact held before the patch, read at match time. After the patch it
+     * exists nowhere else. [etag] is the one the patch returned, and [fields] is the same mask —
+     * a restore with a narrower mask would leave half the change standing and a wider one would
+     * overwrite a field Latch never touched.
+     */
+    data class Updated(
+        val resourceName: String,
+        val prior: ContactRecord,
+        val etag: String,
+        val fields: List<String>,
+    ) : CardCreated
 }
 
 /**
@@ -94,7 +118,37 @@ suspend fun undoCardCreated(
         val dropped = runCatching { dropQueued(created.entryId) }.getOrDefault(false)
         CardRemoval(attempted = 1, removed = if (dropped) 1 else 0)
     }
+
+    // FR-1232. **A write, not a delete**, and the strongest thing to say about it is that this
+    // branch has no `deleteContact` in it to get wrong.
+    is CardCreated.Updated -> {
+        val outcome = runCatching {
+            contacts.updateContact(
+                created.resourceName,
+                created.etag,
+                restoreContactUpdate(created.prior, created.fields),
+            )
+        }
+        val restored = outcome.isSuccess
+        // **A failure here matters more than a failed delete and is logged as such.** A delete
+        // that did not run leaves a contact the user can see and remove; a restore that did not
+        // run leaves somebody's employer silently replaced, and the ten seconds in which they
+        // could have said so are gone.
+        log(
+            "card undo restore=" + if (restored) "accepted" else
+                (outcome.exceptionOrNull()?.javaClass?.simpleName ?: "refused")
+        )
+        CardRemoval(attempted = 1, removed = if (restored) 1 else 0)
+    }
 }
+
+/**
+ * FR-1232: is this undo a restore rather than a removal?
+ *
+ * The sheet's sentence differs because the outcome does — "Nothing was kept", over a contact still
+ * in the account carrying its old employer again, would be false in the direction that matters.
+ */
+fun cardUndoRestores(created: CardCreated): Boolean = created is CardCreated.Updated
 
 /**
  * FR-1212: whether a queued card may be drained yet.

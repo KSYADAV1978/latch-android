@@ -2,7 +2,10 @@ package com.latch.google
 
 import com.latch.wire.KEY_CARD_SOURCE_HASH
 import com.latch.wire.KEY_CARD_PERSON_KEY
+import com.latch.wire.identityKeyOf
+import com.latch.wire.normaliseEmail
 import com.latch.wire.sharesCardPerson
+import com.latch.wire.sharesContactIdentity
 
 /**
  * FR-1206 and FR-1208: the People API, and the duplicate check that must exist before anything is
@@ -44,7 +47,32 @@ interface ContactsApi {
         sourceHash: String,
         /** FR-1227's inexact key, answered in the same pass. Empty asks FR-1208's question alone. */
         personKeys: List<String> = emptyList(),
+        /** FR-1231's identity, answered in the same pass for the same reason. */
+        identityKeys: List<String> = emptyList(),
     ): ContactDuplicateSearch
+
+    /**
+     * FR-1231: read a contact back, so the offer quotes what is **stored**.
+     *
+     * The scan carries only what it needs to match on; this is the one contact the user is about
+     * to be asked about, and its current values are what FR-804's reading requires be quoted —
+     * not what an earlier capture happened to write. It is also FR-1232's only source: after the
+     * patch the previous values exist nowhere else.
+     */
+    suspend fun getContact(resourceName: String): ContactRecord
+
+    /**
+     * FR-1231's patch and FR-1232's restore, which are one call twice.
+     *
+     * Returns the **new etag**, because the People API refuses an update without a current one and
+     * an undo is a second update — an undo that could not name the etag would be an undo that
+     * could not run.
+     */
+    suspend fun updateContact(
+        resourceName: String,
+        etag: String,
+        update: ContactUpdate,
+    ): String
 }
 
 /**
@@ -66,6 +94,16 @@ data class ContactDuplicateSearch(
      * the whole risk FR-1227 was written to avoid is exactly that conflation.
      */
     val probablePersonResourceName: String? = null,
+    /**
+     * FR-1231: a contact carrying one of this card's email addresses, found in the same pass.
+     *
+     * **A third answer and not a stronger version of the second.** FR-1227's is a guess from a
+     * name and a mobile, and all it may do is put a sentence on the preview. This one is
+     * FR-1209's identity — the same digest the write path stores — and it is what an *offer to
+     * update* rests on. Keeping them separate is what stops a caller conflating a guess with an
+     * identity, which is the whole risk FR-1227 was written to avoid.
+     */
+    val identityResourceName: String? = null,
 ) {
     val found: Boolean get() = existingResourceName != null
 }
@@ -127,8 +165,47 @@ fun updateContactPhotoUrl(resourceName: String): String =
  * not depend on how many contacts somebody has.
  */
 fun connectionsUrl(pageToken: String? = null): String =
-    "$PEOPLE_BASE/people/me/connections?personFields=clientData&pageSize=$CONNECTIONS_PAGE_SIZE" +
+    "$PEOPLE_BASE/people/me/connections?personFields=$CONNECTIONS_FIELDS" +
+        "&pageSize=$CONNECTIONS_PAGE_SIZE" +
         (pageToken?.takeIf { it.isNotBlank() }?.let { "&pageToken=$it" } ?: "")
+
+/**
+ * **`emailAddresses` is here for FR-1231 and it is what makes that requirement usable.**
+ *
+ * FR-1209's identity is a digest of a normalised email. A contact Latch created carries that
+ * digest in `clientData`; a contact the *user* already had carries no `clientData` at all — and
+ * the case FR-1231 exists for is being handed a new card by somebody already in your address
+ * book. So the digest is **computed** from each connection's own addresses, which is the same
+ * identity derived rather than looked up. FR-1232's sentence — *the contact was the user's before
+ * Latch touched it* — only makes sense on this reading.
+ *
+ * The addresses stay on the device: they are digested here and the digest is what is compared.
+ */
+const val CONNECTIONS_FIELDS = "clientData,emailAddresses"
+
+/**
+ * FR-1231: one contact, in full.
+ *
+ * Every field the offer can name and the restore must put back. `clientData` is **not** requested:
+ * FR-1207's record is write-once, this path never sends it, and asking for what cannot be used is
+ * how a field ends up in an update mask by accident.
+ */
+fun getContactUrl(resourceName: String): String =
+    "$PEOPLE_BASE/$resourceName?personFields=$CONTACT_FIELDS"
+
+const val CONTACT_FIELDS =
+    "names,organizations,phoneNumbers,emailAddresses,addresses,urls"
+
+/**
+ * FR-1231's patch and FR-1232's restore.
+ *
+ * **`updatePersonFields` is the whole safety of this call.** It names what the request is allowed
+ * to overwrite, so a field absent from it is a field Google leaves alone — which is what keeps an
+ * update off `clientData` and off the note. [fields] is derived from the changes themselves; see
+ * `fieldNames`.
+ */
+fun updateContactUrl(resourceName: String, fields: List<String>): String =
+    "$PEOPLE_BASE/$resourceName:updateContact?updatePersonFields=" + fields.joinToString(",")
 
 const val CONNECTIONS_PAGE_SIZE = 1000
 
@@ -158,11 +235,19 @@ suspend fun findContactByHashPaged(
      * double a page loop the save path already waits on, to compare a second string per contact.
      */
     personKeys: List<String> = emptyList(),
+    /**
+     * FR-1231's identity keys, or empty to ask nothing about identity.
+     *
+     * In the same pass as the other two, for the same reason: the account this was built against
+     * holds 3,157 contacts, and a third scan would be a third page loop the save path waits on.
+     */
+    identityKeys: List<String> = emptyList(),
     nextPage: suspend (String?) -> ContactPage,
 ): ContactDuplicateSearch {
     var token: String? = null
     var pages = 0
     var person: String? = null
+    var identity: String? = null
     while (pages < CONNECTIONS_PAGE_CAP) {
         val page = nextPage(token)
         pages++
@@ -176,8 +261,19 @@ suspend fun findContactByHashPaged(
                 contact.clientData.any { it.first == KEY_CARD_SOURCE_HASH && it.second == sourceHash }
         }?.let {
             // The exact answer ends the scan. FR-1227's line would be redundant beside "already
-            // saved" and the caller has a stronger thing to say.
+            // saved" and the caller has a stronger thing to say — and so would FR-1231's offer,
+            // which is about a card that differs from what is stored.
             return ContactDuplicateSearch(existingResourceName = it.resourceName)
+        }
+
+        // FR-1231. **Two sources, and a stored digest is preferred to a derived one** only in
+        // the sense that both are the same digest: `identityKeysOn` computes from the contact's
+        // own addresses and reads what Latch stored, so a contact created by Latch and one the
+        // user has always had are matched by one rule.
+        if (identity == null) {
+            identity = page.contacts.firstOrNull { contact ->
+                sharesContactIdentity(identityKeys, identityKeysOn(contact))
+            }?.resourceName
         }
 
         // First match wins and the scan continues, because the exact key outranks this one and
@@ -192,15 +288,49 @@ suspend fun findContactByHashPaged(
         }
 
         token = page.nextPageToken?.takeIf { it.isNotBlank() }
-            ?: return ContactDuplicateSearch(probablePersonResourceName = person)
+            ?: return ContactDuplicateSearch(
+                probablePersonResourceName = person,
+                identityResourceName = identity,
+            )
     }
     // Out of pages with a token still outstanding: this is "I do not know", not "not found".
-    return ContactDuplicateSearch(scanCapped = true, probablePersonResourceName = person)
+    return ContactDuplicateSearch(
+        scanCapped = true,
+        probablePersonResourceName = person,
+        identityResourceName = identity,
+    )
 }
 
 data class ContactPage(val contacts: List<ContactRow>, val nextPageToken: String? = null)
 
-data class ContactRow(val resourceName: String, val clientData: List<Pair<String, String>>)
+data class ContactRow(
+    val resourceName: String,
+    val clientData: List<Pair<String, String>>,
+    /**
+     * FR-1231: the contact's own addresses, from which its identity is derived.
+     *
+     * Empty for a contact with none, which has no identity at all — and `sharesContactIdentity`
+     * already refuses to match two empties, so an emailless contact cannot be offered as anybody.
+     */
+    val emails: List<String> = emptyList(),
+)
+
+/**
+ * FR-1209's keys for a contact already in the account.
+ *
+ * **Derived and stored are the same digest, so both are consulted.** A contact Latch created
+ * carries `latch.card.identity`; one the user has always had carries nothing but its addresses,
+ * so computing from the addresses is what makes FR-1231 reach the user's own contacts at all.
+ * The stored keys are read *as well* because a contact whose address was edited or removed by
+ * hand still carries the key of the card it came from — without them that person's next card
+ * would be written as a second contact rather than offered as an update, which is the duplicate
+ * this requirement exists to prevent.
+ */
+internal fun identityKeysOn(contact: ContactRow): List<String> =
+    (contact.emails.map { identityKeyOf(normaliseEmail(it)) } +
+        contact.clientData.filter { it.first == com.latch.wire.KEY_CARD_IDENTITY }.map { it.second })
+        .filter { it.isNotBlank() }
+        .distinct()
 
 /**
  * FR-1206: a confirmed draft and its FR-1207 record, as the People API wants them.

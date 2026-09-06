@@ -28,7 +28,7 @@ import kotlinx.coroutines.test.runTest
  */
 class CardQueueTest {
 
-    private class FakeContacts : ContactsApi {
+    private class FakeContacts : ContactsApiFake() {
         val stored = mutableMapOf<String, ContactWrite>()
         var searchFails = false
         var createFails = false
@@ -47,6 +47,7 @@ class CardQueueTest {
         override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ): ContactDuplicateSearch {
             searches++
             if (searchFails) throw RuntimeException("search failed")
@@ -159,7 +160,7 @@ class HeldCardDrainTest {
         }
     }
 
-    private class Contacts(val failFor: Set<String> = emptySet()) : ContactsApi {
+    private class Contacts(val failFor: Set<String> = emptySet()) : ContactsApiFake() {
         val written = mutableListOf<String>()
         override suspend fun createContact(person: ContactWrite): String {
             val name = person.displayName.orEmpty()
@@ -172,6 +173,7 @@ class HeldCardDrainTest {
         override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ) = ContactDuplicateSearch()
     }
 

@@ -47,7 +47,7 @@ class CardReversalTest {
         assertTrue(removal.removed == removal.attempted)
     }
 
-    private class FakeContacts : ContactsApi {
+    private class FakeContacts : ContactsApiFake() {
         val deleted = mutableListOf<String>()
         var deleteFails = false
         override suspend fun createContact(person: ContactWrite): String = "people/c1"
@@ -59,6 +59,7 @@ class CardReversalTest {
         override suspend fun findContactBySourceHash(
             sourceHash: String,
             personKeys: List<String>,
+            identityKeys: List<String>,
         ) = ContactDuplicateSearch()
     }
 

@@ -1548,6 +1548,56 @@ it touches every capture and an OCR change is measured on a device here rather t
 about. `MlKitOcrReader` logs `decode WxH sample=N -> WxH` so the next photograph states its own
 numbers.
 
+## The ship-v1.0 run — Step 0, building every unbuilt requirement (6 Sep 2026)
+
+`docs/RESTART.md` carries the plan. Everything in this section is **JVM-verified and
+DEVICE-OWED**, built in one session with no device attached and nothing written to the
+developer's Google account.
+
+**FR-204 — the in-app help topic** (SRS 1.150). Home screen → *Dates and to-dos* → "Latch is not
+in my text menu". §8.3 documented the mechanism and nothing in the app told a user any of it.
+The list ships with **one** entry, WhatsApp, because that is the only application anybody has
+checked; `docs/DOGFOODING.md` asks for the rest. A JVM test pins that the topic is not empty,
+which is the failure a list about other people's software actually has.
+
+**FR-1230 — a text selection as a contact** (SRS 1.151). The offer is *detected*: a name or an
+email address in the selection, measured at **0 fires on NFR-502's 113 real strings**, where the
+obvious rule — anything `cardSaveBlocker` would accept — fired eleven times and every one of the
+eleven read a numeric date as a telephone number. A text capture reaches `AVAILABLE` and never
+`DETECTED`.
+
+**FR-1231, FR-1232, FR-1233 — FR-804 on contacts** (SRS 1.152). An identity match offers,
+field by field, with the stored value quoted; nothing is written while the offer stands; undo
+restores and there is no branch in `CardCreated.Updated` that deletes.
+
+### Device pass backlog — Step 0's three slices
+
+Nothing below has been done by a person. Read each row as *the condition that would make it
+fail*, then *the fixture*.
+
+**The FR-1231 rows write to the developer's own contacts and there is no way round it.** The
+fixture is a contact that already exists carrying an address a card also carries — which for a
+real test means a real contact. Every row says what it leaves behind.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **FR-204 — the topic is reachable and reads as an answer** | Open it from the dates section. Failure is a screen that explains the mechanism and never says *what to do instead*, which is the half §8.3's own sentence is about — the three other layers exist for exactly this | Home → Dates and to-dos |
+| **FR-1230 — a signature offers the card path** | Select a whole email signature in Gmail and choose Latch: a quiet **Save as contact instead** beside Save, and tapping it opens the card sheet with the name, the title and the address filled. Failure is silence, which is the detector refusing a real signature | any email with a signature block |
+| **FR-1230 — an ordinary capture does not** | "Kickoff 8 September 2027 at 9am" must show **no** card action at all. This is the 0-of-113 measurement seen on a screen; a button here means the rule widened | the canonical text |
+| **FR-1230 — the caption is the text one** | The sheet says *Read from the text you selected*, never *the card will not be here to check against* — which is untrue of a message still open in the app behind it | as above |
+| **FR-1231 — an offer, and nothing written while it stands** | Save a card. Edit that contact's job title in Google Contacts by hand. Capture a **fresh photograph** of the same card, so FR-1208's hash misses and the identity matches. The sheet must name the field, quote the value **now in Google**, and offer *Update the contact* and *Save as a new contact* with **no default**. **The evidence is the count**: Google Contacts on the web must hold the same number of contacts before and after the offer appears, and the job title must still read what you typed | a saved card, a hand-edited title, a second photograph |
+| **FR-1231 — a tap outside does not dismiss the offer** | The capture window closes on a tap outside it. While the offer stands it must not — a question about somebody's address book that a stray tap can take away is one the user never knew they were asked. This is FR-804's own device row, one API over | the offer standing |
+| **FR-1231 — the update adds and never removes** | Give the contact a second phone number by hand. Accept an update that changes the job title. **Both numbers must still be there afterwards.** This is the one that fails silently: `updatePersonFields` replaces a field's whole list, so a body that carried only the card's number would delete the other and nothing on screen would say so | a contact with two numbers |
+| **FR-1231 — FR-1207's record is not rewritten** | Read the contact's `clientData` back after an update. `latch.card.captured_at` must still be the **original** capture's instant, and a contact Latch never created must still carry **no** Latch keys at all. SRS 1.18's write-once, on a third transport | a contact read back |
+| **FR-1231 — the loop terminates** | Capture the same card a third time after accepting the update. It must answer *Already saved* — the values now agree — and `LatchTiming` must read `basis=IDENTITY_NO_CHANGE`. Failure is the offer appearing again for ever, which is what a marker-based rule would have needed and this one does not | the same card again |
+| **FR-1232 — undo restores and deletes nothing** | Accept an update, then Undo inside the ten seconds. The sheet must say *Put back as it was*, the job title must be what you typed by hand, and **the contact must still exist**. The failure to watch for is the contact gone: FR-1232's whole sentence is that it was the user's before Latch touched it | as above |
+| **FR-1232 — the etag is the patch's, not the read's** | The restore is a second update and the People API refuses a stale etag with a 400. Failure is *Latch could not put the contact back* — which would mean the etag plumbing is wrong and the change stands | as above |
+| **FR-1233 — the previous employer is visible** | Change the contact's company by hand, capture the card again: the offer must show `Company: <what you typed> → <what the card says>`. And **nothing anywhere in the contact may say that Latch changed it** — FR-1233 forbids a move-note analogue by name, and the check is that the contact's notes are untouched | a hand-edited company |
+| **FR-1227 stands down** | With FR-1231's offer on screen there must be **no** "You may already have this person" line beside it. Two answers about the same person, one weaker, is the conflation FR-1227 was written to avoid | a card with a mobile and an email |
+| **A queued card still drains as a create** | Capture offline a card whose person is already in the account, then reconnect. It writes a **second contact**, and that is the recorded narrowing (SRS 1.152) rather than a defect: an offer needs a surface and a drain has none. Failure would be a silent patch | aeroplane mode |
+| **NFR-101 is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms with `content ready, ocr=false`. FR-1230 adds a classification to the text path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
+| **AC-17 still holds** | A network monitor over a card capture that reaches an update: only `people.googleapis.com` and the other Google hosts. `updateContact` is a new request shape through the same guard | any card cycle |
+
 ### Device pass backlog — FR-1227
 
 **The warning cannot fire against any contact that exists today**, because no contact carries a

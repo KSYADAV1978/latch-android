@@ -72,6 +72,28 @@
     <string name="card_no_code">Latch could not read a contact out of this image — no code in it, and nothing on it that reads like a card.</string>
     <string name="card_unreadable">There is a code in this image, but Latch could not read a contact out of it.</string>
     <string name="card_title">Save as a contact</string>
+    <!--
+      FR-1231, FR-1232 and FR-1233. The offer's wording follows FR-804's on the date side, because
+      it is the same question about a different thing: Latch has found something the user already
+      owns, and is asking rather than acting.
+
+      "already in your contacts" and not "a duplicate": the user is being told what Latch found,
+      not what Latch has concluded.
+    -->
+    <string name="card_update_offered">This person is already in your contacts. Latch can update what it holds:</string>
+    <!-- The current value first, because it is the one the user cannot look up while holding a card. -->
+    <string name="card_update_replaces">%1$s: %2$s \u2192 %3$s</string>
+    <string name="card_update_adds">%1$s: add %2$s</string>
+    <string name="card_update_nothing_written">Nothing has been written. Latch never removes anything from a contact \u2014 it only adds and replaces what is listed above.</string>
+    <string name="card_update_accept">Update the contact</string>
+    <string name="card_update_create_new">Save as a new contact</string>
+    <string name="card_updated">The contact was updated.</string>
+    <!--
+      FR-1232. Deliberately not "Undone. Nothing was kept.": the contact is still there and is
+      supposed to be, and the only thing that went back is what the update changed.
+    -->
+    <string name="card_update_undone">Put back as it was. The contact is unchanged.</string>
+    <string name="card_update_undo_failed">Latch could not put the contact back. The change above is still in your contacts.</string>
     <string name="card_from_photo">Read from the photo. Check each field before saving — the card will not be here to check against afterwards.</string>
     <!--
       FR-1230. The same warning as the photographed path and deliberately not the same sentence:
@@ -88,6 +110,8 @@
     <string name="card_field_address">Address</string>
     <string name="card_field_phone">Phone</string>
     <string name="card_field_email">Email</string>
+    <!-- FR-1231 names a field the offer can change and the sheet has no box for. -->
+    <string name="card_field_url">Website</string>
     <string name="card_destination">Will be added to your contacts in %s.</string>
     <string name="card_destination_loading">Checking which account this will go to…</string>
     <string name="card_never_deletes">Latch only adds and updates contacts. It never deletes one.</string>

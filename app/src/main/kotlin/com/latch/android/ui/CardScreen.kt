@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.latch.android.R
 import com.latch.android.cards.CardEdits
 import com.latch.android.cards.CardReading
+import com.latch.google.ContactField
 import com.latch.android.cards.CardSaveBlocker
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
@@ -113,6 +114,17 @@ fun CardScreen(
      * permits an inexact key to do.
      */
     personWarning: CardPersonWarning = CardPersonWarning.NONE,
+    /**
+     * FR-1231: accept the offer and change the contact the scan found.
+     *
+     * **There is no default and Save is withdrawn while the offer stands**, which is FR-804's
+     * reading inherited rather than re-decided: this sheet is a floating window a stray tap can
+     * dismiss, and a preselected button on it is how a silent change to somebody's address book
+     * would happen.
+     */
+    onUpdateContact: () -> Unit = {},
+    /** FR-1231 declined: this is somebody else, or a second record the user wants. */
+    onCreateAnyway: () -> Unit = {},
 ) {
     val saving = saveResult is CardSaveResult.Saving
     val draft = state.edited
@@ -323,8 +335,13 @@ fun CardScreen(
 
             // FR-1210's clock, ticking only while there is something to count — the date sheet's own
             // shape. A timer left running behind a finished sheet is a wakeup a second for nothing.
-            val counting = savedAt != null &&
-                (saveResult is CardSaveResult.Saved || saveResult is CardSaveResult.Held)
+            val counting = savedAt != null && (
+                saveResult is CardSaveResult.Saved ||
+                    saveResult is CardSaveResult.Held ||
+                    // FR-1232 is undoable for the same ten seconds, and it is the undo that
+                    // matters most: after the patch the previous values exist nowhere else.
+                    saveResult is CardSaveResult.Updated
+                )
             val now by produceState(Instant.now(), counting) {
                 while (counting) {
                     value = Instant.now()
@@ -341,11 +358,56 @@ fun CardScreen(
                 // the user is told.
                 is CardSaveResult.Undone -> Note(
                     stringResource(
-                        if (saveResult.removed) R.string.card_undone
-                        else R.string.card_undo_failed
+                        when {
+                            // FR-1232. **A different sentence, because a different thing
+                            // happened**: "Nothing was kept", over a contact still in the account
+                            // carrying its old employer again, would be false in the direction
+                            // that matters most on this screen.
+                            saveResult.removed && saveResult.restored -> R.string.card_update_undone
+                            saveResult.removed -> R.string.card_undone
+                            saveResult.restored -> R.string.card_update_undo_failed
+                            else -> R.string.card_undo_failed
+                        }
                     )
                 )
                 is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
+
+                // FR-1231, FR-1233. **Field by field, with what the contact holds now beside
+                // each**, which is the requirement's own wording and not a summary of it: "3
+                // fields would change" is a sentence nobody can answer, and the value that would
+                // be replaced is the one thing the user cannot look up while holding a card.
+                //
+                // FR-1233 needs nothing of its own here. Employer and job title are visible
+                // because every field is, and the move-note analogue the requirement forbids is
+                // not merely absent - nothing on this path composes prose to put in a contact.
+                is CardSaveResult.UpdateOffered -> {
+                    Note(stringResource(R.string.card_update_offered))
+                    saveResult.changes.forEach { change ->
+                        val stored = change.stored
+                        Text(
+                            text = if (stored == null) {
+                                stringResource(
+                                    R.string.card_update_adds,
+                                    stringResource(fieldLabel(change.field)),
+                                    change.captured,
+                                )
+                            } else {
+                                stringResource(
+                                    R.string.card_update_replaces,
+                                    stringResource(fieldLabel(change.field)),
+                                    stored,
+                                    change.captured,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    // Said out loud because it is the promise the requirement makes: an offer
+                    // that has already written something is not an offer.
+                    Note(stringResource(R.string.card_update_nothing_written))
+                }
+
+                is CardSaveResult.Updated -> Note(stringResource(R.string.card_updated))
                 is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
                 // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
                 // reassuring direction: the account holds nothing yet.
@@ -406,6 +468,22 @@ fun CardScreen(
                                 cardUndoSecondsLeft(savedAt!!, now),
                             )
                         )
+                    }
+                }
+
+                // FR-1231. **Two answers, neither of them the default, and Save is gone.** The
+                // requirement inherits FR-804's readings, and this is the one that has to be
+                // visible in the layout rather than argued for in a comment: there is no
+                // `Button` here that a stray tap could take, because the branch that draws Save
+                // is not reached while the offer stands.
+                if (saveResult is CardSaveResult.UpdateOffered) {
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onCreateAnyway) {
+                        ActionLabel(stringResource(R.string.card_update_create_new))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = onUpdateContact) {
+                        ActionLabel(stringResource(R.string.card_update_accept))
                     }
                 }
 
@@ -502,3 +580,19 @@ private fun Field(labelRes: Int, value: String?, onChange: (String) -> Unit) {
 
 /** FR-1229: how much of the sheet the previews may take between them, however many there are. */
 private val PREVIEW_BUDGET = 320.dp
+
+/**
+ * FR-1231: the user's word for a field, which is not the API's and not the enum's.
+ *
+ * NFR-402 - the pure modules return data and never display text, so `ContactField` crosses from
+ * `:google` as an enum and is named here.
+ */
+private fun fieldLabel(field: ContactField): Int = when (field) {
+    ContactField.NAME -> R.string.card_field_name
+    ContactField.ORGANISATION -> R.string.card_field_organisation
+    ContactField.JOB_TITLE -> R.string.card_field_title
+    ContactField.PHONE -> R.string.card_field_phone
+    ContactField.EMAIL -> R.string.card_field_email
+    ContactField.ADDRESS -> R.string.card_field_address
+    ContactField.URL -> R.string.card_field_url
+}

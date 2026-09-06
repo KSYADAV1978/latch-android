@@ -351,6 +351,11 @@ class LatchApplication : Application() {
             // FR-1226. The same guard and the same tag as every other line this app logs, and it
             // carries a byte count and Google's own reason — never a field off the card.
             logPhoto = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
+            // SRS 1.72's lesson, applied to the card pillar before its device pass rather than
+            // after: "Already saved" now reaches the screen from FR-1208's hash and from
+            // FR-1231's identity, and from outside the phone those two are indistinguishable.
+            // The line carries an enum name and a count and no card content.
+            logDecision = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
         )
     }
 
