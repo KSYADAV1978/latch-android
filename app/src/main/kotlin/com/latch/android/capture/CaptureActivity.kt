@@ -29,6 +29,7 @@ import com.latch.android.cards.CardPhotoEncoder
 import com.latch.android.cards.CardPhotoStep
 import com.latch.android.cards.canAddCardPhoto
 import com.latch.android.cards.cardLinesOf
+import com.latch.android.cards.CardPreview
 import com.latch.android.cards.cardPhotoFiles
 import com.latch.android.cards.cardPhotoStep
 import com.latch.android.cards.clearCardPhotos
@@ -142,7 +143,7 @@ class CaptureActivity : ComponentActivity() {
      * The **first** photograph, which is FR-1226's rule for the same reason — it is the front, and
      * a strip of every side would cost the space the fields need.
      */
-    private val cardPreview = MutableStateFlow<android.graphics.Bitmap?>(null)
+    private val cardPreviews = MutableStateFlow<List<CardPreview>>(emptyList())
 
     /**
      * FR-1225: a photograph is being recognised into the capture in hand.
@@ -225,7 +226,7 @@ class CaptureActivity : ComponentActivity() {
                 val saveState by app.captureSaver.state.collectAsState()
                 val captureContent by content.collectAsState()
                 val coverage by cardCoverage.collectAsState()
-                val previewBitmap by cardPreview.collectAsState()
+                val previewShots by cardPreviews.collectAsState()
                 val readingPhoto by readingCardPhoto.collectAsState()
                 val settings by app.settings.collectAsState()
 
@@ -543,7 +544,7 @@ class CaptureActivity : ComponentActivity() {
                         // FR-1212's consequence, said before the save rather than after it.
                         photoWouldBeHeld = destinations == null,
                         // FR-1229: what the reader saw, not what the camera showed.
-                        preview = previewBitmap?.asImageBitmap(),
+                        previews = previewShots,
                         accountLabel = account?.let { if (destinations == null) null else "Google" },
                         onEdit = { cardState = sheet.copy(edits = it) },
                         saveResult = cardSave,
@@ -594,11 +595,18 @@ class CaptureActivity : ComponentActivity() {
                                 // on disk until this capture closes and doing it on the tick would
                                 // spend a second of the user's time on a save they may not make.
                                 //
-                                // **The first photograph**, where FR-1225 supplied several: it is
-                                // the front, and choosing among them is a question no requirement
-                                // asks.
+                                // **The first photograph Latch could read**, where FR-1225
+                                // supplied several. It was the first *file* until SRS 1.146, and
+                                // the two differ exactly where it matters: a first shot that gave
+                                // no text is one the recogniser could make nothing of, and
+                                // attaching it would put the blurred frame on the contact — with
+                                // no thumbnail on the sheet, since FR-1229 previews what was read.
+                                // Now the label, the thumbnail and the attachment name one
+                                // photograph between them. Choosing a different one is a question
+                                // no requirement asks.
+                                val wanted = cardPreviews.value.firstOrNull()?.side ?: 1
                                 val jpeg = if (!sheet.attachPhoto) null else {
-                                    cardPhotoFiles(cacheDir).firstOrNull()?.let { file ->
+                                    cardPhotoFiles(cacheDir).getOrNull(wanted - 1)?.let { file ->
                                         runCatching {
                                             CardPhotoEncoder(this@CaptureActivity)
                                                 .squareJpeg(cardPhotoUriFor(this@CaptureActivity, file))
@@ -1086,11 +1094,12 @@ class CaptureActivity : ComponentActivity() {
             val app = application as LatchApplication
             val referrer = referrerPackage()
             val files = cardPhotoFiles(cacheDir)
-            cardPreview.value = null
+            cardPreviews.value = emptyList()
+            val previews = mutableListOf<CardPreview>()
             val texts = mutableListOf<String>()
             val payloads = mutableListOf<String>()
 
-            for (file in files) {
+            for ((index, file) in files.withIndex()) {
                 val uri = runCatching { cardPhotoUriFor(this@CaptureActivity, file) }.getOrNull()
                     ?: continue
                 runCatching { app.qrReader.readCodes(uri) }.getOrNull()
@@ -1104,14 +1113,21 @@ class CaptureActivity : ComponentActivity() {
                     is OcrResult.Failed -> Unit
                     is OcrResult.Text -> {
                         texts += result.value
-                        // FR-1229. The first photograph only, and rendered exactly as it was read:
-                        // decoded small and turned by the angle the reader turned it.
-                        if (texts.size == 1) {
-                            cardPreview.value = runCatching {
-                                CardPhotoEncoder(this@CaptureActivity)
-                                    .preview(uri, result.textAngle, result.readRegion)
-                            }.getOrNull()
-                        }
+                        // FR-1229, and **every photograph rather than the first** (SRS 1.145).
+                        // Showing only the first was worse than showing none: a second side left
+                        // the thumbnail unchanged, so a control whose entire job is to say what
+                        // was read was reporting on a picture that was no longer the one just
+                        // taken. Each is rendered exactly as its own side was read — decoded
+                        // small, turned by the angle that side's reader turned it, cropped to the
+                        // region that side's second pass read.
+                        runCatching {
+                            CardPhotoEncoder(this@CaptureActivity)
+                                .preview(uri, result.textAngle, result.readRegion)
+                        }.getOrNull()?.let { previews += CardPreview(index + 1, it) }
+                        // **Published as each side finishes**, not at the end. The sheet is on
+                        // screen throughout the read, and a preview that appears only once every
+                        // side is done leaves the longest gap exactly where the doubt is.
+                        cardPreviews.value = previews.toList()
                     }
                 }
             }

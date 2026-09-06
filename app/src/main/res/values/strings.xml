@@ -123,8 +123,9 @@
       FR-1229: the photograph as the recogniser saw it. The caption says *read* rather than
       *taken*, because the whole value of the picture is that it is not the one the camera showed.
     -->
-    <string name="card_preview_description">The photo Latch read, turned upright</string>
-    <string name="card_preview_caption">This is what Latch read, turned upright. If it is cut off or the wrong way round, retake it.</string>
+    <string name="card_preview_description">Photo %1$d as Latch read it, turned upright</string>
+    <string name="card_preview_side">Photo %1$d</string>
+    <string name="card_preview_caption">This is what Latch read, turned upright. If any of it is cut off or the wrong way round, retake it.</string>
     <!--
       FR-1227. Says what was found and what it was matched on, so the user can judge it — "a
       contact with this name and number" is checkable, where "possible duplicate" is not. It never
@@ -132,6 +133,8 @@
     -->
     <string name="card_probably_saved">You may already have this person: a contact with this name and mobile number is in your Google Contacts. Saving will add a second one.</string>
     <string name="card_attach_photo">Use this photo as the contact’s picture</string>
+    <!-- FR-1226 with FR-1225: several photographs on the sheet, so the control says which. -->
+    <string name="card_attach_photo_numbered">Use photo %1$d as the contact’s picture</string>
     <string name="card_photo_failed">The contact was saved, but Google would not take the picture. Everything else is there.</string>
     <string name="card_photo_not_held">No connection, so the picture cannot be sent. The contact will be saved without it — Latch never keeps the photo on your phone.</string>
     <string name="card_photos_read">%1$d of %2$d photos read. One gave Latch nothing — retake it if it matters.</string>

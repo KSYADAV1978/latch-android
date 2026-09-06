@@ -41,7 +41,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import com.latch.android.cards.CardPreview
 import androidx.compose.ui.layout.ContentScale
 
 /**
@@ -91,14 +92,18 @@ fun CardScreen(
     /** FR-1226 and FR-1212: there is no network, so a photograph would be dropped rather than sent. */
     photoWouldBeHeld: Boolean = false,
     /**
-     * FR-1229: the photograph as the recogniser saw it, turned as the reader turned it.
+     * FR-1229: every photograph as the recogniser saw it, turned as the reader turned it.
      *
-     * **It verifies rather than reassures**, which is the whole reason it is this image and not
-     * the file. A camera's own confirm screen shows what the camera captured; this shows what
-     * Latch read, so a card that arrived upside down, cropped short or further away than it was
-     * framed says so *before* the fields below are trusted.
+     * **It verifies rather than reassures**, which is the whole reason these are the read images
+     * and not the files. A camera's own confirm screen shows what the camera captured; this shows
+     * what Latch read, so a card that arrived upside down, cropped short or further away than it
+     * was framed says so *before* the fields below are trusted.
+     *
+     * **One per side, in the order taken** (SRS 1.145). Showing only the first was worse than
+     * showing none: a second photograph left the thumbnail unchanged, so the control that exists
+     * to say what was read reported on a picture that was no longer the one just taken.
      */
-    preview: ImageBitmap? = null,
+    previews: List<CardPreview> = emptyList(),
     /**
      * FR-1227: a contact carrying the same name and mobile is already in the account.
      *
@@ -139,16 +144,35 @@ fun CardScreen(
                 // FR-1229. **First, above everything**, because it answers a question that comes
                 // before every field: is this even the picture I took? A preview below the fields
                 // would be checked after they had already been believed.
-                if (preview != null) {
-                    Image(
-                        bitmap = preview,
-                        contentDescription = stringResource(R.string.card_preview_description),
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 160.dp)
-                            .clip(MaterialTheme.shapes.medium),
-                    )
+                if (previews.isNotEmpty()) {
+                    // **The block has a budget, not the thumbnail** (SRS 1.146). FR-1225 allows
+                    // four photographs, and four at a comfortable height is more than a phone
+                    // sheet has: the fields the preview exists to be checked *against* would sit
+                    // entirely below the fold, and a preview nobody scrolls past is the control
+                    // switched off. Dividing a fixed budget keeps one and two — the sizes that
+                    // were watched on a device — exactly as they were, and pays for the third and
+                    // fourth out of their own share rather than out of the sheet.
+                    val previewHeight = (PREVIEW_BUDGET / previews.size).coerceAtMost(160.dp)
+                    previews.forEach { shot ->
+                        // **Numbered only where there is something to tell apart.** On a
+                        // one-sided card a label saying "Side 1" invents a distinction the user
+                        // has not made; on a two-sided one its absence is the confusion this
+                        // whole change is answering.
+                        if (previews.size > 1) {
+                            Note(stringResource(R.string.card_preview_side, shot.side))
+                        }
+                        Image(
+                            bitmap = shot.image.asImageBitmap(),
+                            contentDescription = stringResource(
+                                R.string.card_preview_description, shot.side,
+                            ),
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = previewHeight)
+                                .clip(MaterialTheme.shapes.medium),
+                        )
+                    }
                     Note(stringResource(R.string.card_preview_caption))
                 }
 
@@ -184,7 +208,15 @@ fun CardScreen(
                         Checkbox(checked = state.attachPhoto, onCheckedChange = null)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = stringResource(R.string.card_attach_photo),
+                            // **It names the photograph once there is more than one** (SRS 1.146).
+                            // "this photo" was unambiguous while the sheet showed one thumbnail
+                            // and is not now: the user is looking at two or four, and the answer
+                            // — the first one Latch could read — is not something they can work
+                            // out from the control.
+                            text = previews.firstOrNull()
+                                ?.takeIf { previews.size > 1 }
+                                ?.let { stringResource(R.string.card_attach_photo_numbered, it.side) }
+                                ?: stringResource(R.string.card_attach_photo),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -459,3 +491,6 @@ private fun Field(labelRes: Int, value: String?, onChange: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     )
 }
+
+/** FR-1229: how much of the sheet the previews may take between them, however many there are. */
+private val PREVIEW_BUDGET = 320.dp

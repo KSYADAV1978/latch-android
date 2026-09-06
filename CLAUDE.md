@@ -1496,7 +1496,16 @@ the second pass reads a region and wins nearly every capture, so the frame is no
 came from — and at thumbnail height a card filling two fifths of a frame cannot be checked against
 anything. It proved itself immediately: on a card reading `JSW Steel Limited` the Company field said
 `SWsteel Limited`, the stylised logo losing its `J`, with the wrong field and the evidence for it on
-screen together for the first time in this pillar.
+screen together for the first time in this pillar. **One preview per photograph** (SRS 1.145):
+it showed the first shot only, so a second side left the thumbnail unchanged and a control whose
+whole job is to say what was read reported on a picture that was no longer the one just taken.
+Each is turned and cropped by its own side's numbers, numbered by the *photograph's* position so a
+side that read as nothing cannot renumber the rest, and published as its side finishes. **Watched
+on a device 6 Sep 2026: a two-sided card showed both, each matching the side taken.** SRS 1.146
+then bounded the block — four thumbnails at that height would have pushed every field below the
+fold — and made FR-1226's contact picture the first side that was *read* rather than the first
+file, so the label, the thumbnail and the attachment name one photograph between them. **The
+four-shot layout and the numbered label are BUILT and UNWATCHED**; the phone was unplugged.
 
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same

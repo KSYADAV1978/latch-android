@@ -226,3 +226,12 @@ class CardPhotoEncoder(private val context: Context) {
 
 /** FR-1229: big enough to judge framing and orientation, small enough to decode on the sheet. */
 const val PREVIEW_SIDE: Int = 480
+
+/**
+ * FR-1229: one photograph as the reader saw it, and which photograph it was.
+ *
+ * **The number is the file's position and not the preview's** (SRS 1.145). A side the recogniser
+ * found nothing in produces no preview, and numbering the previews rather than the photographs
+ * would then label the second card "Photo 1" — which is the confusion this pairs the two against.
+ */
+data class CardPreview(val side: Int, val image: Bitmap)
