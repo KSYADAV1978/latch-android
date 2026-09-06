@@ -87,7 +87,16 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
             val blocks = recogniseBlocks(bitmap, rotation)
             val first = assemble(blocks)
             // FR-1228: read the card again at the resolution of its own text.
-            betterReading(first, rereadText(uri, blocks, bitmap, sample, rotation, source).orEmpty())
+            val second = rereadText(uri, blocks, bitmap, sample, rotation, source).orEmpty()
+            betterReading(first, second).also { kept ->
+                // **Which reading won, and it is not inferable from anything else.** A second pass
+                // that fired and then lost looks identical in the log to one that fired and won,
+                // and the difference is the whole question of whether FR-1228 is earning its cost.
+                if (second.isNotEmpty()) {
+                    log("reread kept=" + (if (kept === second) "second" else "first") +
+                        " first=${first.length} second=${second.length}")
+                }
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -131,12 +140,22 @@ override suspend fun readImage(uri: Uri): OcrResult = withContext(Dispatchers.De
         if (region.width <= 0 || region.height <= 0) return null
 
         val regionSample = sampleSizeFor(region.width, region.height)
-        // The comparison is in the text's own axis: how wide the writing was, against how wide it
-        // would be. `rereadWorthwhile` is what stops a card that already fills the frame paying
-        // for a second recognition it cannot benefit from.
+        // The comparison is the region's width in the image frame, before and after — which is a
+        // proxy for the resolution gain and not a measurement along the writing, since the text
+        // may be turned within the region. It is the right proxy because the gain is the ratio of
+        // the two sample sizes and applies to both axes equally. What it stops is a card that
+        // already fills the frame paying for a second recognition it cannot benefit from: there
+        // the region is nearly the whole image, its own sample size is the same, and the ratio
+        // is one.
         val currentWidth = if (rotation % 180 == 0) padded.width else padded.height
         val availableWidth = (if (rotation % 180 == 0) region.width else region.height) / regionSample
-        if (!rereadWorthwhile(currentWidth, availableWidth)) return null
+        if (!rereadWorthwhile(currentWidth, availableWidth)) {
+            // **Said out loud, because "no reread line" had two meanings.** A pass that was never
+            // considered and one the guard declined looked identical in the log, and the second
+            // device run of FR-1228 could not tell which had happened.
+            log("reread skipped ${currentWidth}px of ${availableWidth}px available")
+            return null
+        }
 
         val cropped = decodeRegion(uri, region, regionSample) ?: return null
         // FR-1228's second half: the writing is levelled before it is read again, so that

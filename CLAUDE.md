@@ -1455,6 +1455,19 @@ turn, and the angle was measured in the upright frame so it is subtracted after.
 **order**, not recognition: ML Kit already reads turned text, and what changes is that the order
 stops depending on how the card was laid down.
 
+**Watched 6 Sep 2026 (SRS 1.139): two of three.** The **reread fires and rescues a bad
+photograph** — a card small in the frame *and* laid sideways logged `reread 592x1404 sample=1 from
+296px angle=-89.2` and came back with the name complete, the email exact and the number carrying
+its `+91 11`, where earlier framings of that card lost the name to a department line and dropped
+the country code. The **guard holds** — a card filling the frame logged no reread and read
+perfectly, so a good photograph pays nothing. **OPEN: the line order after levelling.** The run
+that rotated returned the lines in **reverse card order**, name last; the name was still right, but
+by the v1.134 email rule rescuing it rather than by the ordering, which is what levelling exists to
+fix. The arithmetic says the rotation is right, so either the convention is inverted or something
+else reverses it — recorded as unresolved rather than guessed at. The third run could not settle it
+because the card filled the frame and the guard correctly suppressed the reread; **the fixture
+needed is a card both turned and small enough to trigger it.**
+
 **Device rows owed for FR-1228.** Photograph a card small in the frame and look for
 `reread WxH sample=N from Npx` in `LatchTiming`; the fields must come out better than the same
 framing did before. Then photograph one filling the frame and confirm **no** reread line — the
