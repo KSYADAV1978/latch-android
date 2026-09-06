@@ -31,6 +31,7 @@ import com.latch.android.cards.canAddCardPhoto
 import com.latch.android.cards.cardLinesOf
 import com.latch.android.cards.CardPreview
 import com.latch.android.cards.cardPhotoFiles
+import com.latch.android.cards.unsavedDates
 import com.latch.android.cards.cardPhotoStep
 import com.latch.android.cards.clearCardPhotos
 import com.latch.android.cards.nextCardPhotoFile
@@ -634,8 +635,13 @@ class CaptureActivity : ComponentActivity() {
                                 saved = cardSave is CardSaveResult.Saved ||
                                     cardSave is CardSaveResult.AlreadySaved ||
                                     cardSave is CardSaveResult.Held,
+                                // **Dates, not candidates** (SRS 1.147). `candidates.size`
+                                // counted the single `TASK_UNDATED` a capture with no date in it
+                                // always yields, so every photographed card claimed to hold one
+                                // unsaved date and SRS 1.104's rule inverted on the path it was
+                                // written for.
                                 unsavedDateCandidates = if (saveState is SaveState.Saved) 0
-                                else result?.candidates?.size ?: 0,
+                                else unsavedDates(result?.candidates.orEmpty()),
                             )
                             when (dismiss) {
                                 CardDismiss.CLOSE_CAPTURE -> finish()

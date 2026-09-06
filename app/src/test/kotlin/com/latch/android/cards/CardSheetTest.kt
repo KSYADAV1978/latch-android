@@ -7,6 +7,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.latch.parser.DateParser
+import com.latch.parser.ParseContext
+import com.latch.parser.DateOrder
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 /**
  * FR-1202 and FR-1205's decisions.
@@ -276,6 +281,66 @@ class CardDismissTest {
         // A photographed flyer can carry a contact code and a date. Saving the contact says
         // nothing about the date, and closing over it would lose the user's other half.
         assertEquals(CardDismiss.BACK_TO_CAPTURE, cardDismiss(saved = true, unsavedDateCandidates = 2))
+    }
+
+    // ---- SRS 1.147: what counts as an unsaved date ---------------------------------------
+
+    private val context = ParseContext(
+        now = LocalDateTime.of(2026, 9, 6, 12, 0),
+        zone = ZoneId.of("Asia/Kolkata"),
+        dateOrder = DateOrder.DAY_FIRST,
+    )
+
+    /** The JSW card exactly as the device recognised it on 6 September 2026. */
+    private val cardText = listOf(
+        "Ramesh Kumar Bhagat",
+        "Executive Vice President - Corporate Affairs",
+        "SWsteel Limited",
+        "Email: rameshkumar. saraf@jsw. test Phone: + 91 11 4000 8600",
+        "NTH Complex, 4th Floor, A-2, Shaheed Jeet Singh Marg",
+        "Kirti Institutional Area, New Delhi - 110 060",
+        "Direct : 011 - 40008605, Mobile : +91 80900 84533",
+        "Website: www.jsw.test",
+    ).joinToString(System.lineSeparator())
+
+    @Test
+    fun `a card holds no unsaved date, though it holds a candidate`() {
+        // **The whole defect in one assertion, and the fixture is the card that found it.** The
+        // parser returns a candidate for this text — one `TASK_UNDATED`, which is its way of
+        // saying there is no date here — so `candidates.size` is 1 and the count that matters is
+        // 0. Reading the first for the second made every photographed card claim an unsaved date,
+        // and SRS 1.104's rule inverted on the path it was written for.
+        val candidates = DateParser.parse(cardText, context).candidates
+        assertEquals(1, candidates.size, "the fixture must produce the candidate that caused this")
+        assertEquals(0, unsavedDates(candidates))
+        assertEquals(
+            CardDismiss.CLOSE_CAPTURE,
+            cardDismiss(saved = true, unsavedDateCandidates = unsavedDates(candidates)),
+        )
+    }
+
+    @Test
+    fun `a flyer carrying a real date still keeps it`() {
+        // The other direction, and the reason this is not simply "ignore undated candidates":
+        // the capture the rule exists for must still come back.
+        val candidates = DateParser.parse(
+            "Open day 20 September 2027, and here is my card", context,
+        ).candidates
+        assertEquals(1, unsavedDates(candidates))
+        assertEquals(
+            CardDismiss.BACK_TO_CAPTURE,
+            cardDismiss(saved = true, unsavedDateCandidates = unsavedDates(candidates)),
+        )
+    }
+
+    @Test
+    fun `a past date is an unsaved date, though its item will be undated`() {
+        // FR-510's follow-up is an undated *item* derived from a date the user actually wrote,
+        // so it is genuinely unsaved. Classifying on `TASK_UNDATED` rather than on `date != null`
+        // would have dropped it — the same defect pointing the other way.
+        val candidates = DateParser.parse("the order dated 12 March", context).candidates
+        assertTrue(candidates.any { it.isPast }, "the fixture must produce a past date")
+        assertEquals(1, unsavedDates(candidates))
     }
 }
 

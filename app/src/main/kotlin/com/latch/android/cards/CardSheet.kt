@@ -1,6 +1,7 @@
 package com.latch.android.cards
 
 import com.latch.core.model.CardDraft
+import com.latch.parser.DatedCandidate
 import com.latch.core.model.CardEmail
 import com.latch.core.model.CardPhone
 
@@ -244,6 +245,22 @@ enum class CardDismiss {
     /** The contact is saved and there is nothing else here. Close the whole capture. */
     CLOSE_CAPTURE,
 }
+
+/**
+ * How many of a capture's candidates are actually **dates** somebody has yet to save (SRS 1.147).
+ *
+ * **A candidate is not the same fact as a date**, and reading `candidates.size` for one was the
+ * defect. A capture with no date in it does not yield an empty list: it yields **one**
+ * `TASK_UNDATED` carrying `date = null`, which is the parser's way of saying *there is nothing
+ * here* — and a business card is that case every time. So every photographed card looked to
+ * [cardDismiss] like a capture holding one unsaved date, and SRS 1.104's whole rule inverted.
+ *
+ * **`date != null` is the test rather than the classification.** FR-510's past-date follow-up is
+ * an undated *item* derived from a real date the user wrote, and it is genuinely unsaved — it
+ * keeps its date on the candidate and is counted here, which classifying on `TASK_UNDATED` would
+ * have got wrong in the opposite direction.
+ */
+fun unsavedDates(candidates: List<DatedCandidate>): Int = candidates.count { it.date != null }
 
 fun cardDismiss(saved: Boolean, unsavedDateCandidates: Int): CardDismiss = when {
     // Before a save the dates are the reason to go back, and so is a card abandoned by mistake.
