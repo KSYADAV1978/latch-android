@@ -92,7 +92,9 @@ synchronous SHA-256 that Web Crypto does not provide.
 
 ## The git repository
 
-Prepared for publication on 6 Sep 2026 and **not yet pushed** — `git remote -v` is empty.
+**Pushed to GitHub on 6 Sep 2026**: `https://github.com/KSYADAV1978/latch-android`, public,
+`origin/main` tracking `main`. `backup.cmd` and the Drive bundle remain the secondary backup — a
+remote holds only what was pushed, and the card corpus is deliberately not.
 
 - README and Apache 2.0 licence are committed.
 - History was audited: no keystore, no `local.properties`, no OAuth client file, no API keys or
@@ -102,10 +104,9 @@ Prepared for publication on 6 Sep 2026 and **not yet pushed** — `git remote -v
 - A pre-rewrite bundle was kept at the time; it is **not** in this repository and holds the
   unscrubbed history, so it must not be published.
 
-To push, once the repository exists on the host:
+Ordinary pushes from here:
 
-    git remote add origin <url>
-    git push -u origin main
+    git push
 
 ## One limit worth knowing before you measure anything
 

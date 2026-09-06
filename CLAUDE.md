@@ -139,6 +139,33 @@ MB against a 40 MB budget.
 
 Nothing here generates a keystore, deliberately.
 
+## Where this repository lives
+
+**GitHub is the primary remote as of 6 September 2026**:
+`https://github.com/KSYADAV1978/latch-android`, public, `origin/main` tracking `main`.
+
+Pushed at `f21bf7e` and verified against the server rather than against the local clone: the
+remote `refs/heads/main` matches local `HEAD`, and `git ls-tree -r origin/main` was read directly
+to confirm what actually landed — **326 files, no `card_corpus.tsv`** (only its `.example`), and no
+credential file of any kind. That distinction matters here: SRS 1.155's purge is only true of the
+thing that was published if the thing that was published is what was inspected.
+
+**`backup.cmd` and the Drive bundle stay as the secondary backup**, deliberately and not as a
+leftover. A remote is not a backup: it holds exactly what was pushed, and this project has just
+spent a session establishing that what is pushed is deliberately *less* than what is on this
+machine. `cards/.../card_corpus.tsv` is git-ignored and exists nowhere but here, so a GitHub
+repository that survived a disk failure would not bring FR-1222's corpus back. The bundle would.
+
+**One bundle must never be published.** The pre-rewrite bundle taken before SRS 1.155's history
+rewrite holds the unscrubbed history — every real name, direct line and work address. It is not in
+this repository and must not be pushed, uploaded or shared. If it is still in a temporary
+directory, delete it; if it ever reaches Drive, it is the one file in that folder that is not a
+backup but a liability.
+
+**The history was rewritten before the first push**, so every commit's SHA changed. There was no
+remote at the time, so nothing had to be force-pushed and no other clone exists to reconcile. Any
+clone taken from GitHub is on the scrubbed history from its first commit.
+
 ## Commits
 Commit directly to `main`. This is a single-developer repository with no CI and no review
 step, so a feature branch adds ceremony without adding safety — there is nothing for it to
