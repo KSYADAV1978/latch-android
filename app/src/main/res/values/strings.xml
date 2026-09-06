@@ -13,6 +13,11 @@
     <string name="badge_event">EVENT</string>
     <string name="badge_task">TASK</string>
 
+    <!--
+      SRS 1.168. FR-504: "the resolved interpretation shall be displayed" — and a range's
+      interpretation is a span, of which the sheet was showing only the opening half.
+    -->
+    <string name="capture_when_span">%1$s – %2$s</string>
     <string name="capture_no_date">No date found</string>
     <string name="capture_undated_explanation">This will be saved without a date. Latch never guesses one.</string>
     <!--

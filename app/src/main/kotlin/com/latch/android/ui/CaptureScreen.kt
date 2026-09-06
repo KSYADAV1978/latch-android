@@ -1220,12 +1220,33 @@ private fun whenLine(candidate: DatedCandidate): String {
     val time = candidate.time?.value
         ?.takeIf { candidate.classification.itemType != ItemType.TASK }
         ?.format(TIME_FORMAT)
-    return when {
+
+    // **A range shows both its ends** (SRS 1.168). FR-504 asks that *the resolved interpretation*
+    // be displayed, and the resolved interpretation of "from 20 September to 24 September" is a
+    // span — of which this line was showing the opening half. `ItemDrafts` has always written the
+    // close as `spanEnd`, so the sheet was quietly narrower than the event it was about to create.
+    //
+    // Dropped for a to-do for the same reason the time is: a to-do has one date, not a span, and
+    // the badge's own cost note says so before the tap.
+    val isTask = candidate.classification.itemType == ItemType.TASK
+    val endDate = candidate.endDate?.value?.takeIf { !isTask }?.format(DATE_FORMAT)
+    val endTime = candidate.endTime?.value?.takeIf { !isTask }?.format(TIME_FORMAT)
+
+    val opens = when {
         date != null && time != null -> "$date, $time"
         date != null -> date
         time != null -> time
-        else -> stringResource(R.string.capture_no_date)
+        else -> null
+    } ?: return stringResource(R.string.capture_no_date)
+
+    // The close is a date where the span crosses days and a time where it does not, which is what
+    // the user wrote in each case.
+    val closes = when {
+        endDate != null -> if (endTime != null) "$endDate, $endTime" else endDate
+        endTime != null -> endTime
+        else -> null
     }
+    return if (closes == null) opens else stringResource(R.string.capture_when_span, opens, closes)
 }
 
 /**
