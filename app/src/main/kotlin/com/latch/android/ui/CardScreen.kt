@@ -22,6 +22,9 @@ import com.latch.android.cards.cardUndoSecondsLeft
 import com.latch.android.cards.cardUndoOffered
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
@@ -169,9 +172,6 @@ fun CardScreen(
         // is left after the actions and scrolls inside it. Ninety per cent rather than all of it,
         // because this is a floating sheet over the app the user came from and it should still
         // look like one.
-        modifier = Modifier.heightIn(
-            max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp,
-        ),
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
@@ -199,8 +199,7 @@ fun CardScreen(
                 //
                 // `heightIn` is a constraint and does not care what the parent's maximum is.
                     .heightIn(
-                        max = (LocalConfiguration.current.screenHeightDp * 0.9f).dp
-                            - ACTION_ROW_RESERVE,
+                        max = sheetContentMax(),
                     )
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState()),
@@ -721,10 +720,21 @@ private fun fieldLabel(field: ContactField): Int = when (field) {
 }
 
 /**
- * How much of the sheet is kept for the action row, whatever the content does (SRS 1.161).
+ * The most the scrolling part of a sheet may take, so the action row always has somewhere to be.
  *
- * Reserved rather than negotiated: an action the user cannot reach is worse than a sheet that
- * scrolls a little sooner, and this project has now paid for that three times — the capture sheet
- * on 2 Sep, the home screen and this one on 6 Sep.
+ * **Measured from the display, not from the window, and that distinction is the bug** (SRS 1.163).
+ * `CaptureActivity` is a floating dialog: its window is WRAP_CONTENT, so it *grows to its content*
+ * — and `Configuration.screenHeightDp` reports that window rather than the screen. Capping the
+ * content at a fraction of `screenHeightDp` therefore computed the limit from the very size that
+ * had already overflowed, which is a measurement of the symptom. `displayMetrics` is the display
+ * and does not move.
+ *
+ * The reserve covers the action row, the title and the sheet's padding. It is deliberately
+ * generous: an action the user cannot reach is worse than a sheet that scrolls a little sooner,
+ * and this project has now paid for that three times in one day.
  */
-private val ACTION_ROW_RESERVE = 140.dp
+@Composable
+private fun sheetContentMax(): Dp {
+    val display = LocalContext.current.resources.displayMetrics.heightPixels
+    return with(LocalDensity.current) { (display * 0.72f).toDp() }
+}
