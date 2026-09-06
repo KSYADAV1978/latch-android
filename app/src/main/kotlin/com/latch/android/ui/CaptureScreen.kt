@@ -306,7 +306,7 @@ fun CaptureScreen(
             //
             // `heightIn` is a constraint and does not care what the parent's maximum is.
                 .heightIn(
-                    max = sheetContentMax(),
+                    max = SHEET_CONTENT_MAX,
                 )
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState()),
@@ -1271,19 +1271,19 @@ private val OFFER_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("EE
 /**
  * The most the scrolling part of a sheet may take, so the action row always has somewhere to be.
  *
- * **Measured from the display, not from the window, and that distinction is the bug** (SRS 1.163).
- * `CaptureActivity` is a floating dialog: its window is WRAP_CONTENT, so it *grows to its content*
- * — and `Configuration.screenHeightDp` reports that window rather than the screen. Capping the
- * content at a fraction of `screenHeightDp` therefore computed the limit from the very size that
- * had already overflowed, which is a measurement of the symptom. `displayMetrics` is the display
- * and does not move.
+ * **A constant, and every computed alternative failed** (SRS 1.164). Three were tried against a
+ * device and each was derived from something that grows with the content it was meant to bound:
+ * the weighted share (infinite under a `WRAP_CONTENT` window), `Configuration.screenHeightDp`
+ * (the window, which had already grown), and `resources.displayMetrics` (which on Android 11 and
+ * later also reports the *window* for an Activity, not the display). A limit derived from the
+ * thing being limited is not a limit, and each attempt looked plausible and measured the symptom.
  *
- * The reserve covers the action row, the title and the sheet's padding. It is deliberately
- * generous: an action the user cannot reach is worse than a sheet that scrolls a little sooner,
- * and this project has now paid for that three times in one day.
+ * 520dp is comfortably under the shortest phone this app supports and comfortably over the
+ * tallest sheet anyone has watched. On a tablet it is smaller than it needs to be, which costs a
+ * scroll; the alternative costs an action nobody can reach, and this project has paid that three
+ * times in one day.
+ *
+ * **The check that tells a wrong cap from an absent one** is `uiautomator`'s `scrollable` flag:
+ * an unbounded scroll node sizes to its own content and reports nothing to scroll.
  */
-@Composable
-private fun sheetContentMax(): Dp {
-    val display = LocalContext.current.resources.displayMetrics.heightPixels
-    return with(LocalDensity.current) { (display * 0.72f).toDp() }
-}
+private val SHEET_CONTENT_MAX = 520.dp
