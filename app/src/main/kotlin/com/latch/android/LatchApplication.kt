@@ -307,7 +307,14 @@ class LatchApplication : Application() {
      * and a recogniser released while a capture is still reading would fail the capture. The
      * process ending releases it, which is the only lifecycle this object has.
      */
-    val ocrReader: OcrReader by lazy { MlKitOcrReader(this) }
+    val ocrReader: OcrReader by lazy {
+        MlKitOcrReader(
+            context = this,
+            // SRS 1.133. The same tag and guard as every other line this app logs; dimensions
+            // and a sample size, never a pixel of what was photographed.
+            log = { line -> if (BuildConfig.DEBUG) Log.i("LatchTiming", line) },
+        )
+    }
 
     /**
      * FR-1203's decoder, behind `:ocr`'s interface so nothing here names a ZXing type.

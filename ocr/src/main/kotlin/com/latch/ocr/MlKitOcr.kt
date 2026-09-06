@@ -36,7 +36,19 @@ import kotlinx.coroutines.withContext
  * `:app` holds this on `LatchApplication`, beside `CaptureSaver` and for the same reason.
  * [close] releases it.
  */
-class MlKitOcrReader(private val context: Context) : OcrReader {
+class MlKitOcrReader(
+    private val context: Context,
+    /**
+     * How big an image was and how much of it survived the decode (SRS 1.133).
+     *
+     * **A sink rather than a call to `Log`**, exactly as `CaptureSaver`'s decision line is: this
+     * module's decisions are JVM-tested and one `android.util.Log` import would put a throwing
+     * stub in their path. `LatchApplication` supplies the logcat one, under the same debug guard.
+     *
+     * It carries dimensions and a sample size, which are not content.
+     */
+    private val log: (String) -> Unit = {},
+) : OcrReader {
 
     /**
      * FR-215's two scripts, one recogniser each.
@@ -221,6 +233,19 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
      */
     fun imageSource(): ImageSource = ImageSource { uri -> decodeBitmap(uri) }
 
+    /**
+     * How big the image was and how much of it survived the decode (SRS 1.133).
+     *
+     * **A sink rather than a call to `Log`**, exactly as `CaptureSaver`'s decision line is: this
+     * module's pure functions are JVM-tested and one `android.util.Log` import would put a
+     * throwing stub in their path. `LatchApplication` supplies the logcat one.
+     *
+     * It exists because the developer asked whether photographing a card from further away
+     * changes what is read, and the answer turned out to depend on arithmetic nothing on the
+     * phone was reporting: `inSampleSize` accepts only powers of two, so a 12 MP photograph is
+     * **halved on each axis** to stay under a memory cap it then uses barely a third of. That
+     * costs four times the pixels a card's text is read from. Dimensions are not content.
+     */
     private fun decodeBitmap(uri: Uri): Bitmap? {
         // `decodeStream` returns **null by contract** when `inJustDecodeBounds` is set: the
         // answer comes back in `options`, not as a bitmap. So the null check here must guard
@@ -235,10 +260,15 @@ class MlKitOcrReader(private val context: Context) : OcrReader {
         header.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
+        val sample = sampleSizeFor(bounds.outWidth, bounds.outHeight)
         val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight)
+            inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
+        log(
+            "decode ${bounds.outWidth}x${bounds.outHeight} sample=$sample" +
+                " -> ${bounds.outWidth / sample}x${bounds.outHeight / sample}"
+        )
         return try {
             openStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
         } catch (outOfMemory: OutOfMemoryError) {

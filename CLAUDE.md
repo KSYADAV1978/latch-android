@@ -1423,6 +1423,19 @@ for. FR-1240 and FR-1241 gate **contact-write code**, not the spike, so Slice 0 
 | ~~**5b — reversal**~~ | **BUILT and WATCHED 4 Sep 2026 (SRS 1.99, 1.105, 1.106).** All four device rows pass. The pass found two defects: FR-1210's undo had no control on the card sheet, and an entry skipped inside its undo window was consuming an attempt — so a card could be given up on before anything had once tried to write it. | **Four rows, all struck** |
 | **FR-1227 — a second, inexact key that only speaks** | **BUILT 6 Sep 2026 (SRS 1.131, 1.132), JVM-verified and DEVICE-OWED.** From the developer's question: could FR-1208 key on the name and mobile, or the mobile alone? Measured in `CardFieldStabilityTest` over three repeat readings of two real cards — **name 3/3, labelled mobile 2/2 where one exists (on digits; one reading lost the `+`), email 1/3**, and the whole phone list unstable by construction under FR-1225 because the back brings its own numbers. **Mobile alone refused**: `phoneTypeNear` never guesses a type, so a card whose only number is a switchboard has none — **3 of 11 corpus cards** — and a key absent on a quarter of cards is not a key. **Name+mobile refused as a replacement**: FR-1208's hash is exact and a match means *do not write*, so widening it widens what is silently **refused**; with no mobile the compound degenerates to a name and a second Rajesh Kumar's card would be turned away as already saved. **The answer is a key that offers rather than refuses** — FR-1202's own sentence. `cardPersonKeys` gives **one key per labelled mobile**, bound to the name, compared on digits; empty with no name, no mobile, or a number too short, and two empties never match. Written inside record version **1** rather than by a bump, because a bump would make every contact already created decode to null and duplicate once. Answered in FR-1208's **same page loop**. The line sits above the fields, not beside Save — a sentence next to a button reads as the reason it is disabled, and this one never is; a test asserts it reaches no save blocker. **Nobody has seen it fire.** | **Three rows below, none struck** |
 
+**Framing dominates a card capture, and the decode is why** (SRS 1.133). `inSampleSize` takes only
+powers of two, so a 12.2 MP photograph is decoded at **half on each axis** — 2016 x 1512 — and the
+card's text is read from whatever share of 2016 px the card occupies: **41 px of glyph filling the
+frame, 20 px at half, 13 px at a third, 10 px at a quarter**, against an ML Kit floor of roughly
+16–20. A card at arm's length is not slightly worse, it is over a cliff. **Cropping and deskewing
+are not owed** — ML Kit already handles in-plane rotation, a document scanner is a new dependency
+and an interactive UI, and no crop recovers resolution the decode has already thrown away.
+**`RGB_565` would**: the full 4032 x 3024 fits in 24 MB against the same 32 MB budget, four times
+the pixels, 27 px of glyph at a third of frame. **Recorded and deliberately not changed**, because
+it touches every capture and an OCR change is measured on a device here rather than reasoned
+about. `MlKitOcrReader` logs `decode WxH sample=N -> WxH` so the next photograph states its own
+numbers.
+
 ### Device pass backlog — FR-1227
 
 **The warning cannot fire against any contact that exists today**, because no contact carries a
