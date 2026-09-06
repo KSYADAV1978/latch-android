@@ -113,7 +113,7 @@ Console.
   that **Latch never deletes a contact**. FR-1226 is not built, so the policy must not claim a
   card image is stored anywhere: FR-1211 says it is not, and the amended version of that
   requirement (SRS 1.120) is what to quote if asked how a photograph is handled.
-- **FR-1103 — Data Safety.** Google's form asks about data transmitted **off the device**, not
+- **FR-1103 — Data Safety.** `docs/STORE-LISTING.md` now carries the form **answered row by row**, with the one distinction that decides four of them. Google's form asks about data transmitted **off the device**, not
   only data reaching publisher servers, so the webhook is very likely to require declaration
   even though the publisher never receives the data. Confirm the correct treatment against
   current Play policy before filing.
@@ -169,6 +169,25 @@ grep -rn "LatchCardOcr" app/src/main
 
 Nothing should match at submission. Removing it also retires the classifier-tuning workflow that
 depends on it, so do it when FR-1222's corpus is closed and not before.
+
+**Swept against the artifact on 6 Sep 2026, and it was clean** (SRS 1.156). The check above is a
+grep over the source and is *meant* to match today; what was verified is the thing that actually
+ships:
+
+```
+./gradlew :app:assembleRelease
+strings -a app/build/outputs/apk/release/app-release-unsigned.apk | grep -E \
+  "LatchCardOcr|LatchTiming|DebugDedupProbe|PROBE_DEDUP|INVALIDATE_TOKEN|PROBE_CLIENT_DATA"
+```
+
+All six absent. `LatchCardOcr` and `LatchTiming` are stripped by R8 with their guarded branches;
+the three exported debug receivers never existed in a release build at all, because they live in
+the `debug` source set rather than behind a constant — a component guarded by a constant is still
+declared in the merged manifest, and an exported receiver that runs a Google query on request is
+not something a release build should advertise.
+
+**Re-run this sweep on the artifact you actually submit.** It is thirty seconds and it is the only
+form of this check that a stray edit to a guard cannot pass.
 
 ---
 

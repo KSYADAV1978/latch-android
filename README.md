@@ -122,13 +122,21 @@ exactly what a later reader cannot recover from the code.
 | `docs/RELEASE-WINDOWS.md` | The same for the Microsoft Store |
 | `docs/DEPENDENCIES.md` | Every third-party dependency, with its measured APK cost and why it was accepted or refused |
 | `docs/DOGFOODING.md` | How to use it for real, and how to report what goes wrong |
+| `docs/MARKETING.md` | How this is meant to reach users, and what must not happen before it can |
+| `docs/STORE-LISTING.md` | Draft listing copy, and worked answers for Play's Data Safety form |
 
 ## A note on the test data
 
-Some fixtures in this repository are real captured material — messages, documents and business
-cards — because a parser tested only against invented examples tests that the rules do what their
-author meant, not that they work on what people actually write. Where a fixture is synthetic it
-says so.
+The parser is tested against real captured messages, because a parser tested only against invented
+examples tests that the rules do what their author meant rather than that they work on what people
+actually write. Where a fixture is synthetic — several of the screenshots are rendered rather than
+photographed — it says so.
+
+**The business-card corpus is deliberately not here.** Every row of it is a card somebody actually
+handed over, carrying a real person's name, direct line and work address; they consented to none of
+it, and this app's own card sheet tells its user that a card is a third party's data. So the corpus
+lives only on the developer's machine, `card_corpus.tsv.example` shows the format, and the tests
+that read it report *skipped* rather than passing when it is absent.
 
 ## Licence
 
