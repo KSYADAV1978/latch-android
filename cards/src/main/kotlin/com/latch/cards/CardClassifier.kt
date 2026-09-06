@@ -47,6 +47,7 @@ fun classifyCard(lines: List<String>): CardClassification {
     val phones = mutableListOf<CardPhone>()
     val urls = mutableListOf<String>()
     val leftover = mutableListOf<String>()
+    val residues = mutableListOf<String>()
 
     for (line in cleaned) {
         // **One line can carry several values, and a real card does** — `E name@x.in W www.x.in`
@@ -54,8 +55,11 @@ fun classifyCard(lines: List<String>): CardClassification {
         // saw the address beside it. So each line is mined for everything it holds rather than
         // classified as one thing.
         var consumed = false
+        val taken = mutableListOf<IntRange>()
 
-        EMAIL.findAll(line).forEach { emails += CardEmail(tidyEmail(it.value)); consumed = true }
+        EMAIL.findAll(line).forEach {
+            emails += CardEmail(tidyEmail(it.value)); consumed = true; taken += it.range
+        }
         URL.findAll(line).forEach { match ->
             // A URL check that ran before the email would have matched the domain inside an
             // address; running after and excluding anything already inside an email is what
@@ -63,6 +67,7 @@ fun classifyCard(lines: List<String>): CardClassification {
             if (emails.none { match.value in it.address }) {
                 urls += match.value
                 consumed = true
+                taken += match.range
             }
         }
         PHONE.findAll(line).forEach { match ->
@@ -73,10 +78,26 @@ fun classifyCard(lines: List<String>): CardClassification {
             if (number.count { it.isDigit() } >= MIN_PHONE_DIGITS) {
                 phones += CardPhone(number, phoneTypeNear(line, match.range.first))
                 consumed = true
+                taken += match.range
             }
         }
 
-        if (!consumed) leftover += line
+        if (!consumed) {
+            leftover += line
+        } else {
+            // **What was left of a line that was only partly consumed** (SRS 1.144). A real card
+            // recognised as `maif: rameshkumar. Bhagt@jsw.test Phone : + 911 4000 8600` gave the
+            // email pattern nowhere to start but `Bhagt@`, and `rameshkumar.` — the larger half of
+            // somebody's address — was dropped without trace, because a line that matched
+            // *something* was considered dealt with.
+            //
+            // **It is shown and never joined.** Joining `rameshkumar.` to the address that follows
+            // is the repair FR-1204 forbids: `please contact John. Mary@acme.com` has the identical
+            // shape and would yield an address belonging to nobody, which SRS 1.117's guard test
+            // was written against. So the fragment goes where FR-1223 puts everything this cannot
+            // place — in front of the user, beside a preview they can read the card off.
+            residueOf(line, taken)?.let { residues += it }
+        }
     }
 
     // **The name is chosen by the card's own evidence, not by which line came first**
@@ -96,7 +117,12 @@ fun classifyCard(lines: List<String>): CardClassification {
     val withoutOrg = afterTitle.filterNot { it == organisation }
 
     val address = addressAmong(withoutOrg)
-    val unplaced = withoutOrg.filterNot { it in address }
+    // **A residue joins `unplaced` and nothing else.** Offering it to the name, title, company and
+    // address rules in turn is what the first attempt did, and `Tel. :` and `Mob` — the labels left
+    // behind after two numbers were lifted off one line — were appended to a real card's postal
+    // address. A residue is by definition the part of a line that could not be placed, so placing
+    // it is the one thing it must not be given a chance at.
+    val unplaced = withoutOrg.filterNot { it in address } + residues
 
     return CardClassification(
         draft = CardDraft(
@@ -111,6 +137,43 @@ fun classifyCard(lines: List<String>): CardClassification {
         unplaced = unplaced,
     )
 }
+
+/**
+ * What is left of a line after its values were taken out of it (SRS 1.144).
+ *
+ * **Only where something recognisable survives.** A residue of punctuation and a label — `:` or
+ * `Phone` — is noise on a preview, and FR-1223's obligation is to show what could not be *placed*,
+ * not every character that was not consumed. Three letters is the floor, which keeps a stray colon
+ * out and lets a truncated address like `rameshkumar.` through.
+ */
+internal fun residueOf(line: String, taken: List<IntRange>): String? {
+    if (taken.isEmpty()) return null
+    val kept = StringBuilder(line.length)
+    line.forEachIndexed { index, ch -> if (taken.none { index in it }) kept.append(ch) }
+    val trimmed = kept.toString().replace(WHITESPACE, " ").trim().trim(':', '-', ',', '.', ' ')
+    // **Judged on what is left once the labels are removed, and shown whole.** `Tel. :` and `Mob`
+    // are all that survives an ordinary two-number line and say nothing a reader does not already
+    // see; `maif: rameshkumar.` carries the larger half of an address the email pattern could not
+    // reach. The label words decide whether to show it — they do not decide what is shown, because
+    // what was printed on the card is what the reader has to compare against.
+    val substance = trimmed.split(WORD_BREAK).filterNot(::isFieldLabel).joinToString(" ")
+    return trimmed.takeIf { substance.count(Char::isLetter) >= MIN_RESIDUE_LETTERS }
+}
+
+/** A word that only names the field beside it — `Tel`, `Mob`, `Email` — carries nothing itself. */
+private fun isFieldLabel(word: String): Boolean {
+    val plain = word.lowercase().trim(':', '.', '-', ' ')
+    return plain.isEmpty() || plain in FIELD_LABELS
+}
+
+private val FIELD_LABELS = setOf(
+    "tel", "telephone", "phone", "ph", "mob", "mobile", "cell", "m", "t", "o", "d", "f",
+    "fax", "office", "work", "direct", "email", "e", "mail", "e-mail", "web", "website",
+    "www", "url", "address", "add", "addr",
+)
+
+/** See [residueOf]. */
+private const val MIN_RESIDUE_LETTERS = 3
 
 /**
  * Do this line's words appear in an email address on the same card?

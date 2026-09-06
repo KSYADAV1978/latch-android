@@ -172,6 +172,65 @@ class CardOcrRepairTest {
         assertEquals("MOBILE", result.draft.phones.single().type)
     }
 
+    // ---- SRS 1.144: what a partly-consumed line leaves behind ---------------------------------
+
+    /** The JSW card as recognised on 6 September 2026, its `Mail:` label mangled to `maif:`. */
+    private val brokenLocalPart =
+        "maif: rameshkumar. Bhagt@jsw.test Phone : + 911 4000 8600"
+
+    @Test
+    fun `a local part broken by a space is shown, not lost`() {
+        // The reported symptom: the address written to the account was `Bhagt@jsw.test`, because the
+        // pattern has nowhere earlier to start, and `rameshkumar.` — the larger half of it —
+        // vanished with the rest of the line, the line counting as dealt with once *something*
+        // on it matched.
+        val result = classifyCard(listOf(brokenLocalPart))
+        assertEquals(listOf("Bhagt@jsw.test"), result.draft.emails.map { it.address })
+        assertTrue(
+            result.unplaced.any { "rameshkumar" in it },
+            "the lost half of the address is nowhere: ${result.unplaced}",
+        )
+    }
+
+    @Test
+    fun `the two halves are never joined into an address nobody has`() {
+        // **The reason this is shown rather than repaired.** Joining a word ending in a dot to the
+        // address after it is the repair FR-1204 forbids: the shape is identical in prose, and the
+        // result would be an address belonging to nobody, written into a real contact. SRS 1.117's
+        // domain-side guard refuses the same trade for the same reason.
+        val fromProse = classifyCard(listOf("Please contact John. Mary@acme.com about the order"))
+        assertEquals(listOf("Mary@acme.com"), fromProse.draft.emails.map { it.address })
+        assertEquals(
+            listOf("Bhagt@jsw.test"),
+            classifyCard(listOf(brokenLocalPart)).draft.emails.map { it.address },
+        )
+    }
+
+    @Test
+    fun `a residue is never placed in a field`() {
+        // The first attempt offered residues to the name, title, company and address rules in turn,
+        // and a real card's postal address gained `, Tel. :, Mob` from the line below it.
+        val result = classifyCard(
+            listOf(
+                "Arvind Bhandari",
+                "Room No. 275-E, Udyog Bhawan, New Delhi-110011",
+                "Tel. : 011 20001745  Mob 9800000456",
+            ),
+        )
+        assertEquals(
+            listOf("Room No. 275-E, Udyog Bhawan, New Delhi-110011"),
+            result.draft.addresses,
+        )
+    }
+
+    @Test
+    fun `a label left standing on its own is not shown`() {
+        // `Tel. :` and `Mob` say nothing the two numbers beside them do not, and FR-1223's list is
+        // read by a person deciding what to correct.
+        val result = classifyCard(listOf("Tel. : 011 20001745  Mob 9800000456"))
+        assertEquals(emptyList(), result.unplaced)
+    }
+
     // ---- SRS 1.134: the name must not depend on which line came first -------------------------
 
     /** The Dalmia card as recognised on 6 September, with the department line ordered first. */
