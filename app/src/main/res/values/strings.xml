@@ -486,7 +486,13 @@
     <!-- FR-512: the threshold below which a capture waits in the Inbox instead of being saved. -->
     <string name="settings_threshold">When Latch is unsure</string>
     <string name="settings_threshold_blurb">A capture Latch is less confident about than this waits in your Inbox instead of going to Google. Higher means more of them wait.</string>
-    <string name="settings_threshold_percent">Confidence needed (%%)</string>
+    <!--
+      SRS 1.170. A single %, not %%. Android collapses %% only when a string passes through
+      String.format — that is, `stringResource(id, args)`. This one is rendered by
+      `stringResource(id)` with no arguments, so the escape was never processed and the label
+      read "Confidence needed (%%)" on the screen.
+    -->
+    <string name="settings_threshold_percent">Confidence needed (%)</string>
 
     <!-- FR-1003. -->
     <string name="settings_layers">Ways to capture</string>
