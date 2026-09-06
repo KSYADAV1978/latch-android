@@ -1,6 +1,8 @@
 package com.latch.cards
 
+import com.latch.core.model.CardEmail
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -168,6 +170,54 @@ class CardOcrRepairTest {
         // one way this change could have broken a rule it has nothing to do with.
         val result = classifyCard(listOf("Mobile: + 91 99000 67612"))
         assertEquals("MOBILE", result.draft.phones.single().type)
+    }
+
+    // ---- SRS 1.134: the name must not depend on which line came first -------------------------
+
+    /** The Dalmia card as recognised on 6 September, with the department line ordered first. */
+    private val scrambled = listOf(
+        "Corporate Affairs",
+        "Senior General Manager",
+        "Arvind Bhandari",
+        "Bharat Limited",
+        "Dalmia",
+        "m 91 7000900582",
+        "e bhandari.arvind@dalmiabharat.test",
+    )
+
+    @Test
+    fun `the card's own email decides the name, not the block order`() {
+        // Watched on a device: two photographs of one card a minute apart returned the blocks in
+        // different orders, and `firstOrNull` made the contact "Corporate Affairs". Both lines are
+        // two capitalised words of letters, so no rule about their *shape* can separate them —
+        // but `bhandari.arvind@…` names one of them and not the other.
+        assertEquals("Arvind Bhandari", classifyCard(scrambled).draft.displayName)
+    }
+
+    @Test
+    fun `the same card in the other order still reads the same`() {
+        // The property that matters: the answer is now independent of the order, so a photograph
+        // taken at a different angle produces the same contact and therefore the same FR-1227 key.
+        val natural = listOf(scrambled[2], scrambled[1], scrambled[0]) + scrambled.drop(3)
+        assertEquals(
+            classifyCard(natural).draft.displayName,
+            classifyCard(scrambled).draft.displayName,
+        )
+    }
+
+    @Test
+    fun `with no email it falls back to the first candidate rather than to nothing`() {
+        // A preference and never a filter. `info@` cards and cards with no address at all must
+        // behave exactly as they did before, which is what makes this change safe to make.
+        val noEmail = scrambled.dropLast(1)
+        assertEquals("Corporate Affairs", classifyCard(noEmail).draft.displayName)
+    }
+
+    @Test
+    fun `one shared word is not enough`() {
+        // The floor that keeps it honest: a single common word could be in anybody's address.
+        assertFalse(namedInEmail("Corporate Affairs", listOf(CardEmail("affairs@dalmia.example"))))
+        assertTrue(namedInEmail("Arvind Bhandari", listOf(CardEmail("bhandari.arvind@dalmia.example"))))
     }
 
     // ---- SRS 1.126: the recogniser bleeding Devanagari into Latin ----------------------------

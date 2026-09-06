@@ -79,7 +79,14 @@ fun classifyCard(lines: List<String>): CardClassification {
         if (!consumed) leftover += line
     }
 
-    val name = leftover.firstOrNull(::looksLikePersonName)
+    // **The name is chosen by the card's own evidence, not by which line came first**
+    // (SRS 1.134). `firstOrNull` made the answer depend on reading order, and reading order is
+    // computed from axis-aligned bounding boxes — so a card photographed with a few degrees of
+    // skew regroups its rows and can put the department line above the name. Watched twice on
+    // one card: `Corporate Affairs` and `Arvind Bhandari` swapped between two photographs taken a
+    // minute apart, and the contact would have been called Corporate Affairs.
+    val nameCandidates = leftover.filter(::looksLikePersonName)
+    val name = nameCandidates.firstOrNull { namedInEmail(it, emails) } ?: nameCandidates.firstOrNull()
     val rest = leftover.filterNot { it == name }
 
     val title = rest.firstOrNull(::looksLikeJobTitle)
@@ -103,6 +110,36 @@ fun classifyCard(lines: List<String>): CardClassification {
         ),
         unplaced = unplaced,
     )
+}
+
+/**
+ * Do this line's words appear in an email address on the same card?
+ *
+ * **The card carries the answer, and it does not depend on where anything sits.** A business
+ * email is very often the person's name — `bhandari.arvind@dalmiabharat.test` — so a candidate whose
+ * words are in the local part is the name, whatever order the recogniser returned the blocks in.
+ *
+ * **Two words at least**, and that floor is what keeps it honest: a single common word could be in
+ * anybody's address by chance, while two of a line's words both appearing is not a coincidence a
+ * department name produces. `Corporate Affairs` matches neither half of `bhandari.arvind`.
+ *
+ * **It is a preference and never a filter.** A card whose email is `info@` or whose address bears
+ * no relation to the name falls through to the previous behaviour, so this can only improve an
+ * answer and never remove one — which is why it needed no vocabulary of business words, the kind
+ * of list this classifier has been careful not to acquire.
+ */
+internal fun namedInEmail(line: String, emails: List<CardEmail>): Boolean {
+    if (emails.isEmpty()) return false
+    val localParts = emails
+        .map { it.address.substringBefore('@').lowercase() }
+        .filter { it.isNotBlank() }
+    if (localParts.isEmpty()) return false
+
+    val words = line.split(WORD_BREAK)
+        .map { it.lowercase().filter(Char::isLetter) }
+        // Initials are in half the addresses ever written; they carry no evidence.
+        .filter { it.length >= 3 }
+    return words.count { word -> localParts.any { it.contains(word) } } >= 2
 }
 
 /**
