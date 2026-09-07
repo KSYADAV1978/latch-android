@@ -61,6 +61,7 @@ import com.latch.google.googleTasksApi
 import com.latch.recipes.recipesFor
 import com.latch.data.revokeGrant
 import com.latch.ocr.MlKitOcrReader
+import com.latch.android.cards.CardOfferMemory
 import com.latch.android.cards.CardSaver
 import com.latch.google.ContactsApi
 import com.latch.google.ContactsRest
@@ -336,6 +337,15 @@ class LatchApplication : Application() {
      */
     /** FR-1212's store. Its own file and its own Keystore alias; see `CardQueueStore`. */
     val cardQueue: CardQueue by lazy { EncryptedCardQueueStore(this) }
+
+    /**
+     * FR-1231's offer across an Activity recreation (SRS 1.183).
+     *
+     * Application-scoped for the reason `captureSaver` is: a rotation destroys the composition
+     * that held it, and an offer the user loses to a quarter-turn puts them back in front of the
+     * button that writes a duplicate.
+     */
+    val cardOffers: CardOfferMemory by lazy { CardOfferMemory() }
 
     val cardSaver: CardSaver by lazy {
         CardSaver(

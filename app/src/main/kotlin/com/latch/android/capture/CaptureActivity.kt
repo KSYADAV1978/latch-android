@@ -36,6 +36,7 @@ import com.latch.android.cards.unsavedDates
 import com.latch.android.cards.cardPhotoStep
 import com.latch.android.cards.clearCardPhotos
 import com.latch.android.cards.nextCardPhotoFile
+import com.latch.android.cards.CardOfferMemory
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
 import com.latch.android.cards.cardOffer
@@ -191,7 +192,11 @@ class CaptureActivity : ComponentActivity() {
         // *recreation* of this one has not. Keying the reset on what was captured is what
         // stops a rotation inside FR-807's ten seconds silently ending the offer, which is the
         // requirement met on paper and not in the hand. See `CaptureSaver.reset`.
-        app.captureSaver.reset(captureKeyOf(request))
+        val captureKey = captureKeyOf(request)
+        app.captureSaver.reset(captureKey)
+        // SRS 1.183. The card offer keeps the same rule and for the same reason: a recreation of
+        // this capture keeps its offer, a new capture ends it.
+        app.cardOffers.reset(captureKey)
         // Setup may have completed in another task since this process read its defaults.
         app.refreshAccounts()
 
@@ -380,10 +385,17 @@ class CaptureActivity : ComponentActivity() {
                     textHoldsContact = textHoldsContact,
                 )
                 var cardState by remember { mutableStateOf<CardSheetState?>(null) }
-                var cardSave by remember { mutableStateOf<CardSaveResult>(CardSaveResult.Idle) }
+                // SRS 1.183. **Seeded from application scope, because a rotation destroys this
+                // composition.** An FR-1231 offer lost to a quarter-turn does not merely vanish:
+                // the sheet returns to `Save contact`, which writes a second contact for somebody
+                // the offer had just said is already there.
+                val rememberedOffer = remember { app.cardOffers.restore(captureKey) }
+                var cardSave by remember {
+                    mutableStateOf(rememberedOffer?.result ?: CardSaveResult.Idle)
+                }
                 // FR-1210: when the save landed, so the ten seconds are counted from the save
                 // and not from a recomposition.
-                var cardSavedAt by remember { mutableStateOf<Instant?>(null) }
+                var cardSavedAt by remember { mutableStateOf<Instant?>(rememberedOffer?.savedAt) }
                 var cardUndoing by remember { mutableStateOf(false) }
                 // The window must not close on a stray tap while an undo is on offer.
                 LaunchedEffect(cardSave, cardState) {
@@ -408,11 +420,34 @@ class CaptureActivity : ComponentActivity() {
                 // FR-1205 on the update path (SRS 1.159). Held here rather than inside the sheet
                 // for `SheetEdits`' reason: `onUpdateContact` reads the same two values the rows
                 // are drawn from, so the screen cannot show one thing and send another.
-                var offerAccepted by remember { mutableStateOf(emptySet<Int>()) }
-                var offerValues by remember { mutableStateOf(emptyMap<Int, String>()) }
+                var offerAccepted by remember {
+                    mutableStateOf(rememberedOffer?.accepted ?: emptySet<Int>())
+                }
+                var offerValues by remember {
+                    mutableStateOf(rememberedOffer?.values ?: emptyMap<Int, String>())
+                }
                 // SRS 1.162: overrides of the per-field replace-or-add default rather than the
                 // mode itself, so an untouched row keeps what `replaceByDefault` decided.
-                var offerFlipped by remember { mutableStateOf(emptySet<Int>()) }
+                var offerFlipped by remember {
+                    mutableStateOf(rememberedOffer?.flipped ?: emptySet<Int>())
+                }
+
+                // SRS 1.183. **The edits travel with the offer**: restoring the question and
+                // discarding the replies reads as the app having forgotten, not as an offer
+                // preserved. Written on every change rather than at a lifecycle callback, because
+                // the value that matters is whatever was on screen when the recreation began.
+                LaunchedEffect(cardSave, cardSavedAt, offerAccepted, offerValues, offerFlipped) {
+                    app.cardOffers.keep(
+                        captureKey,
+                        CardOfferMemory.Remembered(
+                            result = cardSave,
+                            savedAt = cardSavedAt,
+                            accepted = offerAccepted,
+                            values = offerValues,
+                            flipped = offerFlipped,
+                        ),
+                    )
+                }
 
                 // **Ticked on arrival, and reset when a new offer arrives.** All on matches
                 // FR-511's rows and FR-608's steps; defaulting to none would mean pressing
