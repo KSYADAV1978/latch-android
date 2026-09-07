@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -258,6 +259,25 @@ fun CardScreen(
                 // which is why it is a tick the user sets for this card and not a setting they set
                 // once — FR-216 was amended by name for it, and the image is somebody else's.
                 if (onAttachPhoto != null) {
+                    // **SRS 1.186: off while an offer stands, and it says why.** Reported from
+                    // real use — the tick was ticked, the update landed, and the contact's
+                    // picture did not change. It is inert on *both* answers: `update` takes no
+                    // photograph at all, and the `createAnyway` call site does not pass one
+                    // either. A control that does nothing is indistinguishable from a broken one
+                    // (SRS 1.100), and this one was worse, because the outcome reported success.
+                    //
+                    // **Disabled rather than hidden**, which is SRS 1.160's standard one screen
+                    // over: a control that vanishes leaves the user wondering what they did, and
+                    // one that is visible and off beside a line saying why is the same
+                    // information without the puzzle.
+                    //
+                    // Attaching a picture to a contact that already exists is a real feature and
+                    // is deferred, not dismissed. It needs the prior photo carried on `prior` so
+                    // FR-1232's undo can put it back — `ContactRecord` has no photo field, so
+                    // today the change would be unundoable — and a row in the offer, so replacing
+                    // a picture of the person with a picture of their card is disclosed and
+                    // ticked like every other field.
+                    val photoBlocked = saveResult is CardSaveResult.UpdateOffered
                     // **The whole row is the target, not the box.** Watched on a device: tapping
                     // the label did nothing, which is Material's default and is wrong on a
                     // floating sheet where every control is already tight — this project has
@@ -271,12 +291,17 @@ fun CardScreen(
                             .toggleable(
                                 value = state.attachPhoto,
                                 onValueChange = onAttachPhoto,
+                                enabled = !photoBlocked,
                                 role = Role.Checkbox,
                             ),
                     ) {
                         // Null, so the row owns the click rather than competing with it — the
                         // Material pattern for a labelled checkbox.
-                        Checkbox(checked = state.attachPhoto, onCheckedChange = null)
+                        Checkbox(
+                            checked = state.attachPhoto,
+                            onCheckedChange = null,
+                            enabled = !photoBlocked,
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             // **It names the photograph once there is more than one** (SRS 1.146).
@@ -289,12 +314,20 @@ fun CardScreen(
                                 ?.let { stringResource(R.string.card_attach_photo_numbered, it.side) }
                                 ?: stringResource(R.string.card_attach_photo),
                             style = MaterialTheme.typography.bodyMedium,
+                            color = if (photoBlocked) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                Color.Unspecified
+                            },
                         )
+                    }
+                    if (photoBlocked) {
+                        Note(stringResource(R.string.card_photo_not_on_update))
                     }
                     // Said **before** the save and not only after it. A user who ticks the box with
                     // no network would otherwise learn that the photograph was dropped by noticing
                     // its absence on the contact days later.
-                    if (state.attachPhoto && photoWouldBeHeld) {
+                    if (!photoBlocked && state.attachPhoto && photoWouldBeHeld) {
                         Note(stringResource(R.string.card_photo_not_held))
                     }
                 }
