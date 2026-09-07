@@ -291,7 +291,17 @@ fun CaptureScreen(
          * reachability and left Save below nine recipe chips, which is not the same thing as
          * fixing it.
          */
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(
+                // **The sheet is bounded here, and that is what makes `weight` below work**
+                // (SRS 1.181). A floating dialog is measured with no maximum height, so the
+                // content column's `weight(1f, fill = false)` computed its share from infinity
+                // and took its whole intrinsic height — leaving the action row, which sits
+                // outside the scroll on purpose, to be laid out past the window edge and
+                // clipped away. Given a real maximum the column yields instead.
+            modifier = Modifier
+                .heightIn(max = sheetMaxHeightDp(LocalConfiguration.current.screenHeightDp).dp)
+                .padding(20.dp),
+        ) {
         Column(
             modifier = Modifier
             // **Bounded directly, because `weight` cannot bound it here** (SRS 1.161).

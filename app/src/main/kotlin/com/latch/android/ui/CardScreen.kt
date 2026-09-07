@@ -159,28 +159,25 @@ fun CardScreen(
     // because every card arrived from a share sheet, and what showed through was a dimmed
     // gallery. B2 put Latch's own home screen behind it — high-contrast text at the same
     // size as the fields — and the sheet became unreadable.
+    // **No bound here, and the comment that used to claim one has gone.** It described capping
+    // the Surface at a share of the screen (SRS 1.161) — code that was replaced at SRS 1.164 and
+    // whose comment survived it, so this block asserted a fix the file did not contain. The bound
+    // is on the Column below, where it can be read beside the `weight` it exists to serve.
     Surface(
-        // **The sheet is bounded, and `weight` below does nothing without this** (SRS 1.161).
-        //
-        // `CaptureActivity` is a floating dialog whose window is WRAP_CONTENT, so the composition
-        // is measured with an effectively unbounded height: the inner `weight(1f, fill = false)`
-        // then has no remaining space to compute, takes its full intrinsic height, and pushes the
-        // action row past the window's edge, where the platform clips it. The row is not scrolled
-        // off — it is *gone*, and nothing on screen says so.
-        //
-        // Measured on a device: the window was `[160,145][1280,3036]` and the primary answer laid
-        // out near y3097. Shortening the labels bought one line and the next long caption spent
-        // it, which is what a palliative does.
-        //
-        // Bounding the Surface gives the Column a real maximum, so the weighted child takes what
-        // is left after the actions and scrolls inside it. Ninety per cent rather than all of it,
-        // because this is a floating sheet over the app the user came from and it should still
-        // look like one.
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
+                // **The sheet is bounded here, and that is what makes `weight` below work**
+                // (SRS 1.181). A floating dialog is measured with no maximum height, so the
+                // content column's `weight(1f, fill = false)` computed its share from infinity
+                // and took its whole intrinsic height — leaving the action row, which sits
+                // outside the scroll on purpose, to be laid out past the window edge and
+                // clipped away. Given a real maximum the column yields instead.
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = sheetMaxHeightDp(LocalConfiguration.current.screenHeightDp).dp)
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
