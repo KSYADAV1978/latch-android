@@ -366,11 +366,37 @@ class DesktopSaver(
         )
     }
 
+    /**
+     * **[SaveResult.Failed.detail] is the whole of what anyone has to go on when Google says no,
+     * so it carries the status and Google's own reason as well as its sentence.**
+     *
+     * `rejection` already parses the error envelope into all three: a status, a machine-readable
+     * reason such as `INVALID_ARGUMENT`, and Google's human-readable message. Only the last of
+     * them reached here, and none of it reached the screen — which left five words as the entire
+     * account of a capture that was neither written nor held. That is SRS 1.128's lesson one API
+     * over: the diagnosis was already inside the process and was discarded before anyone read it.
+     */
     private fun failureFor(error: Throwable): SaveResult = when (error) {
         is GoogleUnreachable -> SaveResult.Failed(SaveFailure.OFFLINE, error.message.orEmpty())
-        is GoogleRejected -> SaveResult.Failed(SaveFailure.REFUSED, error.message.orEmpty())
+        is GoogleRejected -> SaveResult.Failed(SaveFailure.REFUSED, rejectionDetail(error))
         is GoogleFailure -> SaveResult.Failed(SaveFailure.REFUSED, error.message.orEmpty())
-        else -> SaveResult.Failed(SaveFailure.REFUSED, error.message.orEmpty())
+        // Not one of ours, so the type is the informative part: a bare message from an arbitrary
+        // exception can be null and would say nothing at all about where it came from.
+        else -> SaveResult.Failed(
+            SaveFailure.REFUSED,
+            listOfNotNull(error::class.simpleName, error.message?.takeIf { it.isNotBlank() })
+                .joinToString(SEPARATOR),
+        )
+    }
+
+    private fun rejectionDetail(error: GoogleRejected): String = listOfNotNull(
+        "HTTP " + error.status,
+        error.reason?.takeIf { it.isNotBlank() },
+        error.message?.takeIf { it.isNotBlank() },
+    ).joinToString(SEPARATOR)
+
+    private companion object {
+        const val SEPARATOR = " - "
     }
 }
 

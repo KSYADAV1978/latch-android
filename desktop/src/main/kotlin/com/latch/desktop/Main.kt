@@ -533,7 +533,7 @@ object Latch {
                 onCreateNew = { answerOffer(outcome, update = false, context = context) },
             )
 
-            is SaveResult.Failed -> open.showOutcome(saveMessage(outcome.reason))
+            is SaveResult.Failed -> open.showOutcome(saveMessage(outcome))
         }
     }
 
@@ -1130,7 +1130,7 @@ object Latch {
         // save stands unwritten and the row stays. Re-capturing the text puts the question on
         // the popup, which is where it can be answered.
         is SaveResult.RescheduleOffered -> DesktopStrings.INBOX_SAVE_FAILED
-        is SaveResult.Failed -> saveMessage(outcome.reason)
+        is SaveResult.Failed -> saveMessage(outcome)
     }
 
     /**
@@ -1173,15 +1173,29 @@ object Latch {
         window?.showOutcome(DesktopStrings.EXPORTED + " " + file.name)
     }
 
-    private fun saveMessage(reason: SaveFailure) = when (reason) {
+    /**
+     * **A refusal says what Google said.**
+     *
+     * `SaveResult.Failed` has carried a detail since it was written and both call sites passed
+     * only the enum, so a permanent rejection — the one outcome where the capture is neither
+     * written nor queued, and is therefore *gone* — was reported as five words with no cause.
+     * Nobody can act on that: there is no log on this client, so the sentence on screen is the
+     * only instrument there is.
+     *
+     * The detail is Google's own status, reason and message, and it never leaves the machine.
+     */
+    private fun saveMessage(outcome: SaveResult.Failed) = when (outcome.reason) {
         SaveFailure.NOT_SIGNED_IN -> DesktopStrings.NOT_SIGNED_IN
         SaveFailure.NO_DESTINATION -> "No calendar is chosen yet."
         // Reached only where there is no queue to hold it, which in this build means the
         // store itself refused — a failure worth naming rather than swallowing.
         SaveFailure.OFFLINE -> "No connection, and this capture could not be held. Try again."
-        SaveFailure.REFUSED -> "Google refused the write."
+        SaveFailure.REFUSED -> detailed("Google refused the write.", outcome.detail)
         SaveFailure.NOTHING_TO_WRITE -> DesktopStrings.NOTHING_TICKED
     }
+
+    private fun detailed(sentence: String, detail: String): String =
+        if (detail.isBlank()) sentence else sentence + " " + detail
 
     private fun signIn() {
         if (!auth.isConfigured) {
