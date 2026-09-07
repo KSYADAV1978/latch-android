@@ -1,4 +1,4 @@
-# Restart prompt — Latch, after the ship-v1.0 run
+# Restart prompt — Latch, after the card-pillar run of 7 September 2026
 
 Copy everything below the line into a fresh session.
 
@@ -7,7 +7,7 @@ Copy everything below the line into a fresh session.
 I am developing **Latch** at `C:\dev\latch-android` — an Android + Windows app that captures dates
 and business cards into Google Calendar, Tasks and Contacts. Read `CLAUDE.md` and `docs/SRS.md`
 first; they are the authoritative record and they are long. `docs/SRS.md`'s revision table now runs
-to **1.165**.
+to **1.189**.
 
 ## Standing rules — these override defaults and stay in force all session
 
@@ -30,108 +30,97 @@ to **1.165**.
 
 ## Where the build stands
 
-Clean tree on `main`, **1320 JVM tests green**, `./gradlew build` green.
+Clean tree on `main`, full suite green, pushed to GitHub.
 
-The ship-v1.0 run of 6 Sep 2026 built every remaining requirement except one, prepared the
-repository for publication, and wrote the release and launch documents. What it did is in
-`CLAUDE.md` under *The ship-v1.0 run*, and each slice has an SRS row (1.150 to 1.157).
+**The business-card pillar is closed.** 7 September closed the defect that had blocked it and four
+more found on the way: SRS 1.165 (`Update` unreachable on a photographed card), 1.183 (a rotation
+destroyed the offer and returned the sheet to the button that writes a duplicate), 1.186–1.188 (the
+photo tick was inert on the update path and reported success), and **FR-1232's undo restore passed
+on a real contact** — a restore, never a delete, with `card decision=Updated fields=1` against an
+offer of three, so FR-1231's per-field ticks were finally seen reaching the wire.
 
-## What is now owed, in the order it bites
+## The four things owed, in the order they bite
 
-### 0. One open defect, found by the device pass and not diagnosed
+### 1. SRS 1.180 — the two drafting paths disagree about an explicit midnight
 
-**FR-1231's `Update` cannot be reached on a photographed card** (SRS 1.165). The same build reaches
-it on a text capture, where the scrolling region caps at exactly `SHEET_CONTENT_MAX`. A stale
-install, a wrong nesting and a missing constant are all ruled out by measurement — see the **Open
-defect** block in `CLAUDE.md` for what was checked and how.
+`draftItems` sets `allDay = time == null`. `recipeItems` sets it by comparing the start against
+midnight, because a `PlannedItem` carries only a `LocalDateTime` and an anchor with no time was
+expanded to midnight several steps earlier — so *no time given* and *midnight given* are the same
+value by the time the flag is decided. Measured: `Party 5 October 2027 at 12am` drafts as a **timed
+00:00–01:00 event** on the ordinary path and as an **all-day event** once a recipe is applied.
 
-**FR-1232's undo restore is blocked behind it** and is the most consequential unverified row in the
-card pillar: after the patch the previous values exist nowhere else.
+`:wire` exists to stop one message becoming two different things, and this is that failure inside
+the module rather than between clients — worse, because the conformance vectors that catch
+cross-client drift do not look here. **The cause is a discarded fact, not a wrong rule**:
+`expandRecipe` knows whether the candidate had a time and encodes it away as midnight. Carry it on
+`PlannedItem` so `recipeItems` tests the same fact `draftItems` does. Touches `:recipes`.
 
-**Any candidate fix must be watched on a photographed card with an offer standing.** That is the
-only configuration that has ever failed, and verifying on the text path is how the last attempt
-came to be declared fixed when it was not.
+`AllDayTest` in `:wire` already pins the correct behaviour and deliberately does **not** pin the
+divergence — a test over the current behaviour would pin the wrong behaviour.
 
-### 1. The device pass — the largest debt by far
+### 2. SRS 1.176 — a partly written chain reports success
 
-Everything built on 6 Sep is **JVM-verified and DEVICE-OWED**, and so is most of what came before
-it. `CLAUDE.md` carries the backlog slice by slice, each row written as *the condition that would
-make this fail*, then *the fixture*. The newest rows are under **Device pass backlog — Step 0's
-three slices** and they include FR-1231's, which **write to my real Google Contacts** — every one
-of those rows says what it leaves behind.
+`DesktopSaver.writeAll` returns `SaveResult.Written(created.size, …)` whenever `created` is
+non-empty, so a three-step recipe whose first task is written and whose second is permanently
+refused reports **Saved 2** and says nothing about what was lost. The count is smaller and nothing
+invites anyone to notice.
 
-Start with the two rows carried forward from before the run, which are still unwatched:
-FR-1226's cropped contact picture (SRS 1.148) and the four-section home screen (SRS 1.149).
+This is the defect the 31 Aug AC-05 note weighed and could not attribute — *a partially written
+chain reporting success*. It exists, in code, on the desktop. **The right answer is a decision, not
+a patch**: FR-806's queue holds what a retry can fix and a 4xx is not that, so the choice is between
+reporting a partial chain honestly and holding the remainder for a manual retry. The honest report
+is the smaller half and should come first. **Android's `CaptureSaver` has not been checked for the
+same shape** — check it before deciding.
 
-### 2. The two corpora, which only real use can close
+### 3. SRS 1.178 — an expired grant loses the capture on Windows
 
-NFR-502 wants 300 real captured strings and stands at **113**. FR-1222 wants 120 real business
-cards and stands at **11**. Both forbid invented entries. Both are recorded in `docs/RELEASE.md`
-under **Knowingly unmet at submission**, and `docs/MARKETING.md` argues that the hundred test-user
-slots exist mainly to close them.
+Android classes `SignInRequiredException` retryable and says why: *a capture given up on for want of
+a tap is a capture lost*. The desktop turns the same condition into `GoogleRejected(400)`, which
+`isWorthRetrying` refuses, so the capture is reported and **dropped**. It is a recorded decision
+rather than an oversight, but it contradicts FR-806a's own reasoning on the client with no Play
+services to keep a grant warm — where expiry is *more* likely, not less. The branch also cannot tell
+a revoked grant from an expired one: both arrive as `invalid_grant`.
 
-### 3. Publisher work only I can do
+This bit for real on 7 Sep: a to-do with a recipe applied was refused, the capture was lost, and the
+whole account of it was five words. **The fix needs a queue entry that survives a sign-in and a tray
+line asking for one** — FR-806a's surface on a client that has never had it. A slice, not a patch.
 
-`docs/RELEASE.md` and `docs/RELEASE-WINDOWS.md` are the operational gates. In rough order:
+### 4. The undo path logs no decision line
 
-- **Clear the name.** §13 decision 1. `docs/MARKETING.md` makes this Phase 0 — marketing under a
-  name I may lose means doing it twice.
-- **A hosted privacy policy and a homepage**, without which OAuth verification cannot start.
-- **Submit for OAuth verification early.** §11 says the start of Phase 2, not the end; it is the
-  most common cause of launch slippage. Until it completes only test users can sign in at all.
-- **The upload keystore**, and registering its SHA-1 (and Play App Signing's) against the Android
-  OAuth client — sign-in fails on exactly the build being shipped otherwise.
-- **Measure the bundle per device.** NFR-103's figure is still an estimate. The universal APK is
-  43.15 MB; the budget is 40 MB per device and the `bundle` block is what makes that different.
-- **A Play organisation account** (FR-1105), or accept the closed-testing requirement.
-- **The Windows SDK**, for FR-305's MSIX. `desktop/packaging/Package-Msix.ps1` is written and
-  refuses rather than approximating; it needs the SDK, a jlink runtime and tile artwork.
+FR-1232 passed on the account rather than on the phone, because the undo emits nothing. That is the
+gap SRS 1.72 found for save decisions and cured with `WriteBasis`, and the undo path still has it. A
+line such as `card decision=Undone restored=N` would make the next card pass self-evidencing.
+FR-1207's `captured_at` across an update is still JVM-only for the same reason — nothing reads it
+back.
 
-### 4. The browser extension, deferred rather than dropped
+## Two instrument lessons from 7 September, both of which nearly produced a wrong answer
 
-FR-401 to FR-403 are `[MUST]`, are not built, and were deferred by decision on 6 Sep 2026 with the
-alternatives measured — SRS 1.154 and `docs/RELEASE.md`. If it is taken up, the decision recorded
-there is Kotlin/JS over the four shared modules rather than a hand-written JavaScript parser, and
-it carries two dependency questions: `kotlinx-datetime` (which is not `java.time`) and a
-synchronous SHA-256 that Web Crypto does not provide.
+**Cause the behaviour; do not read the flag.** `uiautomator` reported an inert confirm button as
+`enabled="true"` (SRS 1.174), and an inert, deliberately disabled tick as `enabled="true"` again
+(SRS 1.188) — the second is a merged Compose `toggleable`, whose bounds span the whole row and whose
+disabled state never reaches that attribute. A check written against either flag would have recorded
+the wrong result. Press it and re-read.
 
-### 5. Smaller things, named so they are not forgotten
+**Build a reproduction you can run yourself before diagnosing anything.** SRS 1.165 cost two days
+because every attempt was graded on a photograph a person had to take by hand. FR-1230 reaches the
+card sheet from a *text selection*, and FR-1231 keys on an **email identity** — so a generated card
+image whose job title, website and address differ from an existing contact raises
+`UpdateOffered changes=N` on demand in about forty seconds, with no camera and no write. That
+reproduction broke the defect open in minutes.
 
-- **FR-306's receiving half.** The share-target declaration is in the manifest and the activation
-  stub is not built; the script strips the declaration until it is (SRS 1.153).
-- **FR-204's help list has one entry**, because one is all anybody has checked.
-  `docs/DOGFOODING.md` asks for more.
-- **`LatchCardOcr` stays until FR-1222's corpus is closed**, then goes. It is item 0 of
-  `docs/RELEASE.md`, and the artifact sweep that proves a release build is clean is written there.
+**And a false exoneration is worse than no diagnosis.** SRS 1.165's ruled-out table claimed a brace
+walk put the offer rows inside the scrolling column. They were a *sibling* of it. That one wrong
+line sent three separate fixes at a component that was never in the path.
 
 ## The git repository
 
-**Pushed to GitHub on 6 Sep 2026**: `https://github.com/KSYADAV1978/latch-android`, public,
-`origin/main` tracking `main`. Commits are authored as
-`325626203+KSYADAV1978@users.noreply.github.com`; the Gmail address is on no commit and GitHub
-would now refuse a push carrying it.
-
-`backup.cmd` and `C:\dev\latch-backup` remain the secondary backup, and it writes **two** files:
-the bundle, and FR-1222's corpus copied separately. A bundle holds git objects only, so it never
-contained the git-ignored corpus — that was proven by restoring one and looking (SRS 1.157), and
-until 6 Sep the corpus had no backup at all.
-
-- README and Apache 2.0 licence are committed.
-- History was audited: no keystore, no `local.properties`, no OAuth client file, no API keys or
-  tokens have ever been committed.
-- **The history was rewritten** to remove real third parties' contact details (SRS 1.155). Every
-  commit changed SHA. There was no remote, so nothing needed force-pushing anywhere.
-- The pre-rewrite bundle has been **deleted**, along with the pseudonym maps. The 4 Sep 2026
-  bundle in `C:\dev\latch-backup` was checked and is clean — `cards/` did not exist then.
-- **The corpus backup is personal data.** `latch-card-corpus-*.tsv` beside the bundle holds real
-  people's names, direct lines and work addresses. Back it up; never share the folder it is in.
-
-Ordinary pushes from here:
-
-    git push
+GitHub is the primary remote: `https://github.com/KSYADAV1978/latch-android`, public, `origin/main`
+tracking `main`. Commit identity is the GitHub noreply address. `backup.cmd` and
+`C:\dev\latch-backup` stay as the secondary backup, and `backup.cmd` copies the git-ignored card
+corpus separately — a bundle is a packfile of git objects and has never contained it.
 
 ## One limit worth knowing before you measure anything
 
-**Neither device contacts table counts what it looks like** (SRS 1.135). `contacts` is the
-aggregated view; `raw_contacts` has 2,273 duplicate names in this account. **Google Contacts on the
-web is the only authority.** Every device-side count is an indication, not a number.
+Neither device contacts table counts what it looks like (SRS 1.135). `contacts` is the aggregated
+view; `raw_contacts` shows one created contact as two rows in this account. **Google Contacts on the
+web is the only authority.** Every device-side count in this project is an indication, not a number.
