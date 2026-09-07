@@ -704,6 +704,13 @@ private fun WebhookSection(
             onCheckedChange = onSetEnabled,
         )
     }
+    // SRS 1.172. FR-1004 wants entering an endpoint and enabling delivery to be two acts, and
+    // the disabled switch above is that rule expressed as a control. What it did not do was say
+    // so: a greyed switch with no sentence beside it is a control that appears broken, which is
+    // SRS 1.100's class and the standard SRS 1.160 already set for the offer's Update button.
+    if (endpointMask == null) {
+        Note(stringResource(R.string.settings_webhook_needs_endpoint))
+    }
 
     // FR-1004b, last: a line below the switch it is about, on a screen the user opened. Nothing
     // at all until something has been attempted.

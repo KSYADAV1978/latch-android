@@ -104,9 +104,19 @@ class SettingsCoordinator(
         loadDestinations()
         refreshDelivery()
         scope.launch {
+            // **A blank stored value is no endpoint, not an endpoint that masks to nothing**
+            // (SRS 1.173). Clearing writes an empty string rather than removing the key, so
+            // `get` answers "" and not null — and masking that produced `Saved: ••••••••` with
+            // no host, on a screen where nothing was configured. It only appeared after a
+            // restart, because the in-memory mask had been cleared correctly at the time.
+            //
+            // The consequence was not cosmetic: FR-1004's enable switch is `enabled =
+            // endpointMask != null`, so a phantom mask made it possible to turn delivery on
+            // with nowhere to send — the two-acts rule satisfied by an endpoint that is not
+            // there.
             _endpointMask.value = runCatching {
                 secrets.get(EncryptedSecretStore.KEY_WEBHOOK_ENDPOINT)
-            }.getOrNull()?.let(::maskedEndpoint)
+            }.getOrNull()?.takeIf { it.isNotBlank() }?.let(::maskedEndpoint)
         }
     }
 

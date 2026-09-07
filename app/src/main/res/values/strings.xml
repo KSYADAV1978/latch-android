@@ -520,6 +520,12 @@
     <string name="settings_webhook_last_unreachable">Last delivery: could not reach your endpoint, %1$s.</string>
     <string name="settings_webhook_last_not_sent">Last delivery: nothing was sent, %1$s. The saved address is not one Latch will send to.</string>
     <string name="settings_webhook_enabled">Send to my endpoint</string>
+    <!--
+      SRS 1.172. The switch is already disabled without a stored endpoint; this is the line that
+      says why, which is the standard SRS 1.160 set one requirement over — a control visible and
+      off, beside a sentence explaining it, is the same information without the puzzle.
+    -->
+    <string name="settings_webhook_needs_endpoint">Save an endpoint above before you can turn this on.</string>
     <string name="settings_webhook_malformed">That is not a URL.</string>
     <string name="settings_webhook_not_https">Only https addresses are accepted — your captures would otherwise travel in the clear.</string>
     <string name="settings_webhook_credentials">Remove the username and password from the address.</string>
