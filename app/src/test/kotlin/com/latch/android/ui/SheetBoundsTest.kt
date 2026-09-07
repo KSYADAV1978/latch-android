@@ -1,23 +1,24 @@
 package com.latch.android.ui
 
 import kotlin.test.Test
-import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
- * SRS 1.181. **The property worth pinning is that the bound actually binds.**
+ * SRS 1.182. **The one property worth pinning is that the bound actually binds.**
  *
- * A ceiling set above what the window could ever reach is not a weaker fix, it is *no fix* —
- * `weight` computes the same infinite share and the action row is clipped exactly as before,
- * while the code reads as though the problem were solved. That is the shape this project has
- * already recorded three times on this one sheet, so it is asserted rather than trusted.
+ * A ceiling set above what the window could ever reach is not a weaker guard, it is *no guard* —
+ * `weight` computes the same infinite share and anything laid out below the scroll is clipped
+ * exactly as before, while the code reads as though the sheet were bounded. That is the shape
+ * this project has now recorded four times on this one screen, so it is asserted rather than
+ * assumed.
  */
 class SheetBoundsTest {
 
     @Test
     fun `the bound is below the tallest window the device can give`() {
-        // Measured on the device the defect was diagnosed on: a 891dp screen, whose largest
-        // observed sheet window was 826dp of content.
+        // Measured on the device this was diagnosed on: a 891dp screen, whose largest observed
+        // sheet window was 826dp of content.
         assertTrue(
             sheetMaxHeightDp(891) < 826,
             "a bound at or above the achievable window height does nothing at all",
@@ -25,12 +26,15 @@ class SheetBoundsTest {
     }
 
     @Test
-    fun `the bound still leaves room for the content it exists to protect`() {
-        // The failing sheet was chrome 88 + content 520 + actions 218. The bound has to leave
-        // the actions their four lines *and* keep a usable column, or it trades one clipped
-        // control for a field list nobody can read.
-        val max = sheetMaxHeightDp(891)
-        assertTrue(max - 88 - 218 > 400, "content would be squeezed to $max - 306")
+    fun `the bound leaves more room than the sheet actually asks for`() {
+        // The sheet is chrome + a content column capped at SHEET_CONTENT_MAX + an action row.
+        // The guard must sit *above* that, or it would start squeezing a sheet that already
+        // fits and turn a working layout into a scrolling one.
+        val chromeAndActions = 88 + 60
+        assertTrue(
+            sheetMaxHeightDp(891) > 520 + chromeAndActions,
+            "the guard must be inert for a sheet that fits, not a second cap on it",
+        )
     }
 
     @Test

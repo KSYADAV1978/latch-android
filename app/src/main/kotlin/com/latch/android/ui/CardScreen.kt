@@ -49,6 +49,7 @@ import com.latch.android.cards.CardPhotoUpload
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -199,9 +200,7 @@ fun CardScreen(
                 // scroll node sizes to its content, so there is nothing left to scroll.
                 //
                 // `heightIn` is a constraint and does not care what the parent's maximum is.
-                    .heightIn(
-                        max = SHEET_CONTENT_MAX,
-                    )
+                    .heightIn(max = SHEET_CONTENT_MAX)
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -374,6 +373,99 @@ fun CardScreen(
                 // Said plainly, because the consent screen asks for permission to delete contacts and
                 // this is the only place the user learns that Latch does not (SRS 1.88, FR-1102).
                 Note(stringResource(R.string.card_never_deletes))
+
+                // **Inside the scroll, and that is the whole of SRS 1.165** (SRS 1.182). This
+                // block was a *sibling* of the scrolling column, so an FR-1231 offer — three
+                // ticked rows, each with a stored value, an editable box and a Replaces/Adds
+                // toggle — was laid out unbounded beneath a bounded column, ran past the
+                // window edge and took the action row with it. `Update` was not scrolled off;
+                // it was never on screen, and nothing said so. Measured: the ScrollView ended
+                // at y1811 and the offer rows ran from y1846 to y2982, which is the window
+                // bottom. Everything that grows with what was captured belongs in here; only
+                // the action row stays outside, because a control that scrolls away is the
+                // defect this arrangement exists to prevent.
+
+                // FR-1208's answer, said in the words the date side already uses for the same fact, so a
+                // user who has seen "Already saved" on a capture reads this the same way.
+                when (saveResult) {
+                    // FR-1210 and NFR-303: an undo says what it did. The failed branch is the one
+                    // that matters — the contact is still in the account and this is the only place
+                    // the user is told.
+                    is CardSaveResult.Undone -> Note(
+                        stringResource(
+                            when {
+                                // FR-1232. **A different sentence, because a different thing
+                                // happened**: "Nothing was kept", over a contact still in the account
+                                // carrying its old employer again, would be false in the direction
+                                // that matters most on this screen.
+                                saveResult.removed && saveResult.restored -> R.string.card_update_undone
+                                saveResult.removed -> R.string.card_undone
+                                saveResult.restored -> R.string.card_update_undo_failed
+                                else -> R.string.card_undo_failed
+                            }
+                        )
+                    )
+                    is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
+
+                    // FR-1231, FR-1233. **Field by field, with what the contact holds now beside
+                    // each**, which is the requirement's own wording and not a summary of it: "3
+                    // fields would change" is a sentence nobody can answer, and the value that would
+                    // be replaced is the one thing the user cannot look up while holding a card.
+                    //
+                    // FR-1233 needs nothing of its own here. Employer and job title are visible
+                    // because every field is, and the move-note analogue the requirement forbids is
+                    // not merely absent - nothing on this path composes prose to put in a contact.
+                    is CardSaveResult.UpdateOffered -> {
+                        Note(stringResource(R.string.card_update_offered))
+                        // FR-1205 and SRS 1.159: a tick and an editable value per line. FR-511's
+                        // per-date checkbox and FR-608's per-step tick, a third time — the developer
+                        // must be able to take the job title, decline the address, and correct the
+                        // website the recogniser got wrong, all without leaving the offer.
+                        saveResult.changes.forEachIndexed { index, change ->
+                            OfferRow(
+                                label = stringResource(fieldLabel(change.field)),
+                                stored = change.stored,
+                                existing = change.existing,
+                                replaces = change.replaces != (index in offerFlipped),
+                                onFlip = { onOfferFlip(index) },
+                                value = offerValues[index] ?: change.captured,
+                                ticked = index in offerAccepted,
+                                onTick = { on -> onOfferTick(index, on) },
+                                onEdit = { text -> onOfferEdit(index, text) },
+                            )
+                        }
+                        Note(stringResource(R.string.card_update_edit_hint))
+                        // Said out loud because it is the promise the requirement makes: an offer
+                        // that has already written something is not an offer.
+                        Note(stringResource(R.string.card_update_nothing_written))
+                        if (offerAccepted.isEmpty()) {
+                            Note(stringResource(R.string.card_update_nothing_ticked))
+                        }
+                    }
+
+                    is CardSaveResult.Updated -> Note(stringResource(R.string.card_updated))
+                    is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
+                    // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
+                    // reassuring direction: the account holds nothing yet.
+                    is CardSaveResult.Held -> {
+                        Note(stringResource(R.string.card_held))
+                        PhotoOutcome(saveResult.photo)
+                    }
+                    is CardSaveResult.Saved -> {
+                        Note(
+                            stringResource(
+                                // A write made without an answer says so. SRS 5.8's rule reaching a
+                                // screen: a scan that gave up must not be reported as a clean check.
+                                if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
+                            )
+                        )
+                        // FR-1226, **beside** the save and never instead of it. A photograph Google
+                        // would not take is not a contact that failed to save, and saying so in the
+                        // same breath as "Saved" is what keeps those two facts apart.
+                        PhotoOutcome(saveResult.photo)
+                    }
+                    else -> Unit
+                }
             }
 
             when (blocker) {
@@ -401,88 +493,6 @@ fun CardScreen(
                 }
             }
             val undoOffered = counting && cardUndoOffered(savedAt!!, now)
-
-            // FR-1208's answer, said in the words the date side already uses for the same fact, so a
-            // user who has seen "Already saved" on a capture reads this the same way.
-            when (saveResult) {
-                // FR-1210 and NFR-303: an undo says what it did. The failed branch is the one
-                // that matters — the contact is still in the account and this is the only place
-                // the user is told.
-                is CardSaveResult.Undone -> Note(
-                    stringResource(
-                        when {
-                            // FR-1232. **A different sentence, because a different thing
-                            // happened**: "Nothing was kept", over a contact still in the account
-                            // carrying its old employer again, would be false in the direction
-                            // that matters most on this screen.
-                            saveResult.removed && saveResult.restored -> R.string.card_update_undone
-                            saveResult.removed -> R.string.card_undone
-                            saveResult.restored -> R.string.card_update_undo_failed
-                            else -> R.string.card_undo_failed
-                        }
-                    )
-                )
-                is CardSaveResult.AlreadySaved -> Note(stringResource(R.string.card_already_saved))
-
-                // FR-1231, FR-1233. **Field by field, with what the contact holds now beside
-                // each**, which is the requirement's own wording and not a summary of it: "3
-                // fields would change" is a sentence nobody can answer, and the value that would
-                // be replaced is the one thing the user cannot look up while holding a card.
-                //
-                // FR-1233 needs nothing of its own here. Employer and job title are visible
-                // because every field is, and the move-note analogue the requirement forbids is
-                // not merely absent - nothing on this path composes prose to put in a contact.
-                is CardSaveResult.UpdateOffered -> {
-                    Note(stringResource(R.string.card_update_offered))
-                    // FR-1205 and SRS 1.159: a tick and an editable value per line. FR-511's
-                    // per-date checkbox and FR-608's per-step tick, a third time — the developer
-                    // must be able to take the job title, decline the address, and correct the
-                    // website the recogniser got wrong, all without leaving the offer.
-                    saveResult.changes.forEachIndexed { index, change ->
-                        OfferRow(
-                            label = stringResource(fieldLabel(change.field)),
-                            stored = change.stored,
-                            existing = change.existing,
-                            replaces = change.replaces != (index in offerFlipped),
-                            onFlip = { onOfferFlip(index) },
-                            value = offerValues[index] ?: change.captured,
-                            ticked = index in offerAccepted,
-                            onTick = { on -> onOfferTick(index, on) },
-                            onEdit = { text -> onOfferEdit(index, text) },
-                        )
-                    }
-                    Note(stringResource(R.string.card_update_edit_hint))
-                    // Said out loud because it is the promise the requirement makes: an offer
-                    // that has already written something is not an offer.
-                    Note(stringResource(R.string.card_update_nothing_written))
-                    if (offerAccepted.isEmpty()) {
-                        Note(stringResource(R.string.card_update_nothing_ticked))
-                    }
-                }
-
-                is CardSaveResult.Updated -> Note(stringResource(R.string.card_updated))
-                is CardSaveResult.Failed -> Note(stringResource(R.string.card_save_failed))
-                // FR-1212. Held is not Saved, and saying "saved" here would be a lie in the
-                // reassuring direction: the account holds nothing yet.
-                is CardSaveResult.Held -> {
-                    Note(stringResource(R.string.card_held))
-                    PhotoOutcome(saveResult.photo)
-                }
-                is CardSaveResult.Saved -> {
-                    Note(
-                        stringResource(
-                            // A write made without an answer says so. SRS 5.8's rule reaching a
-                            // screen: a scan that gave up must not be reported as a clean check.
-                            if (saveResult.checked) R.string.card_saved else R.string.card_saved_unchecked
-                        )
-                    )
-                    // FR-1226, **beside** the save and never instead of it. A photograph Google
-                    // would not take is not a contact that failed to save, and saying so in the
-                    // same breath as "Saved" is what keeps those two facts apart.
-                    PhotoOutcome(saveResult.photo)
-                }
-                else -> Unit
-            }
 
             // FlowRow for the reason the capture sheet uses one: a clipped action label is a silent
             // failure, and "Update" became "Up…" on a real device once already.
