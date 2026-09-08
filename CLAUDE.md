@@ -1655,6 +1655,46 @@ behaviour**, and both passed honestly throughout the period this client was losi
 **SRS 1.189's account of the gap was corrected**: a *transport* line has existed since 6 Sep;
 what was missing is the decision line above it.
 
+### Watched on a device, 8 September 2026 — the upgrade, NFR-101, and SRS 1.193's undo line
+
+Pixel 6 Pro, Android 17 (API 37), debug build at `723875f`. **Nothing in this run touched the
+developer's Google account**, and the evidence for that is below rather than asserted.
+
+| Check | Result |
+|---|---|
+| **The upgrade, and the launch canary** | **Pass.** `adb install -r` over the 7 Sep 17:10 build. All six stores survived with their sizes and mtimes unchanged — `account_defaults.xml`, `card_queue.xml`, `secrets.xml`, `settings.xml`, `write_queue.xml`, `latch.db` — so setup did not run again. `MainActivity` reached `topResumedActivity`, no `FATAL EXCEPTION`. **The installed `base.apk` md5 equals the built artifact byte for byte**, which is SRS 1.165's own instrument: a stale install is the first thing to rule out and the cheapest. |
+| **NFR-101 for text, after two slices touched the capture path** | **Pass, and comfortably.** Cold start to content ready, force-stopped between runs: **396 / 379 / 389 ms** against 800 ms, worst **396 ms** — against the 577 ms worst-of-seven this record holds from 31 Aug. `content ready, ocr=false, chars=31 in 0–1ms` every time, no spinner. The sheet was read rather than eyeballed: `EVENT`, `8 Sept 2027, 9:00 am`, the destination chip, FR-507's cost note, and the recipe chooser offered. **Nothing was saved** — the sheet was dismissed with Back. |
+| **SRS 1.193 — the undo says what it did** | **Pass on the `dropped` branch, and it is the branch that had no line at all.** `save decision=Undone deleted=0 restored=0 dropped=1 failed=0`, seen on the device the day it was built. **Run offline on purpose so the account could not be touched**: the fixture is a capture saved with no network, which queues, then undone inside the ten seconds, which drops the entry — so nothing ever reaches Google *by construction* rather than by care. |
+
+**The positive control was taken before the run, not after.** The condition that would have made this
+check touch the account is a live network at save time, so the network was confirmed genuinely down
+first: `ping www.googleapis.com` answered **`unknown host`**, which is DNS failing rather than ICMP
+being dropped. Afterwards it resolved again. Airplane mode alone would not have been evidence —
+Wi-Fi survives it on this device.
+
+**Three facts establish that nothing was written.** The save reported *"No connection. Saved on this
+phone…"* and never "Saved". The **queue was empty (`<map />`) at the moment connectivity returned**,
+so there was nothing left to drain — checked before the network was restored, which is the ordering
+that matters. And no Latch worker has run since: the only `WM-WorkerWrapper` results in the log
+belong to Google Messages and Glance.
+
+**Two things this run did NOT establish, named rather than implied.**
+
+**The undo line's other two branches are unwatched.** `deleted=N` needs a real write to Google and
+`restored=N` needs an FR-1231 contact update — the FR-1232 row that SRS 1.189 could only close on the
+account. Both are still owed and both cost the account something.
+
+**No `save decision=` line appears for an offline save, and that is correct rather than a gap.**
+FR-803's probe throws for want of a network *before* `writeDecision` is reached, so the save goes
+straight to `queueOrFail` and there is no decision to name. Worth knowing before a future run reads
+its absence as a defect.
+
+**And SRS 1.190 cannot be checked on the Android sheet at all.** `RecipeStepRow` renders
+`(step.start?.toLocalDate() ?: step.dueDate)` — **the date only, never a time** — so an explicit
+midnight and an all-day capture look identical there whichever way the flag went. The desktop's
+`stepWhenLine` does show the time and is where that row is watchable. Recorded so the Android row is
+not attempted and read as a pass.
+
 ### Device pass backlog — the four slices of 8 September
 
 Nothing below has been done by a person, and **no device was attached** to the session that wrote
@@ -1668,10 +1708,10 @@ lost capture.
 | **SRS 1.192 — the tray asks, and pressing it signs in** | The count row reads **"N waiting - sign in to save them"**, not *waiting to be written*, and pressing it opens the browser rather than retrying. Failure is the ordinary sentence, which names a wait the user can do nothing about | as above, with something queued |
 | **SRS 1.192 — signing in drains it** | Sign in from that row: the entry writes **within seconds**, not at the next backoff. Failure is nothing happening for up to half an hour after the user did exactly what was asked, which reads as the request having been pointless | as above |
 | **SRS 1.193 — the undo says what it was** | `adb logcat -v time \| grep LatchTiming` across a card update and its undo: `card decision=Updated fields=N mask=…` with **no `clientData`** in the mask, then `card decision=Undone deleted=0 restored=1 dropped=0 failed=0`. Failure is the transport line alone, which SRS 1.129 says is weaker than it looks | FR-1230's generated card against an existing contact — no camera, no write until Save |
-| **SRS 1.193 — a date-side undo too** | The same grep over an ordinary save and undo: `save decision=Undone deleted=1 …`. And the **home screen** path, which is where an offer has outlived the process that made it and a pass has least other evidence | any capture, undone inside ten seconds |
+| ~~**SRS 1.193 — a date-side undo, the `dropped` branch**~~ | **PASS, 8 Sep 2026, offline so the account could not be touched**: `save decision=Undone deleted=0 restored=0 dropped=1 failed=0`. **Still owed**: `deleted=N`, which needs a real write, and the **home screen** path, where an offer has outlived the process that made it | done for `dropped`; a write is owed for `deleted` |
 | **SRS 1.191 — a partly written chain** | Hard to arrange by hand and **recorded as such rather than pretended at**: it needs one insert of a chain to be permanently refused while an earlier one succeeded. The JVM tests are the cover, as SRS 1.24's resume already is. What a device *can* show cheaply is the negative: an ordinary four-item chain still writes four and reports `Saved`, not `Saved 4 of 4` | AC-11's four-date capture |
-| **SRS 1.190 — nothing changed** | The standing regression check, not a new behaviour: AC-06's recipe capture still puts prep on the same day, and an all-day capture expanded by a recipe is still an all-day event. The corrected case needs an explicit midnight *and* a recipe, which is not a shape any device row has ever used | AC-06's capture |
-| **NFR-101 is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms, `content ready, ocr=false`. The standing re-check: `CaptureSaver`'s failure path and the undo path were both touched | "Kickoff 8 September 2027 at 9am" |
+| **SRS 1.190 — nothing changed** | The standing regression check, not a new behaviour. **Not watchable on Android**: `RecipeStepRow` shows the date only, so both readings of the flag render identically — the desktop's `stepWhenLine` is where this row lives | AC-06's capture, on **Windows** |
+| ~~**NFR-101 is unmoved**~~ | **PASS, 8 Sep 2026: 396 / 379 / 389 ms cold against 800 ms**, `content ready, ocr=false, chars=31 in 0–1ms`, no spinner, nothing saved | done |
 
 ## The ship-v1.0 run — Step 0, building every unbuilt requirement (6 Sep 2026)
 

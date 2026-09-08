@@ -62,13 +62,31 @@ at any of them. The four together cost **+172 bytes** of release APK, measured b
 four slices of 8 September*. Run the **Windows sign-in row first**: it is the only one whose fix is
 unwatched *and* whose failure mode is a lost capture.
 
-Both clients are built at `8c2b059` and **neither is installed**: `app/build/outputs/apk/debug/`
-and `desktop/build/install/desktop/`. **The installed Windows client is older, read off the disk
-rather than assumed**: `%LOCALAPPDATA%\Latch\app\lib\desktop.jar` is dated **7 Sep 10:17**, so
-it does not have SRS 1.192 in it. Re-run `install-local.ps1` before testing that row or the run
-will measure the old behaviour — and an old build cannot even produce the fixture, since it
-*drops* the capture rather than queueing it. `queue.dat` is currently **absent**, so the queue is
-empty and the row starts from a clean fixture.
+**Both clients are installed at today's build, 8 Sep 2026.** Android: `adb install -r`, all six
+stores survived, launch canary passed, and the installed `base.apk` md5 equals the built artifact.
+Windows: `install-local.ps1` re-run — `desktop.jar` is now dated **8 Sep 13:05** — a launch canary
+passed (a fresh process alive at eight seconds with nothing on stderr), and it is running from the
+Desktop shortcut as a single instance. `secrets.dat`, `inbox.dat` and `recipes.dat` were untouched.
+**The startup shortcut was absent beforehand and was left absent**: this record used to say the
+client was installed with `-StartWithWindows`, and that is stale.
+
+**Watched on the device the same day, with nothing written to the account**: NFR-101 at
+**396 ms** worst of three cold runs against 800 ms, and **SRS 1.193's undo line firing** —
+`save decision=Undone deleted=0 restored=0 dropped=1 failed=0`, run offline so the account could
+not be touched by construction. `CLAUDE.md` carries the full row and the positive control.
+
+**What is owed is still a person**, and it is now three things rather than eight:
+
+1. **The Windows sign-in row (SRS 1.192)** — revoke or expire the grant, capture, and check the
+   tray says *sign in to save them* and that `queue.dat` holds the entry; then sign in and watch it
+   drain in seconds. **This is the one to run first**: its failure mode is a lost capture. The
+   client on this machine now has the fix in it; before today it did not, and an old build cannot
+   even produce the fixture.
+2. **The undo line's other two branches (SRS 1.193)** — `deleted=N` needs a real write and undo;
+   `restored=N` needs an FR-1231 contact update and undo, which is the FR-1232 row SRS 1.189 could
+   only close on the account. Both cost the account something, which is why they were not run.
+3. **SRS 1.190 on Windows** — `RecipeStepRow` on Android shows the date only, so that row is not
+   watchable there at all; the desktop's `stepWhenLine` is where it lives.
 
 ## Two instrument lessons from 7 September, both of which nearly produced a wrong answer
 
