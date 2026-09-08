@@ -12,7 +12,6 @@ import com.latch.recipes.HolidayCalendar
 import com.latch.recipes.PlannedItem
 import com.latch.recipes.RecipeExpander
 import com.latch.recipes.WorkingDayCalculator
-import java.time.LocalDateTime
 
 /**
  * FR-601 to FR-608: a captured date expanded into a chain, and the chain turned into items.
@@ -73,9 +72,10 @@ fun workingDayCalculator(settings: LatchSettings, bundled: List<Holiday>): Worki
 /**
  * FR-601: the chain this recipe would produce from this capture, or null where it cannot.
  *
- * The anchor is the primary candidate's date, with its time where it has one and midnight where
- * it does not — an all-day capture expanded by a recipe gives its steps a start of midnight,
- * which the drafting step below turns back into all-day events. Nothing is invented: a step's
+ * The anchor is the primary candidate's date and its time, **the time passed on as null where
+ * the capture named none** rather than collapsed into midnight (SRS 1.190). That nullability is
+ * load-bearing: it is the one fact separating a capture with no time from one written `at 12am`,
+ * and the drafting step below decides the all-day flag from it. Nothing is invented: a step's
  * date is arithmetic over a date the writer gave (FR-604), which is what a recipe *is*.
  */
 fun expandRecipe(
@@ -88,11 +88,11 @@ fun expandRecipe(
     if (recipeBlocker(result) != null) return null
     val candidate = result.primary
     val date = candidate.date?.value ?: return null
-    val anchor = candidate.time?.value?.let { LocalDateTime.of(date, it) } ?: date.atStartOfDay()
 
     return RecipeExpander(workingDayCalculator(settings, bundledHolidays)).expand(
         recipe = recipe,
-        anchor = anchor,
+        anchorDate = date,
+        anchorTime = candidate.time?.value,
         capturedTitle = result.title.value,
         chainId = chainId,
     )
@@ -134,10 +134,14 @@ fun recipeItems(
         when (step.type) {
             ItemType.EVENT -> {
                 val start = requireNotNull(step.start) { "A recipe event step has no start" }
-                // An anchor with no time expands to midnight, which is an all-day event rather
-                // than a meeting at 00:00 — the same reading `ItemDrafts` takes for a dated
-                // capture with no time, and taken here too so the two cannot differ.
-                val allDay = start.toLocalTime() == java.time.LocalTime.MIDNIGHT
+                // A capture with no time is an all-day event rather than a meeting at 00:00 —
+                // the same reading `ItemDrafts` takes, tested here on the same fact so the two
+                // cannot differ. **Not `start.toLocalTime() == MIDNIGHT`**, which is what this
+                // line said until SRS 1.190: an anchor with no time expands to midnight, so
+                // that test could not tell a capture that named no time from one that named
+                // 00:00, and `Party 5 October 2027 at 12am` became all-day here while the
+                // ordinary path drafted the timed event the writer asked for.
+                val allDay = !step.anchorHadTime
                 Item(
                     id = "$chainId#$index",
                     captureId = captureId,

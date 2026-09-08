@@ -162,12 +162,26 @@ class RecipeModelTest {
 
     @Test
     fun `an all-day capture expands to all-day rows and offers no time`() {
-        // An anchor with no time expands to midnight, which `recipeItems` turns into an all-day
-        // event rather than a meeting at 00:00 — so the line must not offer a time either.
+        // A capture with no time becomes an all-day event rather than a meeting at 00:00 — so
+        // the line must not offer a time either.
         val recipe = assertNotNull(BuiltInRecipes.byId("builtin.meeting_prep"))
         val chain = assertNotNull(applyRecipe(recipe, parse("Project sync on 8 September 2026"), settings, "c", today))
         val rows = recipeChainModel(recipe, chain.planned, chain.selected).rows
         assertTrue(rows.none { ":" in it.whenLine.substringAfter(",", "") }, rows.map { it.whenLine }.toString())
+    }
+
+    @Test
+    fun `an explicit midnight keeps its time on the row`() {
+        // SRS 1.190's third site. The when-line read the start's clock value, so a capture
+        // written `at 12am` was displayed — and saved — as an all-day row. It reads the fact
+        // the drafting step reads now, so the screen and the write cannot disagree either.
+        val recipe = assertNotNull(BuiltInRecipes.byId("builtin.meeting_prep"))
+        val chain = assertNotNull(applyRecipe(recipe, parse("Cutover on 8 September 2026 at 00:00"), settings, "c", today))
+        val rows = recipeChainModel(recipe, chain.planned, chain.selected).rows
+        assertTrue(
+            rows.any { it.whenLine.endsWith("00:00") },
+            rows.map { it.whenLine }.toString(),
+        )
     }
 
     @Test

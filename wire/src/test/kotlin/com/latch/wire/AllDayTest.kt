@@ -99,11 +99,35 @@ class AllDayTest {
 
     @Test
     fun `a recipe's event step is all-day where the capture carried no time`() {
-        // FR-601 through the other drafting path. This is the half that agrees with
-        // `draftItems`; where the two disagree is SRS 1.180 and is deliberately not pinned here.
+        // FR-601 through the other drafting path.
         val item = recipeEventStep("Sports day on 8 September 2027")
         assertTrue(item.allDay)
         assertEquals(LocalDateTime.of(2027, 9, 9, 0, 0), item.end)
+    }
+
+    @Test
+    fun `an explicit midnight is a timed event on both drafting paths`() {
+        // SRS 1.180's divergence, closed by SRS 1.190 and pinned here — the assertion this
+        // class deliberately did not make while the two paths disagreed, because a test over
+        // the behaviour as it stood would have pinned the wrong behaviour.
+        //
+        // Asserted as an *equality between the paths* rather than as two separate expectations.
+        // What `:wire` exists to guarantee is that one message does not become two different
+        // things, so the failure to catch is the two answers differing, whichever is right.
+        val text = "Party 5 October 2027 at 12am"
+        val ordinary = items(text, ItemType.EVENT).first()
+        val viaRecipe = recipeEventStep(text)
+
+        assertFalse(ordinary.allDay, "the ordinary path already read 00:00 as a time")
+        assertEquals(
+            ordinary.allDay,
+            viaRecipe.allDay,
+            "one capture, two drafting paths, one answer",
+        )
+        assertEquals(LocalTime.MIDNIGHT, viaRecipe.start?.toLocalTime())
+        // The end follows the flag, and is the half that fails silently: an all-day event whose
+        // end is the same day is one Google renders as nothing at all.
+        assertEquals(LocalDateTime.of(2027, 10, 5, 1, 0), viaRecipe.end)
     }
 
     private fun recipeEventStep(text: String): Item {

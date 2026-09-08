@@ -144,10 +144,11 @@ internal fun stepWhenLine(step: PlannedItem): String {
     val start = step.start
     if (start != null) {
         val day = start.format(STEP_DAY)
-        // An anchor with no time expands to midnight, which `recipeItems` turns into an all-day
-        // event rather than a meeting at 00:00 — so the line must not offer a time either.
-        return if (start.toLocalTime() == java.time.LocalTime.MIDNIGHT) day
-        else day + ", " + start.format(STEP_TIME)
+        // A capture with no time becomes an all-day event rather than a meeting at 00:00, so
+        // the line must not offer a time either. It reads the same fact `recipeItems` reads
+        // (SRS 1.190) and not the start's clock value, which cannot tell a capture that named
+        // no time from one written `at 12am` — the second showed no time here until then.
+        return if (!step.anchorHadTime) day else day + ", " + start.format(STEP_TIME)
     }
     return step.dueDate?.format(STEP_DAY) ?: DesktopStrings.NO_DATE
 }

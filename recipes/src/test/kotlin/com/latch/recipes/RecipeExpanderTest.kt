@@ -3,8 +3,10 @@ package com.latch.recipes
 import com.latch.core.model.ItemType
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RecipeExpanderTest {
@@ -27,7 +29,8 @@ class RecipeExpanderTest {
 
         val chain = expander.expand(
             recipe = BuiltInRecipes.byId(BuiltInRecipes.MEETING_WITH_PREP)!!,
-            anchor = tuesdayMeeting,
+            anchorDate = tuesdayMeeting.toLocalDate(),
+            anchorTime = tuesdayMeeting.toLocalTime(),
             capturedTitle = "Budget review",
             chainId = "chain-1",
         )
@@ -41,7 +44,8 @@ class RecipeExpanderTest {
     fun `every item in a chain carries the same chain id`() {
         val chain = expander.expand(
             recipe = BuiltInRecipes.byId(BuiltInRecipes.TRAVEL_BOOKING)!!,
-            anchor = LocalDateTime.of(2026, 11, 14, 11, 30),
+            anchorDate = LocalDate.of(2026, 11, 14),
+            anchorTime = LocalTime.of(11, 30),
             capturedTitle = "Flight AI-202",
             chainId = "chain-2",
         )
@@ -54,7 +58,8 @@ class RecipeExpanderTest {
     fun `tasks in a chain carry a due date and no start time`() {
         val chain = expander.expand(
             recipe = BuiltInRecipes.byId(BuiltInRecipes.EXAM_OR_INTERVIEW)!!,
-            anchor = LocalDateTime.of(2026, 12, 3, 9, 0),
+            anchorDate = LocalDate.of(2026, 12, 3),
+            anchorTime = LocalTime.of(9, 0),
             capturedTitle = "Physics exam",
             chainId = "chain-3",
         )
@@ -72,12 +77,33 @@ class RecipeExpanderTest {
     fun `the captured title is substituted into every step template`() {
         val chain = expander.expand(
             recipe = BuiltInRecipes.byId(BuiltInRecipes.PAYMENT_DUE)!!,
-            anchor = LocalDateTime.of(2026, 9, 5, 0, 0),
+            anchorDate = LocalDate.of(2026, 9, 5),
+            anchorTime = null,
             capturedTitle = "Electricity bill",
             chainId = "chain-4",
         )
 
         assertTrue(chain.none { it.title.contains("{title}") })
         assertTrue(chain.all { it.title.contains("Electricity bill") })
+    }
+
+    @Test
+    fun `an anchor with no time is carried as a fact, not encoded as midnight`() {
+        // SRS 1.190. `start` is midnight either way, so it cannot answer this and the flag has
+        // to: an explicit midnight and no time at all are one value by the time a step is built,
+        // and `:wire` decides the all-day flag from the fact rather than from the value.
+        val recipe = BuiltInRecipes.byId(BuiltInRecipes.MEETING_WITH_PREP)!!
+        val untimed = expander.expand(recipe, LocalDate.of(2027, 10, 5), null, "Party", "c")
+        val midnight = expander.expand(recipe, LocalDate.of(2027, 10, 5), LocalTime.MIDNIGHT, "Party", "c")
+
+        val untimedEvent = untimed.first { it.type == ItemType.EVENT }
+        val midnightEvent = midnight.first { it.type == ItemType.EVENT }
+        assertEquals(
+            untimedEvent.start,
+            midnightEvent.start,
+            "the two are the same LocalDateTime, which is why the fact has to be carried",
+        )
+        assertFalse(untimedEvent.anchorHadTime)
+        assertTrue(midnightEvent.anchorHadTime)
     }
 }
