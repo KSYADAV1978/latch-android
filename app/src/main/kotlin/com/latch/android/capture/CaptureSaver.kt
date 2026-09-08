@@ -33,6 +33,8 @@ import com.latch.google.RescheduleMatch
 import com.latch.google.TaskWrite
 import com.latch.google.TasksApi
 import com.latch.google.WriteDecision
+import com.latch.google.ChainOutcome
+import com.latch.google.chainOutcome
 import com.latch.google.isWorthRetrying
 import com.latch.google.itemDatesOf
 import com.latch.google.movesNothing
@@ -243,6 +245,29 @@ sealed interface SaveState {
      */
     data class SentToInbox(val reason: InboxReason) : SaveState
 
+    /**
+     * SRS 1.191: some of the chain is in the account and the rest never will be.
+     *
+     * **Neither [Saved] nor [Failed], because it is neither and both readings lose something
+     * the user needs.** Reported as saved — which is what the desktop did — the loss is
+     * silent and the only clue is a count nobody counted. Reported as failed — which is what
+     * *this* client did — the user is told nothing was saved about items they can see in
+     * their calendar, and no undo is offered, so the recourse is to go and delete them by
+     * hand having first been told they do not exist.
+     *
+     * [written] of [total] is the whole point of the state, for the reason
+     * [UndoFailed.removed] is: the recourse for the items that did not land is to capture the
+     * message again, and a user cannot judge that without the number.
+     *
+     * It carries an undo window over **what landed**. Taking it back is exact — those items'
+     * remote ids were recorded as they were written.
+     */
+    data class PartlySaved(
+        val written: Int,
+        val total: Int,
+        val undo: UndoWindow? = null,
+    ) : SaveState
+
     data class Failed(val reason: SaveFailure) : SaveState
 
     /** FR-807: the deletes are in flight. */
@@ -271,6 +296,9 @@ sealed interface SaveState {
 fun undoOffer(state: SaveState, now: Instant): UndoWindow? = when (state) {
     is SaveState.Saved -> state.undo
     is SaveState.Queued -> state.undo
+    // SRS 1.191. A partly written chain is the state that most needs the offer: some items are
+    // in the account and the user did not choose that shape of save.
+    is SaveState.PartlySaved -> state.undo
     else -> null
 }?.takeIf { it.isOpen(now) }
 
@@ -290,6 +318,9 @@ fun saveIsOffered(state: SaveState): Boolean = when (state) {
     is SaveState.Saved,
     is SaveState.Queued,
     is SaveState.SentToInbox,
+    // SRS 1.191: part of this capture is in the account, so Save is not the way back —
+    // pressing it again would answer FR-803 with the hash the written half already carries.
+    is SaveState.PartlySaved,
     SaveState.AlreadySaved,
     SaveState.Undoing,
     SaveState.Undone,
@@ -670,18 +701,43 @@ class CaptureSaver(
             throw cancelled
         } catch (failure: Exception) {
             // FR-806, and NFR-301 is what it is for: *capture shall function fully offline; only
-        // the write to Google requires connectivity.* Everything above this line — the
-        // recognition, the parse, the classification, the confirmation — has already happened
-        // without a network, because FR-501 puts all of it on the device. This is the one step
-        // that needs one, and the queue is how a capture completes anyway.
-        //
-        // FR-806: offline is a delay, not a failure. Anything that will not come right
+            // the write to Google requires connectivity.* Everything above this line — the
+            // recognition, the parse, the classification, the confirmation — has already
+            // happened without a network, because FR-501 puts all of it on the device. This is
+            // the one step that needs one, and the queue is how a capture completes anyway.
+            //
+            // FR-806: offline is a delay, not a failure. Anything that will not come right
             // on its own still is one, and is reported rather than hidden in a queue the
             // user would watch never drain.
-            if (isWorthRetrying(failure)) {
-                offlineFallback(captured, result, context, items, metadata, body)
-            } else {
-                SaveState.Failed(SaveFailure.WRITE_FAILED)
+            //
+            // SRS 1.191: a chain interrupted part-way is a **third** answer, and both of the
+            // two this used to give were wrong about it. `chainOutcome` is the rule, shared
+            // with the desktop so one interrupted chain cannot be read two ways.
+            val interrupted = failure as? ChainInterrupted
+            val cause = interrupted?.cause ?: failure
+            val written = interrupted?.written.orEmpty()
+
+            when (chainOutcome(written.size, items.size, isWorthRetrying(cause))) {
+                ChainOutcome.QUEUED ->
+                    offlineFallback(captured, result, context, items, metadata, body, written)
+
+                ChainOutcome.PARTLY_WRITTEN -> SaveState.PartlySaved(
+                    written = written.size,
+                    total = items.size,
+                    // The undo covers what landed and nothing else. Without it the user is
+                    // told some items are in their calendar and given no way to take them
+                    // back — which is worse than the silence this replaces, not better.
+                    undo = undoWindowFor(metadata, written.map { it.created }),
+                )
+
+                // Nothing reached the account, so there is nothing to undo and nothing to say
+                // a number about. The two states this branch and the one above replace were
+                // one state, which is how the middle case stayed invisible.
+                ChainOutcome.FAILED -> SaveState.Failed(SaveFailure.WRITE_FAILED)
+
+                // `write` threw, so the chain did not finish; reaching here would be a bug in
+                // the rule rather than an outcome, and reporting a failure is the safe read.
+                ChainOutcome.WRITTEN -> SaveState.Failed(SaveFailure.WRITE_FAILED)
             }
         }
 
@@ -811,6 +867,12 @@ class CaptureSaver(
         items: List<Item>,
         metadata: RemoteMetadata,
         body: String,
+        /**
+         * SRS 1.191: the items of this chain already in the account, where the network went
+         * part-way through writing it. Empty for the ordinary offline save, which is every
+         * case this had before.
+         */
+        alreadyWritten: List<WrittenStep> = emptyList(),
     ): SaveState {
         val source = CaptureSource(captured.layer, captured.appId, captured.ocrUsed)
         if (items.size == 1 && source.routableToInbox && looksLikeOfflineReschedule(items.first(), metadata, context)) {
@@ -819,7 +881,7 @@ class CaptureSaver(
             // single `settle` harmless — it publishes the same value a second time.
             return _state.value
         }
-        return queue(items, metadata, body, context)
+        return queue(items, metadata, body, context, alreadyWritten)
     }
 
     private suspend fun looksLikeOfflineReschedule(
@@ -872,6 +934,9 @@ class CaptureSaver(
         _state.value = when (current) {
             is SaveState.Saved -> current.copy(undo = null)
             is SaveState.Queued -> current.copy(undo = null)
+            // The counts stay on screen after the offer lapses: they are what the user has to
+            // act on, and the offer lapsing does not make the chain any less partly written.
+            is SaveState.PartlySaved -> current.copy(undo = null)
             else -> return
         }
     }
@@ -888,6 +953,7 @@ class CaptureSaver(
         metadata: RemoteMetadata,
         body: String,
         context: ParseContext,
+        alreadyWritten: List<WrittenStep> = emptyList(),
     ): SaveState {
         // One entry for the chain, not one per item: SRS §7.1 at v1.23. Per item, the second
         // entry to drain would find the first entry's item under the shared source_hash and
@@ -900,9 +966,27 @@ class CaptureSaver(
                 timeZone = context.zone.id,
             )
         )
+
+        // SRS 1.191, and it is the half of that reading that prevents a **silent loss** rather
+        // than a misreport. SRS 1.24's marker cures a chain interrupted inside the drain; the
+        // seam that *feeds* the drain discarded the same fact. Without these calls the entry
+        // wakes with no markers, so `drainEntry` takes it for a fresh one, asks FR-803 whether
+        // the message has been saved, finds the item this very chain wrote — and retires the
+        // entry with the rest of the chain never written, having told the user "Queued".
+        alreadyWritten.forEach { step ->
+            val remoteId = (step.created as? CreatedItem.Written)?.remoteId ?: return@forEach
+            runCatching { writeQueue.markItemWritten(queueId, step.itemId, remoteId) }
+        }
+
         requestDrain()
         return SaveState.Queued(
-            undo = undoWindowFor(metadata, listOf(CreatedItem.Queued(queueId)))
+            // The undo covers both halves of an interrupted chain: the items that reached the
+            // account are deleted and the entry holding the rest is dropped. `removeCreated`
+            // already handles a mixed list, so undo stays exact rather than best-effort.
+            undo = undoWindowFor(
+                metadata,
+                alreadyWritten.map { it.created } + CreatedItem.Queued(queueId),
+            )
         )
     }
 
@@ -1031,6 +1115,7 @@ class CaptureSaver(
     private fun undoWindowOf(state: SaveState): UndoWindow? = when (state) {
         is SaveState.Saved -> state.undo
         is SaveState.Queued -> state.undo
+        is SaveState.PartlySaved -> state.undo
         else -> null
     }
 
@@ -1210,11 +1295,26 @@ class CaptureSaver(
     ): SaveState {
         // No duplicate check between the items of one chain: they share a source_hash by
         // design, so item two would find item one and the chain would stop there.
-        val created = items.map { item -> insert(item, defaults, metadata, body, context) }
+        //
+        // **Accumulated rather than mapped, and that is SRS 1.191's fix.** `items.map { insert }`
+        // let a failure on item two of three throw with item one already in the account and no
+        // record anywhere that it was — so the caller reported a failure over an item the user
+        // could see in their calendar and could not undo, and a *retryable* failure queued the
+        // whole chain again with nothing to say which part of it was already written.
+        val written = mutableListOf<WrittenStep>()
+        for (item in items) {
+            try {
+                written += WrittenStep(item.id, insert(item, defaults, metadata, body, context))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                throw ChainInterrupted(written.toList(), failure)
+            }
+        }
 
         return SaveState.Saved(
             searchWasCapped = searchWasCapped,
-            undo = undoWindowFor(metadata, created),
+            undo = undoWindowFor(metadata, written.map { it.created }),
         )
     }
 
@@ -1285,6 +1385,28 @@ class CaptureSaver(
         return created
     }
 }
+
+/**
+ * One item of a chain that reached the account, and the id it was written under.
+ *
+ * The `Item.id` is carried beside the [CreatedItem] because the two are wanted by different
+ * things and neither can supply the other: [CreatedItem.Written] holds a *remote* id, which is
+ * what an undo deletes, and SRS 1.24's queue marker is keyed on the *local* one.
+ */
+private class WrittenStep(val itemId: String, val created: CreatedItem)
+
+/**
+ * A chain that stopped part-way, carrying what it had already written (SRS 1.191).
+ *
+ * An exception rather than a return value because `insert` is called from inside `create` and
+ * the decision belongs to the caller of `write`, which is three frames up and holds the capture
+ * an offline fallback needs. What matters is that the failure no longer travels **alone**: it
+ * used to, and everything above it then had to assume the account was untouched.
+ */
+private class ChainInterrupted(
+    val written: List<WrittenStep>,
+    override val cause: Throwable,
+) : Exception(cause)
 
 /**
  * Everything an FR-804 offer needs in order to be answered either way.

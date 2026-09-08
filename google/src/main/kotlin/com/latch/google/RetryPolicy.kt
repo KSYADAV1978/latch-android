@@ -70,3 +70,57 @@ object RetryPolicy {
      */
     const val GIVE_UP_AFTER: Int = 12
 }
+
+/**
+ * What became of a chain, when a write part-way through it did not succeed (SRS 1.191).
+ *
+ * A chain of N items is written one item at a time, and there is no transaction over the
+ * three-or-four requests that puts them in the account. So "the save" has four outcomes and
+ * not two, and until SRS 1.191 both clients collapsed the middle one into an end — the desktop
+ * into [WRITTEN] and Android into [FAILED], in opposite directions and each wrong in its own
+ * way.
+ */
+enum class ChainOutcome {
+    /** Every item is in the account. */
+    WRITTEN,
+
+    /**
+     * Some items are in the account and the rest never will be without being captured again.
+     *
+     * The one this enum exists for. It is neither a success nor a failure and must not be
+     * reported as either: the items that landed are real and undoable, and the ones that did
+     * not are lost unless the user is told the number.
+     */
+    PARTLY_WRITTEN,
+
+    /**
+     * The rest are held for FR-806's queue — including where some of the chain was already
+     * written, which is the case the marker on the queue entry exists for (SRS 1.24).
+     */
+    QUEUED,
+
+    /** Nothing reached the account, and waiting will not change that. */
+    FAILED,
+}
+
+/**
+ * The rule, as a pure function, so the two clients cannot read one interrupted chain two ways.
+ *
+ * It lives beside [isWorthRetrying] rather than in either client for the reason `writeDecision`
+ * does: it is a decision about a write to Google that §4.1's clients both take, and a client
+ * that took it differently would tell one user their capture was saved and another that it
+ * failed, about the identical thing.
+ *
+ * [written] is how many of [total] reached the account before the failure — **not** how many
+ * requests were attempted. [retryable] is [isWorthRetrying] of the failure that stopped it.
+ */
+fun chainOutcome(written: Int, total: Int, retryable: Boolean): ChainOutcome = when {
+    written >= total -> ChainOutcome.WRITTEN
+    // The queue takes the remainder whether or not any of the chain landed. SRS 1.24's
+    // per-item marker is what makes the second case safe: without it the drain asks FR-803
+    // about the message, finds the item this chain itself wrote, and retires the entry with
+    // the rest never written.
+    retryable -> ChainOutcome.QUEUED
+    written > 0 -> ChainOutcome.PARTLY_WRITTEN
+    else -> ChainOutcome.FAILED
+}

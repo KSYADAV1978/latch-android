@@ -249,6 +249,11 @@
     <!-- FR-806: no network, so the capture is on disk and goes to Google when there is one.
          Deliberately does not say "saved" — nothing is in the account yet. -->
     <string name="capture_queued">No connection. Saved on this phone and will go to %1$s when you are back online.</string>
+    <!-- SRS 1.191: some of a chain reached Google and the rest cannot without being captured
+         again. Says the number, because the recourse is to capture the message again and the
+         user cannot judge that without it. Never phrased as "saved" or as "could not save":
+         both are true of a different half of what happened. -->
+    <string name="capture_saved_partly">Saved %1$d of %2$d items to Google. The other %3$d could not be saved — capture the message again for those.</string>
     <!-- NFR-303: a failure says what happened and what was not saved. -->
     <string name="capture_save_error">Could not save to Google. Check your connection and try again — nothing was saved.</string>
     <string name="capture_save_no_destination">Finish setting up Latch before saving.</string>

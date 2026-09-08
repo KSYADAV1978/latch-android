@@ -268,6 +268,126 @@ class MultiDateSaveTest {
         assertEquals(4, queue.entries.values.single().items.size)
     }
 
+    // ----- SRS 1.191: a chain interrupted part-way through its inserts -----
+
+    @Test
+    fun `a chain refused part-way reports what landed and what did not`() = runTest {
+        // The condition that would make this fail: two events reach Google and the third is
+        // refused with a 400, which no retry fixes. Before SRS 1.191 the exception travelled
+        // alone, so the saver could not know the account had been touched and reported
+        // `Failed` — about two items the user can see in their calendar.
+        val calendar = RecordingCalendarApi(
+            failInsertAfter = 2,
+            failInsert = com.latch.google.GoogleRejected(400, "invalid", "refused"),
+        )
+        val saver = saver(calendar = calendar)
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        val partly = assertIs<SaveState.PartlySaved>(saver.state.value)
+        assertEquals(2, partly.written)
+        assertEquals(4, partly.total)
+        assertEquals(2, calendar.inserted, "exactly what the fake let through")
+    }
+
+    @Test
+    fun `what a partly written chain did land is undoable`() = runTest {
+        // The half that matters more than the sentence. Reported as a failure, the two items
+        // in the account carried no undo at all and the recourse was to delete them by hand
+        // having been told they did not exist.
+        val calendar = RecordingCalendarApi(
+            failInsertAfter = 2,
+            failInsert = com.latch.google.GoogleRejected(400, "invalid", "refused"),
+        )
+        val saver = saver(calendar = calendar)
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        val window = assertNotNull(undoOffer(saver.state.value, Instant.now()))
+        assertEquals(2, window.created.size, "the offer carries what landed and nothing else")
+
+        saver.undo()
+        advanceUntilIdle()
+
+        assertEquals(SaveState.Undone, saver.state.value)
+        assertEquals(2, calendar.deleted.size)
+    }
+
+    @Test
+    fun `a chain interrupted by the network queues the rest with what was written marked`() = runTest {
+        // **The silent-loss case, and the reason this row is worth more than the reporting.**
+        // Without the markers the entry wakes looking fresh, `drainEntry` asks FR-803 whether
+        // the message has been saved, finds the two items this very chain wrote — and retires
+        // the entry with the other two never written, having told the user "Queued".
+        val queue = RecordingQueue()
+        val calendar = RecordingCalendarApi(
+            failInsertAfter = 2,
+            failInsert = GoogleUnreachable("offline", java.io.IOException()),
+        )
+        val saver = saver(calendar = calendar, queue = queue)
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        assertIs<SaveState.Queued>(saver.state.value)
+        val entryId = queue.entries.keys.single()
+        assertEquals(4, queue.entries.getValue(entryId).items.size, "the whole chain, as one entry")
+
+        val marked = queue.itemsWritten.filter { it.first == entryId }
+        assertEquals(2, marked.size, "SRS 1.24's marker, for the two that were written")
+        assertEquals(
+            calendar.written.map { it.metadata.sourceHash }.size,
+            marked.size,
+            "one marker per item that actually reached the account",
+        )
+    }
+
+    @Test
+    fun `undoing an interrupted chain removes what landed and drops the rest`() = runTest {
+        // Both halves in one act, which is what the user means by undo. The written items are
+        // deleted from the account and the entry holding the remainder is dropped, so nothing
+        // drains afterwards for a capture that was taken back.
+        val queue = RecordingQueue()
+        val calendar = RecordingCalendarApi(
+            failInsertAfter = 2,
+            failInsert = GoogleUnreachable("offline", java.io.IOException()),
+        )
+        val saver = saver(calendar = calendar, queue = queue)
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        val window = assertNotNull(undoOffer(saver.state.value, Instant.now()))
+        assertEquals(3, window.created.size, "two written items and the queue entry")
+
+        saver.undo()
+        advanceUntilIdle()
+
+        assertEquals(SaveState.Undone, saver.state.value)
+        assertEquals(2, calendar.deleted.size, "the items that reached Google")
+        assertTrue(queue.entries.isEmpty(), "and the entry holding the rest")
+    }
+
+    @Test
+    fun `an ordinary offline chain is still queued with no markers at all`() = runTest {
+        // The regression guard on the change above: a save that never reached Google must
+        // leave a *fresh* entry, because a marked one skips FR-803 at drain — and for a
+        // capture nothing was written for, that check is the one that stops a duplicate.
+        val queue = RecordingQueue()
+        val saver = saver(
+            calendar = RecordingCalendarApi(failInsert = GoogleUnreachable("offline", java.io.IOException())),
+            queue = queue,
+        )
+
+        saver.save(captured(fourDates), parse(fourDates), context)
+        runCurrent()
+
+        assertIs<SaveState.Queued>(saver.state.value)
+        assertTrue(queue.itemsWritten.isEmpty(), "nothing was written, so nothing is marked")
+    }
+
     // ----- fixtures -----
 
     private fun captured(text: String) = CapturedText(text = text, layer = CaptureLayer.SHARE_SHEET)

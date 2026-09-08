@@ -8,6 +8,8 @@ import com.latch.desktop.queue.QueuedWrite
 import com.latch.desktop.queue.WriteQueue
 import com.latch.desktop.store.DesktopDefaults
 import com.latch.google.CalendarApi
+import com.latch.google.ChainOutcome
+import com.latch.google.chainOutcome
 import com.latch.google.EventWrite
 import com.latch.google.GoogleFailure
 import com.latch.google.GoogleRejected
@@ -47,6 +49,29 @@ sealed interface SaveResult {
         val count: Int,
         val created: List<CreatedItem>,
         val pending: PendingWrite? = null,
+    ) : SaveResult
+
+    /**
+     * SRS 1.191: some of the chain is in the account and the rest never will be.
+     *
+     * **This is what `Written(created.size, …)` used to be told about**, and the count was the
+     * only trace: a three-step recipe whose second insert was permanently refused reported
+     * "2 items saved to Latch", which is true and is not what happened. The count is smaller
+     * and nothing invites anyone to notice.
+     *
+     * [written] of [total] is stated rather than left to be inferred, because the recourse for
+     * the items that did not land is to capture the message again and the user cannot judge
+     * that from a number they have nothing to compare against.
+     *
+     * **It deliberately carries no `pending`.** FR-1004's delivery is reached from
+     * [Written]'s, and a payload describing this save would assert a capture reached Google
+     * that partly did not — a claim FR-1004a's enumerated key set has no way to qualify. Not
+     * carrying it makes that structural rather than a branch a later call site could forget.
+     */
+    data class PartlyWritten(
+        val written: Int,
+        val total: Int,
+        val created: List<CreatedItem>,
     ) : SaveResult
 
     /** FR-804: an item that already existed was **moved**, not created. */
@@ -276,8 +301,20 @@ class DesktopSaver(
                         alsoWritten = created.size,
                     )
                 }
-                return if (created.isEmpty()) failureFor(failure)
-                else SaveResult.Written(created.size, created, pending)
+                // SRS 1.191. `Written(created.size, …)` here reported a success over items
+                // that were permanently refused, and said nothing about them. `chainOutcome`
+                // is the rule, shared with Android so one interrupted chain is not read two
+                // ways by the two clients that produce it.
+                return when (chainOutcome(created.size, pending.items.size, retryable = false)) {
+                    ChainOutcome.PARTLY_WRITTEN -> SaveResult.PartlyWritten(
+                        written = created.size,
+                        total = pending.items.size,
+                        // The undo still covers what landed. It is more necessary here than
+                        // after a whole save: the user did not choose this shape of chain.
+                        created = created.toList(),
+                    )
+                    else -> failureFor(failure)
+                }
             }
             writtenIds[item.id] = id
             created += CreatedItem.Written(

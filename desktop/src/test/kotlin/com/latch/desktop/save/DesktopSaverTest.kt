@@ -147,6 +147,51 @@ class DesktopSaverTest {
         )
     }
 
+    // ---- SRS 1.191: a chain refused part-way -------------------------------------------
+
+    @Test
+    fun `a chain refused part-way is reported as partly written, not as saved`() = runTest {
+        // The condition that would make this fail: one event reaches Google and the second is
+        // refused with a 400, which no retry fixes. `writeAll` returned
+        // `Written(created.size, …)` for exactly this, so the user was told "1 item saved to
+        // Latch" about a capture of two — true, and not what happened, with the smaller count
+        // the only trace.
+        val calendar = FakeCalendar().apply {
+            failInsertAfter = 1
+            failInsert = GoogleRejected(400, "invalid", "refused")
+        }
+        val text = "Kickoff 1 September 2027 at 9am, review 8 September 2027 at 10am"
+        val (result, items) = itemsFor(text)
+        assertEquals(2, items.size, "the fixture must actually produce a chain")
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata")
+            .save(DesktopCapture(text), result, items, defaults, "chain-1")
+
+        val partly = assertIs<SaveResult.PartlyWritten>(outcome)
+        assertEquals(1, partly.written)
+        assertEquals(2, partly.total)
+        assertEquals(1, calendar.events.size, "exactly what the fake let through")
+        // What landed is still undoable. Reported as `Written` it was too, which is the one
+        // thing the old branch got right and the reason this is a reporting fix and not a
+        // recovery one.
+        assertEquals(1, partly.created.size)
+    }
+
+    @Test
+    fun `a chain refused on its first item is a plain failure`() = runTest {
+        // The boundary, and the guard on the rule: nothing reached the account, so there is
+        // no number to state and nothing to undo.
+        val calendar = FakeCalendar().apply { failInsert = GoogleRejected(400, "invalid", "refused") }
+        val text = "Kickoff 1 September 2027 at 9am, review 8 September 2027 at 10am"
+        val (result, items) = itemsFor(text)
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata")
+            .save(DesktopCapture(text), result, items, defaults, "chain-1")
+
+        assertIs<SaveResult.Failed>(outcome)
+        assertEquals(0, calendar.events.size)
+    }
+
     // ---- FR-806: the queue is a fallback, not the path -----------------------------------
 
     @Test

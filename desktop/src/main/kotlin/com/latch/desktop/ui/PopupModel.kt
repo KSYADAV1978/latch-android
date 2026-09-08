@@ -242,6 +242,17 @@ object DesktopStrings {
     const val IN_A_WEEK = "In a week"
     const val OTHER_DATE = "Use"
     const val SAVED = "Saved to Latch."
+
+    /**
+     * SRS 1.191: part of a chain reached Google and the rest was refused outright.
+     *
+     * `%1$s` is how many landed, `%2$s` how many there were, `%3$s` how many did not. The
+     * third is stated rather than left as a subtraction the reader performs — it is the only
+     * number they can act on, and the act is to capture the message again.
+     */
+    const val SAVED_PARTLY =
+        "Saved %1\$d of %2\$d items to Latch. The other %3\$d could not be saved — " +
+            "capture the message again for those."
     const val UPDATED = "Moved. The existing item now sits on the new date."
 
     /**

@@ -513,6 +513,24 @@ object Latch {
                 )
             }
 
+            // SRS 1.191. Not routed through the `Written` branch above and that is the point:
+            // no webhook is delivered for a save that partly did not happen, and the sentence
+            // says which half did. The undo is still offered, over what landed.
+            is SaveResult.PartlyWritten -> {
+                tray?.update(model())
+                offerUndo(
+                    open,
+                    String.format(
+                        DesktopStrings.SAVED_PARTLY,
+                        outcome.written,
+                        outcome.total,
+                        outcome.total - outcome.written,
+                    ),
+                    outcome.created,
+                    wasUpdate = false,
+                )
+            }
+
             is SaveResult.Updated -> {
                 runner.nudge(DrainTrigger.REQUEST_SUCCEEDED)
                 offerUndo(open, DesktopStrings.UPDATED, listOf(outcome.created), wasUpdate = true)
@@ -1104,7 +1122,9 @@ object Latch {
             }
 
             // Written, or already there — either way the message is in the account and the row
-            // has done its job. A queued or failed save leaves it standing.
+            // has done its job. A queued or failed save leaves it standing, and so does a
+            // partly written one (SRS 1.191): the row holds text that exists nowhere else for
+            // the items that were refused, and discarding it to tidy up would lose them.
             val settled = outcome is SaveResult.Written ||
                 outcome is SaveResult.Updated ||
                 outcome == SaveResult.AlreadySaved
@@ -1123,6 +1143,15 @@ object Latch {
     private fun heldSaveMessage(outcome: SaveResult?): String = when (outcome) {
         null -> DesktopStrings.INBOX_SAVE_FAILED
         is SaveResult.Written -> DesktopStrings.SAVED
+        // SRS 1.191, and the row deliberately stays (see `settled` below): part of this
+        // capture is in the account and the rest is not, which is not a state the Inbox has
+        // an action for.
+        is SaveResult.PartlyWritten -> String.format(
+            DesktopStrings.SAVED_PARTLY,
+            outcome.written,
+            outcome.total,
+            outcome.total - outcome.written,
+        )
         is SaveResult.Updated -> DesktopStrings.UPDATED
         SaveResult.AlreadySaved -> DesktopStrings.ALREADY_SAVED
         is SaveResult.Queued -> DesktopStrings.HELD

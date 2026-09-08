@@ -9,6 +9,7 @@ import com.latch.google.EventWrite
 import com.latch.google.FailureClass
 import com.latch.core.model.InboxCapture
 import com.latch.core.model.InboxStatus
+import com.latch.google.GoogleRejected
 import com.latch.google.ItemDates
 import com.latch.data.LocalItemIndex
 import com.latch.data.PendingWrite
@@ -214,6 +215,11 @@ internal class RecordingCalendarApi(
     private val failPatch: Boolean = false,
     /** Deletes succeed this many times, then refuse — for a partly-undone chain. */
     private val failDeleteAfter: Int? = null,
+    /**
+     * Inserts succeed this many times, then throw [failInsert] — for a chain that stops
+     * part-way (SRS 1.191). Distinct from [failInsert] alone, which refuses from the first.
+     */
+    private val failInsertAfter: Int? = null,
 ) : CalendarApi {
     val deleted = mutableListOf<Pair<String, String>>()
     val patched = mutableListOf<Triple<String, String, ItemDates.Event>>()
@@ -249,7 +255,9 @@ internal class RecordingCalendarApi(
     }
 
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
-        failInsert?.let { throw it }
+        val refuses =
+            if (failInsertAfter == null) failInsert != null else written.size >= failInsertAfter
+        if (refuses) throw (failInsert ?: GoogleRejected(400, "invalid", "events.insert refused"))
         written += event
         val id = "event-${written.size}"
         index[calendarId to event.metadata.sourceHash] = id

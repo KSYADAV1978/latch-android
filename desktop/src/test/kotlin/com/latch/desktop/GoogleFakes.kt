@@ -3,6 +3,7 @@ package com.latch.desktop
 import com.latch.google.CalendarApi
 import com.latch.google.DuplicateSearch
 import com.latch.google.EventWrite
+import com.latch.google.GoogleRejected
 import com.latch.google.ItemDates
 import com.latch.google.RescheduleSearch
 import com.latch.google.TaskList
@@ -34,6 +35,12 @@ internal class FakeCalendar : CalendarApi {
     var created: String? = null
     var calendars: List<WritableCalendar> = emptyList()
     var failInsert: Exception? = null
+
+    /**
+     * Inserts succeed this many times, then throw [failInsert] — a chain that stops part-way
+     * (SRS 1.191). Distinct from [failInsert] alone, which refuses from the first item.
+     */
+    var failInsertAfter: Int? = null
     var failList: Exception? = null
     var failFind: Exception? = null
     var failDelete: Exception? = null
@@ -57,7 +64,9 @@ internal class FakeCalendar : CalendarApi {
     override suspend fun makeVisible(calendarId: String) = Unit
 
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
-        failInsert?.let { throw it }
+        val refuses =
+            if (failInsertAfter == null) failInsert != null else events.size >= failInsertAfter!!
+        if (refuses) throw (failInsert ?: GoogleRejected(400, "invalid", "events.insert refused"))
         val id = "ev" + (events.size + 1)
         events[id] = event
         indexed[event.metadata.sourceHash] = id

@@ -240,6 +240,9 @@ fun CaptureScreen(
     val hasWindow = when (saveState) {
         is SaveState.Saved -> saveState.undo != null
         is SaveState.Queued -> saveState.undo != null
+        // SRS 1.191: a partly written chain carries an offer over what landed, so the
+        // countdown has to tick for it too or the number beside Undo would sit still.
+        is SaveState.PartlySaved -> saveState.undo != null
         else -> false
     }
     val now by produceState(Instant.now(), hasWindow) {
@@ -955,6 +958,17 @@ private fun SaveOutcome(state: SaveState, destination: DestinationState) {
                 state.title,
                 describeDates(state.existing),
                 describeDates(state.proposed),
+            )
+        )
+
+        // SRS 1.191. Neither of the two sentences beside it would be true: this is not a save
+        // and it is not a failure, and the number is the whole of what the user can act on.
+        is SaveState.PartlySaved -> Note(
+            stringResource(
+                R.string.capture_saved_partly,
+                state.written,
+                state.total,
+                state.total - state.written,
             )
         )
 
