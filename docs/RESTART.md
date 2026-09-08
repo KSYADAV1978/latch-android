@@ -1,4 +1,4 @@
-# Restart prompt — Latch, after the card-pillar run of 7 September 2026
+# Restart prompt — Latch, after the four-slice run of 8 September 2026
 
 Copy everything below the line into a fresh session.
 
@@ -7,7 +7,7 @@ Copy everything below the line into a fresh session.
 I am developing **Latch** at `C:\dev\latch-android` — an Android + Windows app that captures dates
 and business cards into Google Calendar, Tasks and Contacts. Read `CLAUDE.md` and `docs/SRS.md`
 first; they are the authoritative record and they are long. `docs/SRS.md`'s revision table now runs
-to **1.189**.
+to **1.193**.
 
 ## Standing rules — these override defaults and stay in force all session
 
@@ -39,59 +39,36 @@ photo tick was inert on the update path and reported success), and **FR-1232's u
 on a real contact** — a restore, never a delete, with `card decision=Updated fields=1` against an
 offer of three, so FR-1231's per-field ticks were finally seen reaching the wire.
 
-## The four things owed, in the order they bite
+## The four things owed are BUILT — 8 September 2026, SRS 1.190 to 1.193
 
-### 1. SRS 1.180 — the two drafting paths disagree about an explicit midnight
+All four, one commit each, pushed to GitHub at `8c2b059` and verified against the server rather
+than against this clone: `refs/heads/main` matches local `HEAD`, 333 files, and `card_corpus.tsv`
+is **not** among them — only its `.example`. **Everything is JVM-verified and DEVICE-OWED**;
+no device was attached and nothing touched the Google account.
 
-`draftItems` sets `allDay = time == null`. `recipeItems` sets it by comparing the start against
-midnight, because a `PlannedItem` carries only a `LocalDateTime` and an anchor with no time was
-expanded to midnight several steps earlier — so *no time given* and *midnight given* are the same
-value by the time the flag is decided. Measured: `Party 5 October 2027 at 12am` drafts as a **timed
-00:00–01:00 event** on the ordinary path and as an **all-day event** once a recipe is applied.
+Each commit was **re-built on its own afterwards** rather than only at the end of its slice, so
+"every slice ends green" is checked across the range: 1361 → 1374 → 1385 → 1396 tests, no failure
+at any of them. The four together cost **+172 bytes** of release APK, measured by building
+`:app:assembleRelease` at `4645957` and at `8c2b059`. No dependency was added.
 
-`:wire` exists to stop one message becoming two different things, and this is that failure inside
-the module rather than between clients — worse, because the conformance vectors that catch
-cross-client drift do not look here. **The cause is a discarded fact, not a wrong rule**:
-`expandRecipe` knows whether the candidate had a time and encodes it away as midnight. Carry it on
-`PlannedItem` so `recipeItems` tests the same fact `draftItems` does. Touches `:recipes`.
+| SRS | What it was | Where the surprise was |
+|---|---|---|
+| 1.190 | `recipeItems` compared a start against midnight, which cannot tell *no time given* from *midnight given* | **A third site had it too** — the desktop's `stepWhenLine`, where screen and write agreed *wrongly*, which is why it read as correct |
+| 1.191 | A chain interrupted part-way reported a success on the desktop | Checking Android as this brief asked found it **twice more**, and one is a **silent loss**: a retryable failure mid-chain queued with no markers, so the drain found the item the chain itself wrote and retired the entry with the rest never written |
+| 1.192 | An expired grant on Windows lost the capture | **Two tests pinned the wrong behaviour** and passed honestly throughout the period captures were being lost |
+| 1.193 | The undo emits no decision line | **SRS 1.189's account was not quite right**: a *transport* line has existed since 6 Sep. What was missing is the decision line above it |
 
-`AllDayTest` in `:wire` already pins the correct behaviour and deliberately does **not** pin the
-divergence — a test over the current behaviour would pin the wrong behaviour.
+**What is owed now is a person**, and the rows are in `CLAUDE.md` under *Device pass backlog — the
+four slices of 8 September*. Run the **Windows sign-in row first**: it is the only one whose fix is
+unwatched *and* whose failure mode is a lost capture.
 
-### 2. SRS 1.176 — a partly written chain reports success
-
-`DesktopSaver.writeAll` returns `SaveResult.Written(created.size, …)` whenever `created` is
-non-empty, so a three-step recipe whose first task is written and whose second is permanently
-refused reports **Saved 2** and says nothing about what was lost. The count is smaller and nothing
-invites anyone to notice.
-
-This is the defect the 31 Aug AC-05 note weighed and could not attribute — *a partially written
-chain reporting success*. It exists, in code, on the desktop. **The right answer is a decision, not
-a patch**: FR-806's queue holds what a retry can fix and a 4xx is not that, so the choice is between
-reporting a partial chain honestly and holding the remainder for a manual retry. The honest report
-is the smaller half and should come first. **Android's `CaptureSaver` has not been checked for the
-same shape** — check it before deciding.
-
-### 3. SRS 1.178 — an expired grant loses the capture on Windows
-
-Android classes `SignInRequiredException` retryable and says why: *a capture given up on for want of
-a tap is a capture lost*. The desktop turns the same condition into `GoogleRejected(400)`, which
-`isWorthRetrying` refuses, so the capture is reported and **dropped**. It is a recorded decision
-rather than an oversight, but it contradicts FR-806a's own reasoning on the client with no Play
-services to keep a grant warm — where expiry is *more* likely, not less. The branch also cannot tell
-a revoked grant from an expired one: both arrive as `invalid_grant`.
-
-This bit for real on 7 Sep: a to-do with a recipe applied was refused, the capture was lost, and the
-whole account of it was five words. **The fix needs a queue entry that survives a sign-in and a tray
-line asking for one** — FR-806a's surface on a client that has never had it. A slice, not a patch.
-
-### 4. The undo path logs no decision line
-
-FR-1232 passed on the account rather than on the phone, because the undo emits nothing. That is the
-gap SRS 1.72 found for save decisions and cured with `WriteBasis`, and the undo path still has it. A
-line such as `card decision=Undone restored=N` would make the next card pass self-evidencing.
-FR-1207's `captured_at` across an update is still JVM-only for the same reason — nothing reads it
-back.
+Both clients are built at `8c2b059` and **neither is installed**: `app/build/outputs/apk/debug/`
+and `desktop/build/install/desktop/`. **The installed Windows client is older, read off the disk
+rather than assumed**: `%LOCALAPPDATA%\Latch\app\lib\desktop.jar` is dated **7 Sep 10:17**, so
+it does not have SRS 1.192 in it. Re-run `install-local.ps1` before testing that row or the run
+will measure the old behaviour — and an old build cannot even produce the fixture, since it
+*drops* the capture rather than queueing it. `queue.dat` is currently **absent**, so the queue is
+empty and the row starts from a clean fixture.
 
 ## Two instrument lessons from 7 September, both of which nearly produced a wrong answer
 

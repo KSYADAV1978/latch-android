@@ -1616,6 +1616,63 @@ it touches every capture and an OCR change is measured on a device here rather t
 about. `MlKitOcrReader` logs `decode WxH sample=N -> WxH` so the next photograph states its own
 numbers.
 
+## The four owed things, built 8 September 2026 (SRS 1.190–1.193)
+
+`docs/RESTART.md` listed four, in the order they bite. All four are built, each its own commit,
+each independently green — the four commits were re-built one at a time afterwards and the test
+count rises 1361 → 1374 → 1385 → 1396 with no failure at any of them. **Everything here is
+JVM-verified and DEVICE-OWED.** Nothing touched the developer's Google account, and no device was
+attached to the session.
+
+**Measured rather than estimated**: the four slices together cost **+172 bytes** of release APK,
+taken by building `:app:assembleRelease` at `4645957` and at `8c2b059` and comparing the files.
+No dependency was added, so `docs/DEPENDENCIES.md` is untouched.
+
+**SRS 1.190 — one capture, two drafting paths, one answer.** `recipeItems` decided `allDay` by
+comparing the start against midnight, which cannot tell a capture that named no time from one
+written `at 12am`. `RecipeExpander.expand` takes `anchorDate` + `anchorTime: LocalTime?` now, so
+the fact cannot be lost on the way in, and `PlannedItem.anchorHadTime` carries it. **A third site
+had the same defect and nobody had noticed**: the desktop's `stepWhenLine` — where the screen and
+the write agreed, wrongly, which is why it read as correct.
+
+**SRS 1.191 — a chain interrupted part-way.** Three instances of one shape, and checking Android
+as `docs/RESTART.md` asked found the worst of them. The desktop reported `Written(created.size)`;
+Android reported `Failed` **with no undo offered**, about items the user can see in their
+calendar; and on a *retryable* failure Android queued the whole chain **with no markers**, so the
+drain took the entry for a fresh one, asked FR-803 about the message, found the item the chain
+itself wrote, and retired it with the rest never written — a **silent loss**, after saying
+"Queued". `chainOutcome` in `:google` is the shared rule; `PartlySaved` / `PartlyWritten` state
+the number.
+
+**SRS 1.192 — an expired grant on Windows no longer costs the capture.** `SignInRequiredException`
+where a sign-in is the cure, and FR-806a's surface on a client that never had one: `needsSignIn`
+on the queue record, a tray row that presses to SIGN_IN rather than RETRY, and
+`DrainTrigger.SIGNED_IN`. **Two tests had to be rewritten because they pinned the wrong
+behaviour**, and both passed honestly throughout the period this client was losing captures.
+
+**SRS 1.193 — an undo says what it was.** Three acts end at one sentence on screen, which is
+`WriteBasis`' problem one requirement over. `undoDecisionLine` is shared by both pillars.
+**SRS 1.189's account of the gap was corrected**: a *transport* line has existed since 6 Sep;
+what was missing is the decision line above it.
+
+### Device pass backlog — the four slices of 8 September
+
+Nothing below has been done by a person, and **no device was attached** to the session that wrote
+it. Read each row as *the condition that would make it fail*, then *the fixture*. The Windows row
+is the one to run first: it is the only one whose fix is unwatched **and** whose failure mode is a
+lost capture.
+
+| Check | What failure looks like | Fixture |
+|---|---|---|
+| **SRS 1.192 — a held capture asks for a sign-in** | Revoke or expire the grant, then capture on Windows. The window must say *Held on this machine. Sign in to Google…* and **never "No connection"** — that sentence over a live network names the wrong cure. `queue.dat` must exist and hold the entry. Failure is the 7 Sep behaviour: a refusal on screen and no file at all | revoke at `myaccount.google.com/connections`, or wait out the grant |
+| **SRS 1.192 — the tray asks, and pressing it signs in** | The count row reads **"N waiting - sign in to save them"**, not *waiting to be written*, and pressing it opens the browser rather than retrying. Failure is the ordinary sentence, which names a wait the user can do nothing about | as above, with something queued |
+| **SRS 1.192 — signing in drains it** | Sign in from that row: the entry writes **within seconds**, not at the next backoff. Failure is nothing happening for up to half an hour after the user did exactly what was asked, which reads as the request having been pointless | as above |
+| **SRS 1.193 — the undo says what it was** | `adb logcat -v time \| grep LatchTiming` across a card update and its undo: `card decision=Updated fields=N mask=…` with **no `clientData`** in the mask, then `card decision=Undone deleted=0 restored=1 dropped=0 failed=0`. Failure is the transport line alone, which SRS 1.129 says is weaker than it looks | FR-1230's generated card against an existing contact — no camera, no write until Save |
+| **SRS 1.193 — a date-side undo too** | The same grep over an ordinary save and undo: `save decision=Undone deleted=1 …`. And the **home screen** path, which is where an offer has outlived the process that made it and a pass has least other evidence | any capture, undone inside ten seconds |
+| **SRS 1.191 — a partly written chain** | Hard to arrange by hand and **recorded as such rather than pretended at**: it needs one insert of a chain to be permanently refused while an earlier one succeeded. The JVM tests are the cover, as SRS 1.24's resume already is. What a device *can* show cheaply is the negative: an ordinary four-item chain still writes four and reports `Saved`, not `Saved 4 of 4` | AC-11's four-date capture |
+| **SRS 1.190 — nothing changed** | The standing regression check, not a new behaviour: AC-06's recipe capture still puts prep on the same day, and an all-day capture expanded by a recipe is still an all-day event. The corrected case needs an explicit midnight *and* a recipe, which is not a shape any device row has ever used | AC-06's capture |
+| **NFR-101 is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms, `content ready, ocr=false`. The standing re-check: `CaptureSaver`'s failure path and the undo path were both touched | "Kickoff 8 September 2027 at 9am" |
+
 ## The ship-v1.0 run — Step 0, building every unbuilt requirement (6 Sep 2026)
 
 `docs/RESTART.md` carries the plan. Everything in this section is **JVM-verified and
