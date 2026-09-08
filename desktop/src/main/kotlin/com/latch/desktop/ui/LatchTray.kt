@@ -30,6 +30,15 @@ data class TrayModel(
     /** FR-806: entries retries have stopped for. They stay, and a tap revives them. */
     val givenUp: Int = 0,
     /**
+     * FR-806a: a waiting entry is held for a sign-in rather than for a network (SRS 1.192).
+     *
+     * It changes what the count *asks for*, which is the whole of its value: "waiting to be
+     * written" is a thing to leave alone, and "sign in to save them" is a thing to do. Before
+     * this the desktop had no surface for FR-806a at all — and no entry either, the capture
+     * having been dropped where it should have been held.
+     */
+    val queueNeedsSignIn: Boolean = false,
+    /**
      * FR-704: captures held in the Inbox and waiting on the user, snoozed rows excluded.
      *
      * Zero shows **nothing at all** rather than "0 waiting" — the requirement's "shall not nag"
@@ -119,6 +128,13 @@ fun trayMenu(model: TrayModel): List<TrayItem> = buildList {
         // has to do something about: it has stopped retrying and will stay stopped until they
         // ask. It is never deleted — the entry holds a capture that exists nowhere else.
         val label = when {
+            // FR-806a outranks the ordinary count, and outranks "stuck" too: an entry held
+            // for a sign-in has a cure the user can apply *now*, where a stuck one asks them
+            // to try again and hope. Pressing it signs in rather than retrying, because a
+            // retry before the sign-in is the failure this row exists to explain.
+            model.queueNeedsSignIn && model.pending > 0 ->
+                DesktopStrings.TRAY_QUEUE_NEEDS_SIGN_IN.replace("%s", model.pending.toString())
+
             model.givenUp > 0 && model.pending > 0 ->
                 DesktopStrings.TRAY_QUEUE_BOTH
                     .replace("%1", model.pending.toString())
@@ -130,7 +146,9 @@ fun trayMenu(model: TrayModel): List<TrayItem> = buildList {
             else ->
                 DesktopStrings.TRAY_QUEUE_WAITING.replace("%s", model.pending.toString())
         }
-        add(TrayItem.Status(label, TrayAction.RETRY))
+        val press =
+            if (model.queueNeedsSignIn && model.pending > 0) TrayAction.SIGN_IN else TrayAction.RETRY
+        add(TrayItem.Status(label, press))
     }
 
     // FR-704, and it is deliberately below FR-806's line: a queued capture is on its way to

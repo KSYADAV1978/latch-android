@@ -264,6 +264,17 @@ object DesktopStrings {
      */
     const val MOVED_NOTE = "Moved by Latch from %1\$s, on %2\$s."
     const val HELD = "No connection. Held on this machine, and it will be written when there is one."
+
+    /**
+     * FR-806a: held because Google wants a sign-in, not because the network is down
+     * (SRS 1.192).
+     *
+     * A separate sentence rather than a softer version of [HELD], because the two name
+     * different cures and only one of them is the user's to apply. Saying "no connection"
+     * here leaves them waiting for something that has already happened.
+     */
+    const val HELD_NEEDS_SIGN_IN =
+        "Held on this machine. Sign in to Google from the Latch tray icon and it will be written."
     const val ALREADY_SAVED = "Already saved. Nothing was written again."
     const val EXPORTED = "Saved a calendar file to your Downloads folder."
     const val EXPORT_FAILED = "Latch could not write the calendar file."
@@ -323,6 +334,16 @@ object DesktopStrings {
     const val TRAY_QUEUE_WAITING = "%s waiting to be written"
     const val TRAY_QUEUE_STUCK = "%s stuck - retry now"
     const val TRAY_QUEUE_BOTH = "%1 waiting, %2 stuck - retry now"
+
+    /**
+     * FR-806a on this client, which has never had a surface for it (SRS 1.192).
+     *
+     * It names the **captures** rather than the account, because that is what the user stands
+     * to lose and it is the difference between a notice they can ignore and one they cannot.
+     * "Not signed in" above says the account is not connected; this says something of theirs
+     * is waiting on it.
+     */
+    const val TRAY_QUEUE_NEEDS_SIGN_IN = "%s waiting - sign in to save them"
     const val TRAY_RECIPES = "Recipes…"
     const val TRAY_SETTINGS = "Settings…"
     const val TRAY_QUIT = "Quit Latch"

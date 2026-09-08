@@ -49,6 +49,14 @@ data class QueuedWrite(
      * saying so, never discarding. "Retry now" revives it.
      */
     val givenUp: Boolean = false,
+    /**
+     * FR-806a: this entry is waiting on a **sign-in**, not on a network (SRS 1.192).
+     *
+     * Recorded on the entry rather than derived from [failureClass] because it has to survive
+     * a restart: the whole point of the state is that Latch can be closed, reopened and still
+     * say why nothing is moving. It is the desktop's half of Android's `QueueStatus.needsSignIn`.
+     */
+    val needsSignIn: Boolean = false,
 ) {
     /** What is still owed to Google. SRS 1.24: a resumed chain writes only what it has not. */
     val remaining: List<QueuedItem> get() = items.filter { it.writtenId == null }
@@ -62,7 +70,15 @@ const val QUEUE_RECORD_VERSION: Int = 1
  * Hand-encoded field by field rather than serialised from the type, for the reason FR-1004a's
  * payload is: a record built by reflecting over `Item` would grow silently the next time `Item`
  * did, and what would grow is a file holding the user's captures. Adding a field here is a
- * visible change with a version bump beside it.
+ * visible change rather than an invisible one.
+ *
+ * **What that sentence used to say, and why it is corrected (SRS 1.192): "with a version bump
+ * beside it".** On *this* record a bump is not a formality — `decodeQueuedWrite` refuses any
+ * version but the current one, and a refused record is a **dropped queue entry**, which is a
+ * lost capture and the one thing NFR-302 forbids outright. So the version marks a change that
+ * would make an old record *wrong*, never the mere presence of a new field. A field an older
+ * record can be read without — a flag defaulting to false, as `given_up` and `failure_class`
+ * already are — is added without one, and the encoder's conservatism is what keeps that safe.
  */
 fun QueuedWrite.encode(): String = JSONObject()
     .put("v", QUEUE_RECORD_VERSION)
@@ -76,6 +92,7 @@ fun QueuedWrite.encode(): String = JSONObject()
     .put("failure_class", failureClass?.name)
     .put("next_attempt_at", nextAttemptAt.toString())
     .put("given_up", givenUp)
+    .put("needs_sign_in", needsSignIn)
     .put("metadata", metadata.encodeForQueue())
     .put("items", JSONArray().also { array -> items.forEach { array.put(it.encodeForQueue()) } })
     .toString()
@@ -120,6 +137,10 @@ fun decodeQueuedWrite(json: String): QueuedWrite? {
             ?.let { name -> runCatching { FailureClass.valueOf(name) }.getOrNull() },
         nextAttemptAt = record.optString("next_attempt_at").toInstantOrNull() ?: queuedAt,
         givenUp = record.optBoolean("given_up", false),
+        // Absent in a record written before SRS 1.192, and false is right for one: an entry
+        // queued by that build was never held for a sign-in, because that build could not
+        // hold one at all — it reported the capture and dropped it.
+        needsSignIn = record.optBoolean("needs_sign_in", false),
     )
 }
 

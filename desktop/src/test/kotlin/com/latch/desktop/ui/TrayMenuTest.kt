@@ -53,6 +53,46 @@ class TrayMenuTest {
     }
 
     @Test
+    fun `a queue held for a sign-in asks for one, and pressing it signs in`() {
+        // FR-806a's surface on this client, which had none (SRS 1.192). Before it, the same
+        // entry read "2 waiting to be written" — true, and it names a wait the user can do
+        // nothing about, over a queue that will not move until they do the one thing the row
+        // now asks for.
+        val model = signedIn.copy(pending = 2, queueNeedsSignIn = true)
+        val labels = labels(model)
+
+        assertTrue(labels.any { it.contains("sign in", ignoreCase = true) }, labels.toString())
+        assertTrue(
+            labels.none { it.contains("waiting to be written") },
+            "the ordinary wait must not be shown beside it: this queue is not waiting on a network",
+        )
+        // Pressing it signs in rather than retrying. A retry before the sign-in is the failure
+        // the row exists to explain.
+        val count = trayMenu(model).filterIsInstance<TrayItem.Status>()
+            .single { it.label.contains("sign in", ignoreCase = true) && it.label.contains("2") }
+        assertEquals(TrayAction.SIGN_IN, count.id)
+    }
+
+    @Test
+    fun `an ordinary queue is unchanged and still offers a retry`() {
+        // The guard: the flag governs the sentence, so an ordinary offline queue must be
+        // untouched — a menu that asked for a sign-in on every dropped network would train
+        // the user to ignore it, which is worse than the silence this replaces.
+        val model = signedIn.copy(pending = 2)
+        assertEquals(TrayAction.RETRY, row(model, TrayAction.RETRY).id)
+        assertTrue(labels(model).none { it.contains("sign in", ignoreCase = true) })
+    }
+
+    @Test
+    fun `a sign-in is not asked for when there is nothing waiting`() {
+        // A flag with an empty queue is stale, not a prompt — Android's `signInPrompt` takes
+        // the same reading, and for the same reason: it would refer to captures that no
+        // longer exist.
+        val model = signedIn.copy(pending = 0, queueNeedsSignIn = true)
+        assertTrue(labels(model).none { it.contains("sign in", ignoreCase = true) })
+    }
+
+    @Test
     fun `not signed in, the account line is status and is pressable`() {
         val account = row(signedIn.copy(signedInAs = null), TrayAction.SIGN_IN)
         assertTrue(account is TrayItem.Status, "the account line is status in every state")

@@ -280,6 +280,7 @@ object Latch {
             configured = auth.isConfigured,
             pending = status?.waiting ?: 0,
             givenUp = status?.givenUp ?: 0,
+            queueNeedsSignIn = status?.needsSignIn ?: false,
             inbox = held?.due ?: 0,
         )
     }
@@ -541,8 +542,13 @@ object Latch {
             is SaveResult.Queued -> {
                 tray?.update(model())
                 val created = outcome.queueId?.let { listOf(CreatedItem.Queued(it)) }.orEmpty()
-                if (created.isEmpty()) open.showOutcome(DesktopStrings.HELD)
-                else offerUndo(open, DesktopStrings.HELD, created, wasUpdate = false)
+                // FR-806a (SRS 1.192): why it is held, not merely that it is. "No connection"
+                // over a live network with an expired grant names the wrong cure.
+                val held =
+                    if (outcome.needsSignIn) DesktopStrings.HELD_NEEDS_SIGN_IN
+                    else DesktopStrings.HELD
+                if (created.isEmpty()) open.showOutcome(held)
+                else offerUndo(open, held, created, wasUpdate = false)
             }
 
             is SaveResult.RescheduleOffered -> open.showRescheduleOffer(
@@ -1154,7 +1160,8 @@ object Latch {
         )
         is SaveResult.Updated -> DesktopStrings.UPDATED
         SaveResult.AlreadySaved -> DesktopStrings.ALREADY_SAVED
-        is SaveResult.Queued -> DesktopStrings.HELD
+        is SaveResult.Queued ->
+            if (outcome.needsSignIn) DesktopStrings.HELD_NEEDS_SIGN_IN else DesktopStrings.HELD
         // FR-804 offer has no surface on this window and must not be answered blind, so the
         // save stands unwritten and the row stays. Re-capturing the text puts the question on
         // the popup, which is where it can be answered.
@@ -1236,7 +1243,14 @@ object Latch {
             SwingUtilities.invokeLater {
                 tray?.update(model())
                 when (outcome) {
-                    SignInOutcome.Succeeded -> chooseDestination()
+                    SignInOutcome.Succeeded -> {
+                        // FR-806a (SRS 1.192). Captures held for want of a sign-in are the
+                        // reason the user may well have just done this, and waiting for the
+                        // timer would leave up to half an hour of nothing happening after
+                        // they did exactly what the tray asked.
+                        runner.nudge(DrainTrigger.SIGNED_IN)
+                        chooseDestination()
+                    }
                     is SignInOutcome.Failed -> tray?.say(
                         "Latch", signInMessage(outcome.reason), TrayIcon.MessageType.WARNING,
                     )

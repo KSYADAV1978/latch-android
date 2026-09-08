@@ -7,6 +7,7 @@ import com.latch.google.FailureClass
 import com.latch.google.GoogleFailure
 import com.latch.google.GoogleRejected
 import com.latch.google.GoogleUnreachable
+import com.latch.google.failureClassOf
 import com.latch.google.RetryPolicy
 import com.latch.google.TaskWrite
 import com.latch.google.TasksApi
@@ -31,6 +32,15 @@ enum class DrainTrigger {
 
     /** The user pressed Retry now. */
     USER_ASKED,
+
+    /**
+     * FR-806a: the user has just signed in (SRS 1.192).
+     *
+     * The one trigger that is news about a `SIGN_IN` entry, and it must not wait for the
+     * timer: the user has done exactly the thing that was asked of them, and half an hour of
+     * nothing happening afterwards reads as the request having been pointless.
+     */
+    SIGNED_IN,
 
     /** The timer came round. */
     SCHEDULED,
@@ -84,7 +94,9 @@ fun shouldDrainNow(
     now: Instant,
     rateLimit: Duration = RetryPolicy.IMMEDIATE_DRAIN_RATE_LIMIT,
 ): Boolean {
-    if (trigger == DrainTrigger.USER_ASKED) return true
+    // A tap, and a sign-in is one. Neither is rate-limited: both are the user acting on
+    // something the tray asked them for, and the answer has to be visible.
+    if (trigger == DrainTrigger.USER_ASKED || trigger == DrainTrigger.SIGNED_IN) return true
     val waiting = entries.filter { !it.givenUp }
     if (waiting.isEmpty()) return false
     if (trigger != DrainTrigger.CONNECTIVITY_RESTORED && trigger != DrainTrigger.REQUEST_SUCCEEDED) {
@@ -99,21 +111,17 @@ fun shouldDrainNow(
 /** The entry as it stands after a failure worth retrying. */
 fun afterFailure(entry: QueuedWrite, failure: Throwable, now: Instant): QueuedWrite {
     val attempts = entry.attempts + 1
+    val failureClass = failureClassOf(failure)
     return entry.copy(
         attempts = attempts,
-        failureClass = classify(failure),
+        failureClass = failureClass,
+        // FR-806a (SRS 1.192). Recorded so the tray can ask for the one thing that would move
+        // this entry, and cleared on any other failure — an entry that failed for a sign-in
+        // and then failed for a lost socket is waiting on the socket now.
+        needsSignIn = failureClass == FailureClass.SIGN_IN,
         nextAttemptAt = now.plus(RetryPolicy.backoffDelay(attempts)),
         givenUp = attempts >= RetryPolicy.GIVE_UP_AFTER,
     )
-}
-
-internal fun classify(failure: Throwable): FailureClass = when {
-    failure is GoogleUnreachable -> FailureClass.TRANSPORT
-    failure is GoogleRejected && failure.status == 401 -> FailureClass.SIGN_IN
-    failure is GoogleRejected && (failure.status == 429 || failure.status >= 500) -> FailureClass.SERVER
-    failure is GoogleRejected -> FailureClass.PERMANENT
-    failure is GoogleFailure -> FailureClass.PERMANENT
-    else -> FailureClass.TRANSPORT
 }
 
 /**
@@ -168,7 +176,7 @@ private fun deferOrGiveUp(entry: QueuedWrite, failure: Throwable, now: Instant):
     if (!isWorthRetrying(failure)) {
         // A 400, or a 403 for a scope not granted. Retrying repeats it for ever, so the entry
         // is marked given up and stays visible with a manual retry, rather than being deleted.
-        return DrainOutcome.GaveUp(entry.copy(givenUp = true, failureClass = classify(failure)))
+        return DrainOutcome.GaveUp(entry.copy(givenUp = true, failureClass = failureClassOf(failure)))
     }
     val next = afterFailure(entry, failure, now)
     return if (next.givenUp) DrainOutcome.GaveUp(next) else DrainOutcome.Deferred(next)

@@ -20,6 +20,7 @@ import com.latch.google.GoogleRejected
 import com.latch.google.GoogleUnreachable
 import com.latch.google.ItemDates
 import com.latch.google.RescheduleSearch
+import com.latch.google.SignInRequiredException
 import com.latch.google.TaskList
 import com.latch.google.TaskWrite
 import com.latch.google.TasksApi
@@ -34,6 +35,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -218,6 +220,51 @@ class DesktopSaverTest {
         assertEquals("cal-1", held.calendarId)
         assertEquals("Asia/Kolkata", held.timeZone)
         assertTrue(text in held.body, "FR-805's description must be composed before queueing")
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `an expired grant holds the capture and asks for a sign-in`() = runTest {
+        // **The 7 Sep 2026 loss, as a test** (SRS 1.178, 1.192). A to-do with a recipe applied
+        // was refused and the capture was gone, and the whole account of it was five words.
+        // The condition that would make this fail: the save reports `Failed` and `q.dat` is
+        // empty afterwards, which is exactly what happened on the machine.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val calendar = FakeCalendar().apply { failFind = SignInRequiredException("sign in") }
+        val text = "Kickoff 8 September 2027 at 9am"
+        val (result, items) = itemsFor(text)
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata", queue)
+            .save(DesktopCapture(text), result, items, defaults, "chain-1")
+
+        val queued = assertIs<SaveResult.Queued>(outcome)
+        // The capture is on disk, which is the whole of what was lost before.
+        assertEquals(1, queue.entries().size)
+        // And it says *which* wait this is. "No connection" over a live network with an
+        // expired grant names the wrong cure, and the user waits for something that has
+        // already happened.
+        assertTrue(queued.needsSignIn)
+        assertTrue(queue.entries().single().needsSignIn)
+        assertTrue(queue.status().needsSignIn, "FR-806a's surface has to have something to read")
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `an ordinary offline save is not reported as needing a sign-in`() = runTest {
+        // The guard on the change: two different waits, and conflating them would make the
+        // tray ask for a sign-in every time the network dropped.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingCipher())
+        val calendar = FakeCalendar().apply { failInsert = GoogleUnreachable("no network") }
+        val text = "Kickoff 8 September 2027 at 9am"
+        val (result, items) = itemsFor(text)
+
+        val outcome = DesktopSaver(calendar, FakeTasks(), "Asia/Kolkata", queue)
+            .save(DesktopCapture(text), result, items, defaults, "chain-1")
+
+        assertFalse(assertIs<SaveResult.Queued>(outcome).needsSignIn)
+        assertFalse(queue.status().needsSignIn)
         directory.deleteRecursively()
     }
 

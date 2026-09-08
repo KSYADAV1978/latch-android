@@ -9,6 +9,8 @@ import com.latch.desktop.store.base64
 import com.latch.desktop.store.unbase64
 import com.latch.google.FailureClass
 import com.latch.google.RetryPolicy
+import com.latch.google.SignInRequiredException
+import com.latch.google.failureClassOf
 import com.latch.wire.RemoteMetadata
 import java.io.File
 import java.time.Duration
@@ -372,11 +374,78 @@ class DrainPolicyTest {
 
     @Test
     fun `failures are classified so only the curable ones bypass a backoff`() {
-        assertEquals(FailureClass.TRANSPORT, classify(com.latch.google.GoogleUnreachable("x")))
-        assertEquals(FailureClass.SIGN_IN, classify(com.latch.google.GoogleRejected(401, "r", "m")))
-        assertEquals(FailureClass.SERVER, classify(com.latch.google.GoogleRejected(429, "r", "m")))
-        assertEquals(FailureClass.SERVER, classify(com.latch.google.GoogleRejected(503, "r", "m")))
-        assertEquals(FailureClass.PERMANENT, classify(com.latch.google.GoogleRejected(400, "r", "m")))
+        // **This client's own `classify` is gone and `:google`'s `failureClassOf` answers for
+        // both clients now** (SRS 1.192). The two had drifted in two places, one of them
+        // load-bearing: this one had no `SignInRequiredException` branch at all, so FR-806a's
+        // condition fell through to PERMANENT and the tray could never say what was wrong.
+        assertEquals(FailureClass.TRANSPORT, failureClassOf(com.latch.google.GoogleUnreachable("x")))
+        assertEquals(FailureClass.SIGN_IN, failureClassOf(SignInRequiredException("sign in")))
+        assertEquals(FailureClass.SERVER, failureClassOf(com.latch.google.GoogleRejected(429, "r", "m")))
+        assertEquals(FailureClass.SERVER, failureClassOf(com.latch.google.GoogleRejected(503, "r", "m")))
+        assertEquals(FailureClass.PERMANENT, failureClassOf(com.latch.google.GoogleRejected(400, "r", "m")))
+
+        // The other divergence, and it changed answer deliberately. This client called a
+        // **401 from an API call** SIGN_IN; the shared function calls it PERMANENT, which is
+        // what `isWorthRetrying` has always said of it. `GoogleHttp` refreshes on a 401 and
+        // retries, so a *second* 401 is not a spent token — it is a scope Google will not
+        // grant, and a tray row offering a sign-in for it would fail on the press. FR-806a's
+        // real condition is raised where it happens, in the token path, as its own type.
+        assertEquals(FailureClass.PERMANENT, failureClassOf(com.latch.google.GoogleRejected(401, "r", "m")))
+
+        // And an exception that is not ours at all: a bug in our own mapping rather than an
+        // answer from Google. This client called it TRANSPORT, so a connectivity blip would
+        // have bypassed the backoff to repeat a bug.
+        assertEquals(FailureClass.PERMANENT, failureClassOf(IllegalStateException("a bug")))
+    }
+
+    @Test
+    fun `an entry held for a sign-in says so, and stops saying so when the reason changes`() {
+        // FR-806a on this client (SRS 1.192). The flag is on the record rather than derived,
+        // because the whole value of it is surviving a restart: Latch closed and reopened must
+        // still be able to say why nothing is moving.
+        val held = afterFailure(anEntry(), SignInRequiredException("sign in"), now)
+        assertTrue(held.needsSignIn)
+        assertEquals(FailureClass.SIGN_IN, held.failureClass)
+
+        // An entry that failed for a sign-in and then failed for a lost socket is waiting on
+        // the socket now, and asking for a sign-in would name a cure that fixes nothing.
+        val then = afterFailure(held, com.latch.google.GoogleUnreachable("no network"), now)
+        assertFalse(then.needsSignIn)
+    }
+
+    @Test
+    fun `the sign-in flag survives the record going to disk and back`() {
+        val entry = afterFailure(anEntry(), SignInRequiredException("sign in"), now)
+        val round = assertNotNull(decodeQueuedWrite(entry.encode()))
+        assertTrue(round.needsSignIn, "a restart must not forget why the queue is stuck")
+    }
+
+    @Test
+    fun `a record written before the flag existed decodes as not needing a sign-in`() {
+        // The version was deliberately **not** bumped for this field (SRS 1.192): on this
+        // record a bump means every existing entry is refused, and a refused entry is a lost
+        // capture. So an older record must still decode — and false is the right answer for
+        // one, since the build that wrote it could not hold a capture for a sign-in at all.
+        val older = anEntry().encode().replace(",\"needs_sign_in\":false", "")
+        assertFalse("needs_sign_in" in older, "the fixture must actually be missing the key")
+
+        val decoded = assertNotNull(decodeQueuedWrite(older))
+        assertFalse(decoded.needsSignIn)
+    }
+
+    @Test
+    fun `a sign-in drains without waiting for the timer`() {
+        // FR-806a. The user has just done the one thing that was asked of them, and half an
+        // hour of nothing happening afterwards reads as the request having been pointless.
+        val waiting = listOf(afterFailure(anEntry(), SignInRequiredException("sign in"), now))
+        assertTrue(shouldDrainNow(waiting, DrainTrigger.SIGNED_IN, lastImmediateDrain = now, now = now))
+        // And it is not rate-limited, for the reason a tap is not: both are the user acting.
+        assertTrue(shouldDrainNow(waiting, DrainTrigger.USER_ASKED, lastImmediateDrain = now, now = now))
+        // A sign-in is not news about a lost socket, so the ordinary bypass is undisturbed.
+        assertFalse(
+            shouldDrainNow(waiting, DrainTrigger.CONNECTIVITY_RESTORED, lastImmediateDrain = null, now = now),
+            "a SIGN_IN entry is not waiting on the network",
+        )
     }
 
     @Test

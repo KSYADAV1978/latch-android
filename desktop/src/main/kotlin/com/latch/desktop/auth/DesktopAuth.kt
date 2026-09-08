@@ -4,6 +4,7 @@ import com.latch.desktop.store.SecretFile
 import com.latch.google.json.JSONObject
 import com.latch.google.GoogleRejected
 import com.latch.google.GoogleUnreachable
+import com.latch.google.SignInRequiredException
 import com.latch.google.requireGoogleEndpoint
 import java.io.File
 import java.net.HttpURLConnection
@@ -174,19 +175,39 @@ class DesktopAuth(
      *
      * - **No network** throws [GoogleUnreachable], which `isWorthRetrying` classifies as
      *   retryable, so FR-806 holds the capture instead of reporting it lost.
-     * - **The grant is gone** throws [GoogleRejected] with 401, which is permanent: no
-     *   amount of waiting fixes a revoked grant, and the answer is to sign in again.
+     * - **The grant is gone** throws [SignInRequiredException], which is *also* retryable —
+     *   see below, because this used to be a [GoogleRejected] and that cost a capture.
+     * - **No OAuth client at all** stays [GoogleRejected]: FR-001's Desktop client does not
+     *   exist, and no tap the user makes conjures one.
+     *
+     * **SRS 1.192 corrects the third bullet this KDoc used to carry**, which read *"no amount
+     * of waiting fixes a revoked grant, and the answer is to sign in again"*. Both halves are
+     * true and the conclusion drawn from them was wrong: waiting does not fix it, and the
+     * capture must be held anyway, because *the sign-in* fixes it. Android had already written
+     * the reading down in as many words — **a capture given up on for want of a tap is a
+     * capture lost** — and this client turned the identical condition into a 4xx, which
+     * `isWorthRetrying` refuses, so a real save on 7 Sep 2026 was reported and **dropped**.
+     * That is worse here than on the phone, not better: there is no Play services keeping a
+     * grant warm, so expiry is *more* likely on this machine.
+     *
+     * This branch also cannot tell a **revoked** grant from an **expired** one — both arrive
+     * as `invalid_grant` — which is a second reason not to treat it as permanent: the common
+     * case is the recoverable one.
      *
      * Getting this the other way round is the expensive direction. Reporting a network
-     * failure as permanent loses the capture; reporting a revoked grant as retryable puts
-     * an entry in the queue that can never drain.
+     * failure as permanent loses the capture; reporting a genuinely dead grant as retryable
+     * puts an entry in the queue that can never drain — which is why the entry is *marked* as
+     * needing a sign-in rather than merely retried, so the tray can ask for the one thing
+     * that would move it.
      */
     fun accessTokenOrThrow(): String {
         val client = config ?: throw GoogleRejected(401, "notConfigured", "no OAuth client")
         cached?.let { if (it.expiresAt.isAfter(clock().plus(REFRESH_MARGIN))) return it.accessToken }
 
         val refresh = secrets.get(REFRESH_TOKEN_KEY)
-            ?: throw GoogleRejected(401, "signInRequired", "not signed in")
+            // Not signed in at all. A tap is exactly what fixes it, so the capture waits
+            // rather than being reported lost (SRS 1.192).
+            ?: throw SignInRequiredException("not signed in")
 
         val reply = try {
             post(OAuthRequest.TOKEN_ENDPOINT, OAuthRequest.refreshBody(client.clientId, client.clientSecret, refresh))
@@ -196,9 +217,13 @@ class DesktopAuth(
         }
 
         if (reply.status == 400 || reply.status == 401) {
+            // The stored token really is worthless and keeping it would mean retrying it for
+            // ever — that half of SRS 1.177's diagnosis stands and the removal stays. What
+            // changes is what the *caller* is told: this is FR-806a's condition, not a
+            // permanent refusal, and the capture is held for the sign-in that cures it.
             secrets.remove(REFRESH_TOKEN_KEY)
             cached = null
-            throw GoogleRejected(reply.status, "invalidGrant", readTokenError(reply.body))
+            throw SignInRequiredException(readTokenError(reply.body))
         }
         if (reply.status >= 500 || reply.status == 429) {
             // Google having a bad day. Worth retrying, and the grant is untouched.

@@ -11,6 +11,8 @@ import com.latch.google.CalendarApi
 import com.latch.google.ChainOutcome
 import com.latch.google.chainOutcome
 import com.latch.google.EventWrite
+import com.latch.google.FailureClass
+import com.latch.google.failureClassOf
 import com.latch.google.GoogleFailure
 import com.latch.google.GoogleRejected
 import com.latch.google.GoogleUnreachable
@@ -90,6 +92,14 @@ sealed interface SaveResult {
     data class Queued(
         val count: Int,
         val alsoWritten: Int = 0,
+        /**
+         * FR-806a: held for a **sign-in**, not for a network (SRS 1.192).
+         *
+         * The window says one of two quite different sentences from this. "No connection"
+         * over a live network with an expired grant is not merely unhelpful — it names the
+         * wrong cure, and the user waits for something that has already happened.
+         */
+        val needsSignIn: Boolean = false,
         /**
          * FR-807 over a queued capture: undoing it drops the entry rather than chasing an item
          * that was never written. `drainable` already refuses to drain an entry inside its undo
@@ -338,6 +348,11 @@ class DesktopSaver(
         alsoWritten: Int = 0,
     ): SaveResult {
         if (!isWorthRetrying(failure) || queue == null) return failureFor(failure)
+        // FR-806a (SRS 1.192). Set here rather than left to the first failed drain, because
+        // the saver already knows why: the tray would otherwise say "waiting to be written"
+        // about an entry that is waiting for the user, until a drain came round to discover
+        // what this call site was holding all along.
+        val needsSignIn = failureClassOf(failure) == FailureClass.SIGN_IN
         val entryId = java.util.UUID.randomUUID().toString()
         queue.add(
             QueuedWrite(
@@ -349,9 +364,15 @@ class DesktopSaver(
                 timeZone = pending.timeZone,
                 items = items,
                 queuedAt = clock(),
+                needsSignIn = needsSignIn,
             )
         )
-        return SaveResult.Queued(count, alsoWritten, entryId)
+        return SaveResult.Queued(
+            count = count,
+            alsoWritten = alsoWritten,
+            needsSignIn = needsSignIn,
+            queueId = entryId,
+        )
     }
 
     private suspend fun findExisting(sourceHash: String, defaults: DesktopDefaults) =

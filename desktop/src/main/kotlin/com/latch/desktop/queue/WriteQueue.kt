@@ -4,7 +4,19 @@ import com.latch.desktop.store.WindowsSecrets
 import java.io.File
 
 /** How much is waiting, for FR-806's count in the tray. */
-data class QueueStatus(val waiting: Int, val givenUp: Int, val unreadable: Int) {
+data class QueueStatus(
+    val waiting: Int,
+    val givenUp: Int,
+    val unreadable: Int,
+    /**
+     * FR-806a: at least one waiting entry is held for a **sign-in** (SRS 1.192).
+     *
+     * Only a *waiting* entry counts, which is Android's reading of the same field: one already
+     * given up on is not going to move whatever the user does, so offering a sign-in for it
+     * would be asking for something that changes nothing.
+     */
+    val needsSignIn: Boolean = false,
+) {
     val total: Int get() = waiting + givenUp
 }
 
@@ -57,6 +69,7 @@ class WriteQueue(
             waiting = entries.count { !it.givenUp },
             givenUp = entries.count { it.givenUp },
             unreadable = opaque.size,
+            needsSignIn = entries.any { !it.givenUp && it.needsSignIn },
         )
     }
 

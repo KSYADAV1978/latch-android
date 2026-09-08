@@ -8,6 +8,7 @@ import com.latch.desktop.store.base64
 import com.latch.desktop.store.unbase64
 import java.io.File
 import java.net.HttpURLConnection
+import com.latch.google.SignInRequiredException
 import java.net.URI
 import java.security.MessageDigest
 import java.time.Instant
@@ -328,15 +329,44 @@ class OAuthTest {
     }
 
     @Test
-    fun `a revoked grant is permanent, so it is reported instead of queued for ever`() {
-        // The other direction, and getting it wrong puts an entry in the queue that can never
-        // drain. A revoked grant is not cured by waiting.
+    fun `a retired grant asks for a sign-in, and the capture is held for it`() {
+        // **This test previously asserted the opposite** — that the failure was a
+        // `GoogleRejected(400)` and `isWorthRetrying` said no — and it passed throughout the
+        // period this client was losing captures to it (SRS 1.178, 1.192). It is the record's
+        // own warning arriving in the place it warns about: *a test can pin behaviour exactly
+        // and pin the wrong behaviour.* The old assertion described the code faithfully; what
+        // it did not describe is FR-806a, which says a capture held for want of a tap is not a
+        // capture to give up on.
         val secrets = store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") }
         val auth = DesktopAuth(secrets, client, post = { _, _ -> HttpReply(400, """{"error":"invalid_grant"}""") })
-        val failure = assertFailsWith<com.latch.google.GoogleRejected> { auth.accessTokenOrThrow() }
-        assertEquals(400, failure.status)
-        assertFalse(com.latch.google.isWorthRetrying(failure))
+
+        val failure = assertFailsWith<SignInRequiredException> { auth.accessTokenOrThrow() }
+        assertTrue(
+            com.latch.google.isWorthRetrying(failure),
+            "a sign-in fixes this, so FR-806 must hold the capture rather than report it",
+        )
+        assertEquals(
+            com.latch.google.FailureClass.SIGN_IN,
+            com.latch.google.failureClassOf(failure),
+            "and the queue must be able to say which of its two waits this is",
+        )
+        // Unchanged, and the half of SRS 1.177's diagnosis that was right: the stored token is
+        // worthless, so keeping it would mean retrying it for ever.
         assertNull(secrets.get(DesktopAuth.REFRESH_TOKEN_KEY), "a dead grant must not be kept")
+    }
+
+    @Test
+    fun `a 400 that is not the grant is still permanent`() {
+        // The boundary the change must not wash away. Only 400/401 on the refresh is FR-806a's
+        // condition; anything else Google refuses is a refusal, and queueing it would put an
+        // entry in the queue that can never drain.
+        val secrets = store().apply { put(DesktopAuth.REFRESH_TOKEN_KEY, "rt") }
+        val auth = DesktopAuth(secrets, client, post = { _, _ -> HttpReply(403, """{"error":"forbidden"}""") })
+
+        val failure = assertFailsWith<com.latch.google.GoogleRejected> { auth.accessTokenOrThrow() }
+        assertEquals(403, failure.status)
+        assertFalse(com.latch.google.isWorthRetrying(failure))
+        assertEquals("rt", secrets.get(DesktopAuth.REFRESH_TOKEN_KEY), "the grant is untouched")
     }
 
     @Test
@@ -348,10 +378,25 @@ class OAuthTest {
     }
 
     @Test
-    fun `being signed out is permanent rather than a network problem`() {
+    fun `being signed out asks for a sign-in rather than reporting a refusal`() {
+        // Also inverted by SRS 1.192, and for the same reason: not signed in is precisely the
+        // state a tap cures. Nothing is asked of Google here at all — there is no token to
+        // refresh — so the old `GoogleRejected(401)` was describing a refusal that never
+        // happened.
         val auth = DesktopAuth(store(), client, post = { _, _ -> HttpReply(200, "{}") })
+        val failure = assertFailsWith<SignInRequiredException> { auth.accessTokenOrThrow() }
+        assertTrue(com.latch.google.isWorthRetrying(failure))
+    }
+
+    @Test
+    fun `a missing OAuth client is not a sign-in problem`() {
+        // FR-001's Desktop client does not exist, and no tap the user makes conjures one. The
+        // one branch of this function that stays permanent, and the guard on the change: a
+        // sign-in offered here would fail on the press and teach the user to ignore the row.
+        val auth = DesktopAuth(store(), config = null, post = { _, _ -> HttpReply(200, "{}") })
         val failure = assertFailsWith<com.latch.google.GoogleRejected> { auth.accessTokenOrThrow() }
         assertEquals(401, failure.status)
+        assertFalse(com.latch.google.isWorthRetrying(failure))
     }
 
     @Test
