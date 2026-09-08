@@ -1,5 +1,7 @@
 package com.latch.android.cards
 
+import com.latch.android.capture.UndoTally
+import com.latch.android.capture.undoDecisionLine
 import com.latch.google.ContactRecord
 import com.latch.google.ContactsApi
 import com.latch.google.restoreContactUpdate
@@ -94,6 +96,12 @@ suspend fun undoCardCreated(
      *
      * This does not fix that. It makes the next run readable, which is what SRS 1.72 did for save
      * decisions when the phone could not say which query had answered.
+     *
+     * **Two lines come out of here now, and they answer different questions** (SRS 1.193). The
+     * transport line above says what Google did with the request; the decision line below says
+     * what this undo *was* — a delete, a restore or a dropped queue entry, three acts that end
+     * at one sentence on screen. SRS 1.189 could not tell a restore from anything else on the
+     * phone and had to close FR-1232 on the account instead.
      */
     log: (String) -> Unit = {},
     /**
@@ -109,6 +117,7 @@ suspend fun undoCardCreated(
             "card undo delete=" + if (removed) "accepted" else
                 (outcome.exceptionOrNull()?.javaClass?.simpleName ?: "refused")
         )
+        log(undoDecisionLine("card", UndoTally(deleted = if (removed) 1 else 0, failed = if (removed) 0 else 1)))
         CardRemoval(attempted = 1, removed = if (removed) 1 else 0)
     }
 
@@ -116,6 +125,11 @@ suspend fun undoCardCreated(
         // Nothing is in the account, so there is nothing to delete: the entry goes instead. A
         // delete here would ask Google to remove a contact that was never created.
         val dropped = runCatching { dropQueued(created.entryId) }.getOrDefault(false)
+        // The branch that had no line at all, transport or otherwise — nothing leaves the
+        // device here, so there was no request for the transport line to report on. It is
+        // also the branch whose success is hardest to see from outside: a dropped entry and
+        // an entry that was never made look identical on disk.
+        log(undoDecisionLine("card", UndoTally(dropped = if (dropped) 1 else 0, failed = if (dropped) 0 else 1)))
         CardRemoval(attempted = 1, removed = if (dropped) 1 else 0)
     }
 
@@ -138,6 +152,7 @@ suspend fun undoCardCreated(
             "card undo restore=" + if (restored) "accepted" else
                 (outcome.exceptionOrNull()?.javaClass?.simpleName ?: "refused")
         )
+        log(undoDecisionLine("card", UndoTally(restored = if (restored) 1 else 0, failed = if (restored) 0 else 1)))
         CardRemoval(attempted = 1, removed = if (restored) 1 else 0)
     }
 }

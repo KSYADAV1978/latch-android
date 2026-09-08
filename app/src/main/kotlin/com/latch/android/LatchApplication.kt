@@ -475,7 +475,12 @@ class LatchApplication : Application() {
         appScope.launch {
             val offer = _pendingUndo.value ?: return@launch
             _pendingUndo.value = null
-            removeCreated(offer.created, calendarApi, tasksApi, writeQueue, itemIndex)
+            // SRS 1.193. The same line the sheet's undo emits, from the other place an undo
+            // can be taken: an offer surfacing here has outlived the process that made it, so
+            // this is the path where a device pass has *least* other evidence to work from.
+            removeCreated(offer.created, calendarApi, tasksApi, writeQueue, itemIndex) { line ->
+                if (BuildConfig.DEBUG) Log.i("LatchTiming", line)
+            }
             undoOffers.forget(offer.chainId)
             refreshQueueStatus()
             refreshUndoOffer()

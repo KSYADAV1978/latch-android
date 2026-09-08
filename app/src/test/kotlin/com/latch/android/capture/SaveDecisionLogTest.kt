@@ -146,4 +146,72 @@ class SaveDecisionLogTest {
             }
         }
     }
+
+    // ---- SRS 1.193: the undo's own line -------------------------------------------------
+
+    @Test
+    fun `the three acts an undo performs are told apart`() {
+        // **The whole reason this exists**, and it is `WriteBasis`' reason one requirement over.
+        // FR-807's undo deletes what was created, drops what was queued and *restores* what was
+        // updated, and all three end at "Removed. Nothing was left in your Google account." On
+        // 7 Sep 2026 that identity left FR-1232 closable only on the account, because nothing
+        // the phone emitted said the undo had restored anything.
+        val deleted = undoDecisionLine("save", UndoTally(deleted = 1))
+        val restored = undoDecisionLine("save", UndoTally(restored = 1))
+        val dropped = undoDecisionLine("save", UndoTally(dropped = 1))
+
+        assertEquals(3, setOf(deleted, restored, dropped).size, "three acts, three lines")
+        assertTrue("restored=1" in restored, restored)
+        assertTrue("restored=0" in deleted, deleted)
+    }
+
+    @Test
+    fun `a zero is printed rather than omitted`() {
+        // An absent `restored=` cannot be told from a `restored=0`, and for a diagnostic the
+        // difference between "it restored nothing" and "this build does not report restores"
+        // is the whole value of the line.
+        val line = undoDecisionLine("save", UndoTally(deleted = 2))
+        listOf("deleted=2", "restored=0", "dropped=0", "failed=0").forEach {
+            assertTrue(it in line, line)
+        }
+    }
+
+    @Test
+    fun `a partial undo is named as one, not merely counted`() {
+        // NFR-303. The recourse for the items still in the account is to remove them in Google
+        // by hand, and the line has to be greppable for the case that needs it.
+        val partial = undoDecisionLine("save", UndoTally(deleted = 2, failed = 2))
+        assertTrue(partial.startsWith("save decision=UndoFailed"), partial)
+        assertTrue(undoDecisionLine("save", UndoTally(deleted = 4)).startsWith("save decision=Undone"))
+    }
+
+    @Test
+    fun `the card pillar uses the same line under its own subject`() {
+        // One grep gives the whole story of a capture, which is what `LatchTiming` is for. The
+        // subject is a literal at the call site, so there is no path by which a value reaches it.
+        val line = undoDecisionLine("card", UndoTally(restored = 1))
+        assertEquals("card decision=Undone deleted=0 restored=1 dropped=0 failed=0", line)
+    }
+
+    @Test
+    fun `no content can reach an undo line at all, and structurally`() {
+        // Stronger than the save line's property rather than the same one: every argument here
+        // is an Int except a subject the call sites supply as a literal, so there is nothing
+        // for a title, a date or a resource name to travel in.
+        val line = undoDecisionLine("save", UndoTally(deleted = 1, restored = 1, dropped = 1, failed = 1))
+        assertTrue(line.length < 80, line)
+        assertTrue(
+            line.all { it.isLetterOrDigit() || it in " =_" },
+            "an undo line is letters, digits and separators: $line",
+        )
+    }
+
+    @Test
+    fun `the tally counts what was attempted`() {
+        // Used by nothing in production yet and asserted anyway: the arithmetic is the only
+        // thing tying the four numbers to the chain they describe, and a line whose counts did
+        // not add up to the save would send a reader looking for a fifth item.
+        assertEquals(4, UndoTally(deleted = 1, restored = 1, dropped = 1, failed = 1).attempted)
+        assertEquals(0, UndoTally().attempted)
+    }
 }

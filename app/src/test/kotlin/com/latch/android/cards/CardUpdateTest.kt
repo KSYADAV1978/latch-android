@@ -186,6 +186,83 @@ class CardUpdateSaverTest {
     }
 
     @Test
+    fun `the undo says it restored, which is what closing FR-1232 on the phone needs`() = runTest {
+        // SRS 1.193, and it is SRS 1.189's named gap. FR-1232 passed on 7 Sep 2026 **on the
+        // account** — Google Contacts showed the old job title back — because nothing the
+        // phone emitted said a restore had happened. A delete, a dropped entry and a restore
+        // all reach the same sentence on the sheet.
+        val lines = mutableListOf<String>()
+        val contacts = UpdatingContacts()
+        val saver = CardSaver(contacts)
+        val offer = assertIs<CardSaveResult.UpdateOffered>(saver.save(draft, payload, "SHARE_SHEET"))
+        val updated = assertIs<CardSaveResult.Updated>(saver.update(offer.stored, draft, offer.changes))
+
+        undoCardCreated(
+            created = CardCreated.Updated(
+                updated.resourceName, updated.prior, updated.etag, updated.fields,
+            ),
+            contacts = contacts,
+            log = lines::add,
+        ) { false }
+
+        assertTrue(
+            lines.any { it == "card decision=Undone deleted=0 restored=1 dropped=0 failed=0" },
+            lines.toString(),
+        )
+        // The transport line is kept beside it and answers a different question: what Google
+        // did with the request, as against what this undo was. SRS 1.129 is why the first is
+        // not enough on its own — `alreadyGone` makes an accepted delete weaker than it looks.
+        assertTrue(lines.any { it.startsWith("card undo restore=") }, lines.toString())
+    }
+
+    @Test
+    fun `a refused restore is named as a failure rather than counted as one`() = runTest {
+        // The line a device pass would most want and could least get: a restore that did not
+        // run leaves somebody's employer silently replaced, and the ten seconds in which the
+        // user could have said so are gone.
+        val lines = mutableListOf<String>()
+        val contacts = UpdatingContacts()
+        val saver = CardSaver(contacts)
+        val offer = assertIs<CardSaveResult.UpdateOffered>(saver.save(draft, payload, "SHARE_SHEET"))
+        val updated = assertIs<CardSaveResult.Updated>(saver.update(offer.stored, draft, offer.changes))
+        contacts.failUpdate = true
+
+        undoCardCreated(
+            created = CardCreated.Updated(
+                updated.resourceName, updated.prior, updated.etag, updated.fields,
+            ),
+            contacts = contacts,
+            log = lines::add,
+        ) { false }
+
+        assertTrue(
+            lines.any { it == "card decision=UndoFailed deleted=0 restored=0 dropped=0 failed=1" },
+            lines.toString(),
+        )
+    }
+
+    @Test
+    fun `an update names its field mask, so FR-1207's write-once is readable from the phone`() = runTest {
+        // SRS 1.189 recorded `captured_at` surviving an update as still JVM-only, for want of
+        // anything reading it back. This does not read it back and does not claim to — it
+        // makes the *request* legible: FR-1207's claim across an update is precisely that
+        // `clientData` is not in the mask, and now a run can show that rather than assert it.
+        val lines = mutableListOf<String>()
+        val contacts = UpdatingContacts()
+        val saver = CardSaver(contacts, logDecision = lines::add)
+        val offer = assertIs<CardSaveResult.UpdateOffered>(saver.save(draft, payload, "SHARE_SHEET"))
+        saver.update(offer.stored, draft, offer.changes)
+
+        val line = lines.single { it.startsWith("card decision=Updated") }
+        assertTrue("mask=" in line, line)
+        assertFalse("clientData" in line, "FR-1207's record must not be in an update's mask: $line")
+        // Field names are Google's API constants, so the line stays free of card content —
+        // which is what makes them printable where a value would not be.
+        assertFalse("anita@northwind.in" in line, line)
+        assertFalse("Northwind" in line, line)
+    }
+
+    @Test
     fun `the undo sentence distinguishes a restore from a removal`() {
         assertTrue(cardUndoRestores(CardCreated.Updated("people/c1", record, "%e", listOf("organizations"))))
         assertFalse(cardUndoRestores(CardCreated.Written("people/c1")))
@@ -215,6 +292,8 @@ class CardUpdateSaverTest {
     private class UpdatingContacts : ContactsApiFake() {
         var created = 0
         var searches = 0
+        /** For SRS 1.193's failed-restore line: the second update refuses. */
+        var failUpdate = false
         val deleted = mutableListOf<String>()
         val updates = mutableListOf<SentUpdate>()
 
@@ -262,6 +341,7 @@ class CardUpdateSaverTest {
             etag: String,
             update: ContactUpdate,
         ): String {
+            if (failUpdate) throw IllegalStateException("people.updateContact refused")
             updates += SentUpdate(resourceName, etag, update.write, update.fields)
             record = record.copy(etag = "%etag2", jobTitle = update.write.jobTitle)
             return "%etag2"

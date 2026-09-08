@@ -247,6 +247,62 @@ class UndoRemovalTest {
     }
 
     @Test
+    fun `the undo says which of its three acts it performed`() = runTest {
+        // SRS 1.193, and the wiring the pure test cannot reach: the counts have to come from
+        // the branches that ran. A mixed undo is the fixture because it is the one where a
+        // single total says least — two deletes, one restore and a dropped entry all end at
+        // "Removed. Nothing was left in your Google account."
+        val lines = mutableListOf<String>()
+        val queue = RecordingQueue()
+        val queueId = queue.enqueue(
+            PendingWrite(
+                items = listOf(
+                    Item(
+                        id = "i", captureId = "c", type = ItemType.TASK, title = "t",
+                        dueDate = LocalDate.parse("2027-09-20"), taskListId = "list-1",
+                    )
+                ),
+                metadata = RemoteMetadata("a".repeat(64), "b".repeat(64), "chain", Instant.EPOCH),
+                body = "",
+                timeZone = "Asia/Kolkata",
+            )
+        )
+
+        removeCreated(
+            listOf(
+                CreatedItem.Written(ItemType.EVENT, "latch-cal", "event-1"),
+                CreatedItem.Written(ItemType.TASK, "list-1", "task-1"),
+                CreatedItem.Updated(
+                    ItemType.TASK, "list-1", "task-9", ItemDates.Task(LocalDate.parse("2027-09-20")),
+                ),
+                CreatedItem.Queued(queueId),
+            ),
+            RecordingCalendarApi(), RecordingTasksApi(), queue, RecordingIndex(), lines::add,
+        )
+
+        assertEquals(1, lines.size, "one line per undo, not one per item")
+        assertEquals("save decision=Undone deleted=2 restored=1 dropped=1 failed=0", lines.single())
+    }
+
+    @Test
+    fun `a partly failed undo names itself and counts what did not happen`() = runTest {
+        // NFR-303 from the log's side. The recourse is to remove the rest in Google by hand,
+        // and this is the only place outside the screen that says how many that is.
+        val lines = mutableListOf<String>()
+        removeCreated(
+            listOf(
+                CreatedItem.Written(ItemType.EVENT, "latch-cal", "event-1"),
+                CreatedItem.Written(ItemType.EVENT, "latch-cal", "event-2"),
+                CreatedItem.Written(ItemType.EVENT, "latch-cal", "event-3"),
+            ),
+            RecordingCalendarApi(failDeleteAfter = 1), RecordingTasksApi(),
+            RecordingQueue(), RecordingIndex(), lines::add,
+        )
+
+        assertEquals("save decision=UndoFailed deleted=1 restored=0 dropped=0 failed=2", lines.single())
+    }
+
+    @Test
     fun `the loop does not stop at the first failure`() = runTest {
         // A chain half in the account is worse than one wholly there or wholly gone, so every
         // item still gets its turn — and the count is what NFR-303's message reports.

@@ -37,3 +37,57 @@ internal fun saveDecisionLine(
     // a different fact from a NO_MATCH beside a complete one, so the line says which.
     if (scanCapped) append(" scan=capped")
 }
+
+/**
+ * What an undo did, counted by act (SRS 1.193).
+ *
+ * **Three acts end at one sentence on screen.** FR-807's undo deletes what was created, drops
+ * what was queued and *restores* what was updated (SRS 1.16), and all three leave the user
+ * looking at "Removed. Nothing was left in your Google account." That is the same identity
+ * problem `WriteBasis` was built for on the save side: two routes, one sentence, and no way to
+ * tell from outside the phone which one ran.
+ *
+ * [failed] is carried rather than derived so the line is complete on its own face. A reader
+ * grepping one line should not have to know the total to see that something did not happen.
+ */
+data class UndoTally(
+    val deleted: Int = 0,
+    val restored: Int = 0,
+    val dropped: Int = 0,
+    val failed: Int = 0,
+) {
+    val attempted: Int get() = deleted + restored + dropped + failed
+}
+
+/**
+ * The one diagnostic line an undo leaves behind, on either pillar.
+ *
+ * The gap SRS 1.189 recorded on the card side: FR-1232's restore passed **on the account**
+ * rather than on the phone, because nothing the phone emitted said the undo had restored
+ * anything. That row's wording — *the undo logs no decision line of its own* — is corrected
+ * by SRS 1.193 in one respect: `undoCardCreated` has emitted a *transport* line since 6 Sep
+ * 2026, saying whether Google accepted the request. What was missing, and is what a device
+ * pass actually needs, is the line above it: **which act this undo was, and how far it got.**
+ *
+ * **Every count is printed even at zero**, which is deliberate. An absent `restored=` cannot
+ * be told from a `restored=0`, and for a diagnostic the difference between "it did not restore
+ * anything" and "this build does not report restores" is the whole value of the line.
+ *
+ * **It carries no capture content**, for the reason [saveDecisionLine] does not: the arguments
+ * are four integers and a subject the *call site* supplies as a literal. There is no title, no
+ * date and no resource name here — a resource name is not content but it is an identifier into
+ * the user's account, and a log readable by anyone holding the phone is not the place for one.
+ *
+ * Pure, so what the line says is asserted by a JVM test rather than read off a device.
+ */
+internal fun undoDecisionLine(subject: String, tally: UndoTally): String = buildString {
+    append(subject)
+    append(" decision=")
+    // Named for the outcome rather than the act, because "did all of it happen" is the first
+    // question and the counts beside it answer the second.
+    append(if (tally.failed == 0) "Undone" else "UndoFailed")
+    append(" deleted=").append(tally.deleted)
+    append(" restored=").append(tally.restored)
+    append(" dropped=").append(tally.dropped)
+    append(" failed=").append(tally.failed)
+}

@@ -351,7 +351,17 @@ class CardSaver(
         val patch = mergedContactUpdate(stored, draft, changes)
         return try {
             val etag = contacts.updateContact(stored.resourceName, stored.etag, patch)
-            logDecision("card decision=Updated fields=${patch.fields.size}")
+            // SRS 1.193: the mask **by name**, not merely its size. FR-1207's write-once
+            // claim across an update is exactly "`clientData` is not in this list", and until
+            // now no run could see that from the phone — SRS 1.189 records it as still
+            // JVM-only for want of anything reading it back. The names are Google's own API
+            // field constants and carry no card content, which is what makes them printable
+            // where a value would not be. **What it does not establish**: that the record in
+            // the account is unchanged. It shows what was asked for, not what Google stored.
+            logDecision(
+                "card decision=Updated fields=${patch.fields.size}" +
+                    " mask=" + patch.fields.sorted().joinToString(",")
+            )
             CardSaveResult.Updated(
                 resourceName = stored.resourceName,
                 prior = stored,

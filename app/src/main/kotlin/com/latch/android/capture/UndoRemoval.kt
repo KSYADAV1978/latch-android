@@ -37,6 +37,10 @@ data class RemovalOutcome(val removed: Int, val total: Int) {
  * [index] is forgotten alongside each successful removal, without which FR-803's local index
  * would answer "already saved" about an item the user has just taken back — and there would be
  * no way to capture it again.
+ *
+ * [log] is SRS 1.193's decision line, and the reason it is a parameter with a no-op default is
+ * the reason `CaptureSaver`'s sink is: `android.util.Log` is a throwing stub under JVM unit
+ * tests, so logging from inside this function would cost every test that calls it.
  */
 suspend fun removeCreated(
     created: List<CreatedItem>,
@@ -44,8 +48,15 @@ suspend fun removeCreated(
     tasksApi: TasksApi,
     writeQueue: WriteQueue,
     index: LocalItemIndex,
+    log: (String) -> Unit = {},
 ): RemovalOutcome {
     var removed = 0
+    // SRS 1.193: counted **by act**, not merely counted. Three different things happen in this
+    // loop and all three end at one sentence on screen, so a total says how far the undo got
+    // and nothing about what it was.
+    var deleted = 0
+    var restored = 0
+    var dropped = 0
 
     for (item in created) {
         try {
@@ -56,14 +67,16 @@ suspend fun removeCreated(
                         ItemType.TASK -> tasksApi.deleteTask(item.containerId, item.remoteId)
                     }
                     index.forget(item.containerId, item.remoteId)
+                    deleted++
                 }
 
                 // FR-806: nothing was written, so there is nothing to delete — the entry stops
                 // existing. A false here means the worker got to it first and the item *is* in
                 // the account, which `drainable` exists to prevent; if it ever happens this
                 // undo did not remove it, so it counts as a failure rather than a quiet success.
-                is CreatedItem.Queued -> check(writeQueue.drop(item.queueId)) {
-                    "Queue entry was already drained"
+                is CreatedItem.Queued -> {
+                    check(writeQueue.drop(item.queueId)) { "Queue entry was already drained" }
+                    dropped++
                 }
 
                 // FR-807, corrected at SRS 1.16: undoing an update is a restore. The item
@@ -79,7 +92,7 @@ suspend fun removeCreated(
 
                     is ItemDates.Task ->
                         tasksApi.patchTaskDates(item.containerId, item.remoteId, prior, item.priorBody)
-                }
+                }.also { restored++ }
             }
             removed++
         } catch (cancelled: CancellationException) {
@@ -88,6 +101,21 @@ suspend fun removeCreated(
             // Counted by omission. The next item still gets its delete.
         }
     }
+
+    // One line per undo, whatever it did (SRS 1.193). Emitted **after** the loop rather than
+    // per item, because the question a device pass asks is about the undo and not about each
+    // delete — and because a per-item line would grow with a chain while the fact stays one.
+    log(
+        undoDecisionLine(
+            subject = "save",
+            tally = UndoTally(
+                deleted = deleted,
+                restored = restored,
+                dropped = dropped,
+                failed = created.size - removed,
+            ),
+        )
+    )
 
     return RemovalOutcome(removed = removed, total = created.size)
 }

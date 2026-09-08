@@ -1098,7 +1098,10 @@ class CaptureSaver(
     }
 
     private suspend fun remove(window: UndoWindow) {
-        val outcome = removeCreated(window.created, calendarApi, tasksApi, writeQueue, index)
+        // SRS 1.193, through the sink the save decision already uses — one grep, one tag, and
+        // an undo that no longer ends the story where the save's own line left it.
+        val outcome =
+            removeCreated(window.created, calendarApi, tasksApi, writeQueue, index, logSaveDecision)
         // The offer is spent either way. A partial removal leaves items in the account, and
         // re-offering an undo that would try the same deletes again is not the recourse —
         // NFR-303's message says to remove the rest in Google by hand, which is.
