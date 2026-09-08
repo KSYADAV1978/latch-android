@@ -1678,6 +1678,27 @@ so there was nothing left to drain — checked before the network was restored, 
 that matters. And no Latch worker has run since: the only `WM-WorkerWrapper` results in the log
 belong to Google Messages and Glance.
 
+**The undo line's other two branches, run later the same day on the developer's authorisation.**
+
+| Check | Result |
+|---|---|
+| **SRS 1.193 — `deleted`, on a real write** | **PASS, at the third attempt.** `save decision=Create basis=NO_MATCH` and *"Saved to Latch"* — so the item was **written to Google, not queued**, which is the condition the row needs — then `save decision=Undone deleted=1 restored=0 dropped=0 failed=0` and *"Removed. Nothing was left in your Google account."* **The limit, stated rather than glossed**: what this shows is that `events.delete` was accepted. The account was not counted afterwards, and this record already holds that the count is the instrument. |
+| **SRS 1.193 — `restored`** | **NOT RUN, and nothing about it is claimed.** The fixture contact was created (`card decision=Create checked=true`) and the update-and-undo never happened: the run was waiting out the People API's eventual consistency (SRS 1.95) when the harness killed it for want of memory, and the device then disconnected. **The FR-1232 branch SRS 1.189 could only close on the account is still owed.** |
+
+**Three things were left in the developer's account and both failures were the harness, not the app.**
+Two events — `…ALPHA7…` on 14 Oct 2029 and `…BRAVO2…` on 15 Oct 2029 — and one synthetic contact
+on the reserved `.invalid` TLD, created deliberately as the FR-1231 fixture and unremovable because
+Latch deletes a contact only through an undo of the create it made.
+
+**The first event was lost to the ten-second window elapsing *between* automation steps**, which is
+the observation this file already carries — *ten seconds is tight for anyone who verifies before
+undoing* — arriving from a new direction: it is tight for an *instrument* too. **The second was a
+selector bug of the operator's own**: the Undo button was matched by the prefix `Undo`, and the
+fixture text began with the word "Undo", so the tap landed on the title. Both cures are the same
+one and are worth having written down: **put the whole save-and-undo inside a single step, and match
+a control by an exact pattern (`^Undo \(\d+\)$`) rather than a prefix.** The third attempt did
+both and left nothing behind.
+
 **Two things this run did NOT establish, named rather than implied.**
 
 **The undo line's other two branches are unwatched.** `deleted=N` needs a real write to Google and
@@ -1708,7 +1729,7 @@ lost capture.
 | **SRS 1.192 — the tray asks, and pressing it signs in** | The count row reads **"N waiting - sign in to save them"**, not *waiting to be written*, and pressing it opens the browser rather than retrying. Failure is the ordinary sentence, which names a wait the user can do nothing about | as above, with something queued |
 | **SRS 1.192 — signing in drains it** | Sign in from that row: the entry writes **within seconds**, not at the next backoff. Failure is nothing happening for up to half an hour after the user did exactly what was asked, which reads as the request having been pointless | as above |
 | **SRS 1.193 — the undo says what it was** | `adb logcat -v time \| grep LatchTiming` across a card update and its undo: `card decision=Updated fields=N mask=…` with **no `clientData`** in the mask, then `card decision=Undone deleted=0 restored=1 dropped=0 failed=0`. Failure is the transport line alone, which SRS 1.129 says is weaker than it looks | FR-1230's generated card against an existing contact — no camera, no write until Save |
-| ~~**SRS 1.193 — a date-side undo, the `dropped` branch**~~ | **PASS, 8 Sep 2026, offline so the account could not be touched**: `save decision=Undone deleted=0 restored=0 dropped=1 failed=0`. **Still owed**: `deleted=N`, which needs a real write, and the **home screen** path, where an offer has outlived the process that made it | done for `dropped`; a write is owed for `deleted` |
+| ~~**SRS 1.193 — a date-side undo, `dropped` and `deleted`**~~ | **PASS on both, 8 Sep 2026.** `dropped=1` offline so the account could not be touched; `deleted=1` on a real write to Google, undone. **Still owed**: `restored=N` on a contact, and the **home screen** path, where an offer has outlived the process that made it | done; `restored` is owed |
 | **SRS 1.191 — a partly written chain** | Hard to arrange by hand and **recorded as such rather than pretended at**: it needs one insert of a chain to be permanently refused while an earlier one succeeded. The JVM tests are the cover, as SRS 1.24's resume already is. What a device *can* show cheaply is the negative: an ordinary four-item chain still writes four and reports `Saved`, not `Saved 4 of 4` | AC-11's four-date capture |
 | **SRS 1.190 — nothing changed** | The standing regression check, not a new behaviour. **Not watchable on Android**: `RecipeStepRow` shows the date only, so both readings of the flag render identically — the desktop's `stepWhenLine` is where this row lives | AC-06's capture, on **Windows** |
 | ~~**NFR-101 is unmoved**~~ | **PASS, 8 Sep 2026: 396 / 379 / 389 ms cold against 800 ms**, `content ready, ocr=false, chars=31 in 0–1ms`, no spinner, nothing saved | done |

@@ -82,9 +82,16 @@ not be touched by construction. `CLAUDE.md` carries the full row and the positiv
    drain in seconds. **This is the one to run first**: its failure mode is a lost capture. The
    client on this machine now has the fix in it; before today it did not, and an old build cannot
    even produce the fixture.
-2. **The undo line's other two branches (SRS 1.193)** — `deleted=N` needs a real write and undo;
-   `restored=N` needs an FR-1231 contact update and undo, which is the FR-1232 row SRS 1.189 could
-   only close on the account. Both cost the account something, which is why they were not run.
+2. **The undo line's `restored` branch (SRS 1.193)** — `deleted=N` was closed on 8 Sep on a real
+   write; `restored=N` was **not**. Its fixture contact exists in the account already (synthetic,
+   on the reserved `.invalid` TLD), so the remaining work is: re-capture that signature with a
+   changed job title, press Save contact, accept **Update**, and undo inside ten seconds, looking
+   for `card decision=Undone deleted=0 restored=1 dropped=0 failed=0`.
+   **Two harness lessons, both paid for**: put the whole save-and-undo in **one** step — the ten
+   seconds is tight for an instrument, not just a person — and match a control by an exact pattern
+   (`^Undo \(\d+\)$`), never a prefix, because a capture's own text can contain the word.
+   **Left in the account and needing deletion by hand**: two events (`…ALPHA7…` 14 Oct 2029,
+   `…BRAVO2…` 15 Oct 2029) and the fixture contact.
 3. **SRS 1.190 on Windows** — `RecipeStepRow` on Android shows the date only, so that row is not
    watchable there at all; the desktop's `stepWhenLine` is where it lives.
 
