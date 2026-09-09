@@ -13,8 +13,8 @@ import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.awt.image.BufferedImage
 import javax.swing.JMenuItem
+import javax.swing.JDialog
 import javax.swing.JPopupMenu
-import javax.swing.JWindow
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.event.PopupMenuEvent
@@ -188,12 +188,24 @@ class LatchTray(private val onAction: (TrayAction) -> Unit) : AutoCloseable {
     /**
      * The window a tray menu has to belong to.
      *
-     * A `JPopupMenu` needs an invoker and a tray icon is not a component. Without a focused
-     * owner the menu draws but never dismisses — a click elsewhere leaves it on screen, which is
-     * the focus quirk this arrangement exists to avoid. So a one-pixel utility window is put at
-     * the pointer, given focus, and disposed of when the menu closes.
+     * A `JPopupMenu` needs an invoker and a tray icon is not a component. Without a *focused*
+     * owner the menu draws and never dismisses — a click elsewhere leaves it on screen for ever.
+     * So a one-pixel utility window is put at the pointer, given focus, and disposed of when the
+     * menu closes.
+     *
+     * **It must be a `Dialog`, and a `JWindow` will not do (SRS 1.196).** This was a `JWindow`
+     * and the menu never dismissed, exactly as the human-pass backlog predicted it might.
+     * `Window.isFocusableWindow()` refuses a plain `Window` on two counts: it requires at least
+     * one focusable component in the window's own traversal cycle, and a one-pixel invoker has
+     * none; and it requires the nearest owning `Frame` or `Dialog` to be **showing**, where
+     * Swing's shared owner frame never is. So `requestFocus()` was a no-op, the window never
+     * held focus, `windowLostFocus` could never fire, and nothing could close the menu.
+     *
+     * A `Dialog` short-circuits both conditions — `isFocusableWindow` returns true for a `Frame`
+     * or `Dialog` as soon as its focusable state is set — which is why the type is the fix and
+     * not the focus call beside it.
      */
-    private var invoker: JWindow? = null
+    private var invoker: JDialog? = null
 
     val isSupported: Boolean get() = SystemTray.isSupported()
 
@@ -270,7 +282,10 @@ class LatchTray(private val onAction: (TrayAction) -> Unit) : AutoCloseable {
             }
         }
 
-        val window = JWindow().apply {
+        val window = JDialog().apply {
+            // Undecorated before it becomes displayable, or the call is refused.
+            isUndecorated = true
+            // UTILITY keeps a one-pixel dialog out of the taskbar and the alt-tab list.
             type = Window.Type.UTILITY
             isAlwaysOnTop = true
             setSize(1, 1)

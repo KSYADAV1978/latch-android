@@ -238,4 +238,27 @@ class TrayMenuTest {
             assertEquals(size, image.height)
         }
     }
+
+    @Test
+    fun `the popup's invoker is a Dialog, because a plain Window cannot take focus`() {
+        // SRS 1.196, and **this pins a JDK contract rather than a behaviour** — deliberately,
+        // because the behaviour is Swing focus and no JVM test on this client reaches it.
+        //
+        // The menu never dismissed because the invoker was a `JWindow`.
+        // `Window.isFocusableWindow()` refuses a plain `Window` twice over: it wants a focusable
+        // component in the window's own traversal cycle, and a one-pixel invoker has none; and
+        // it wants the nearest owning Frame or Dialog to be *showing*, where Swing's shared
+        // owner frame never is. So `requestFocus()` did nothing, focus was never held, and
+        // `windowLostFocus` could never fire. A `Frame` or `Dialog` short-circuits both.
+        //
+        // What this asserts is the one decision that fixed it, so a later change back to
+        // `JWindow` — which compiles, runs, and looks identical until someone clicks away —
+        // fails here instead of in a user's tray.
+        val field = LatchTray::class.java.getDeclaredField("invoker")
+        assertTrue(
+            java.awt.Dialog::class.java.isAssignableFrom(field.type),
+            "the invoker is ${field.type.simpleName}; a Window that is not a Frame or Dialog " +
+                "cannot take focus, so the menu would never dismiss",
+        )
+    }
 }
