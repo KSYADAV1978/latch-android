@@ -41,6 +41,14 @@ internal class FakeCalendar : CalendarApi {
      * (SRS 1.191). Distinct from [failInsert] alone, which refuses from the first item.
      */
     var failInsertAfter: Int? = null
+
+    /**
+     * SRS 1.195's race fixture: hold the insert open so two drains are genuinely inside the
+     * write together, and count with an atomic rather than by map size — two threads racing a
+     * plain map is the very condition under test.
+     */
+    var insertDelayMillis: Long = 0
+    val insertCount = java.util.concurrent.atomic.AtomicInteger(0)
     var failList: Exception? = null
     var failFind: Exception? = null
     var failDelete: Exception? = null
@@ -64,13 +72,17 @@ internal class FakeCalendar : CalendarApi {
     override suspend fun makeVisible(calendarId: String) = Unit
 
     override suspend fun insertEvent(calendarId: String, event: EventWrite): String {
+        if (insertDelayMillis > 0) Thread.sleep(insertDelayMillis)
         val refuses =
             if (failInsertAfter == null) failInsert != null else events.size >= failInsertAfter!!
         if (refuses) throw (failInsert ?: GoogleRejected(400, "invalid", "events.insert refused"))
-        val id = "ev" + (events.size + 1)
-        events[id] = event
-        indexed[event.metadata.sourceHash] = id
-        return id
+        return synchronized(this) {
+            val id = "ev" + (events.size + 1)
+            events[id] = event
+            indexed[event.metadata.sourceHash] = id
+            insertCount.incrementAndGet()
+            id
+        }
     }
 
     override suspend fun findEventBySourceHash(calendarId: String, sourceHash: String): DuplicateSearch {

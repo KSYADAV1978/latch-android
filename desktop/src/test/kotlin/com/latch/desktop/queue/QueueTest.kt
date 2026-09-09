@@ -7,12 +7,16 @@ import com.latch.desktop.store.BridgeReply
 import com.latch.desktop.store.WindowsSecrets
 import com.latch.desktop.store.base64
 import com.latch.desktop.store.unbase64
+import com.latch.desktop.FakeCalendar
+import com.latch.desktop.FakeTasks
+import com.latch.google.EventWrite
 import com.latch.google.FailureClass
 import com.latch.google.RetryPolicy
 import com.latch.google.SignInRequiredException
 import com.latch.google.failureClassOf
 import com.latch.wire.RemoteMetadata
 import java.io.File
+import java.nio.file.Files
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -453,5 +457,97 @@ class DrainPolicyTest {
         assertFalse(looksConnected(emptyList()))
         // The real interfaces on this machine: it built the project, so something is up.
         assertNotNull(readInterfaces())
+    }
+}
+
+/**
+ * SRS 1.195: two drains must not both write the same capture.
+ *
+ * **The defect this exists for wrote a duplicate into a real calendar**, and it is not a broken
+ * FR-803 query — the check is a read followed by a write with nothing holding the pair together,
+ * so both drains asked the right question, were told the truth, and inserted anyway.
+ */
+class QueueRunnerRaceTest {
+
+    private fun tempDirectory(): File =
+        Files.createTempDirectory("latch-runner-race").toFile()
+
+    /** Inserts slowly, so two drains are genuinely inside the write at the same time. */
+    private fun slowCalendar() = FakeCalendar().apply { insertDelayMillis = 150 }
+
+    @Test
+    fun `two drains of one entry write it exactly once`() {
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingSecrets())
+        queue.add(anEntry())
+        val calendar = slowCalendar()
+        val runner = QueueRunner(
+            queue = queue,
+            calendar = { calendar },
+            tasks = { FakeTasks() },
+            clock = { Instant.parse("2026-09-02T10:05:00Z") },
+        )
+
+        // Both threads released together, which is what makes the race reliable rather than
+        // hopeful: without the lock they are inside `alreadySaved` at the same moment, both are
+        // told the message is not in the account — correctly — and both go on to insert.
+        val go = java.util.concurrent.CountDownLatch(1)
+        val threads = (1..2).map {
+            Thread {
+                go.await()
+                runner.drain(DrainTrigger.SIGNED_IN)
+            }
+        }
+        threads.forEach { it.start() }
+        go.countDown()
+        threads.forEach { it.join(20_000) }
+
+        assertEquals(1, calendar.insertCount.get(), "one queued capture must reach the account once")
+        assertTrue(queue.entries().isEmpty(), "and the entry is retired")
+        runner.close()
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `a sign-in counts as an immediate drain, so the next one is rate-limited`() {
+        // SRS 1.195's second half, and **the first version of this test pinned nothing** — it
+        // passed with the fix reverted, because an entry that was not due produced no write
+        // either way. That is the very failure the row beside it describes, committed in the
+        // same breath, so it is rewritten to assert the *consequence* of the change.
+        //
+        // The consequence is that `SIGNED_IN` reaches `shouldDrainNow` and therefore stamps
+        // `lastImmediateDrain`. Without that, a `CONNECTIVITY_RESTORED` nudge arriving straight
+        // afterwards is not rate-limited and drains again — which is the burst the rate limit
+        // exists to prevent, and is how two drains land on one entry in the first place.
+        val directory = tempDirectory()
+        val queue = WriteQueue(File(directory, "q.dat"), reversingSecrets())
+        // Attempted once and transport-failed, which is what `shouldDrainNow` requires before
+        // it will let a connectivity trigger bypass a backoff at all.
+        queue.add(anEntry(attempts = 1, failureClass = FailureClass.TRANSPORT))
+        val calendar = FakeCalendar()
+        // Absent for the first drain, so the sign-in stamps the clock and writes nothing; then
+        // present, so the second drain writes if and only if it was not suppressed.
+        var api: com.latch.google.CalendarApi? = null
+        val runner = QueueRunner(
+            queue = queue,
+            calendar = { api },
+            tasks = { FakeTasks() },
+            clock = { Instant.parse("2026-09-02T10:05:00Z") },
+        )
+
+        runner.drain(DrainTrigger.SIGNED_IN)
+        assertEquals(0, calendar.insertCount.get(), "no calendar yet, so nothing is written")
+
+        api = calendar
+        runner.drain(DrainTrigger.CONNECTIVITY_RESTORED)
+
+        assertEquals(
+            0,
+            calendar.insertCount.get(),
+            "the sign-in drain must count against the rate limit, or this one bursts through",
+        )
+        assertEquals(1, queue.entries().size, "and the entry is still waiting its turn")
+        runner.close()
+        directory.deleteRecursively()
     }
 }
