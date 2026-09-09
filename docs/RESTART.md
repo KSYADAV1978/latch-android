@@ -82,16 +82,20 @@ not be touched by construction. `CLAUDE.md` carries the full row and the positiv
    drain in seconds. **This is the one to run first**: its failure mode is a lost capture. The
    client on this machine now has the fix in it; before today it did not, and an old build cannot
    even produce the fixture.
-2. **The undo line's `restored` branch (SRS 1.193)** — `deleted=N` was closed on 8 Sep on a real
-   write; `restored=N` was **not**. Its fixture contact exists in the account already (synthetic,
-   on the reserved `.invalid` TLD), so the remaining work is: re-capture that signature with a
-   changed job title, press Save contact, accept **Update**, and undo inside ten seconds, looking
-   for `card decision=Undone deleted=0 restored=1 dropped=0 failed=0`.
-   **Two harness lessons, both paid for**: put the whole save-and-undo in **one** step — the ten
-   seconds is tight for an instrument, not just a person — and match a control by an exact pattern
-   (`^Undo \(\d+\)$`), never a prefix, because a capture's own text can contain the word.
-   **Left in the account and needing deletion by hand**: two events (`…ALPHA7…` 14 Oct 2029,
-   `…BRAVO2…` 15 Oct 2029) and the fixture contact.
+2. ~~**The undo line's `restored` branch**~~ — **DONE, 9 Sep 2026 (SRS 1.194).** All three
+   branches of the line are watched. What is still owed on it is the **home screen** undo path,
+   where an offer has outlived the process that made it. **Two harness rules were paid for and
+   apply to every future device run**: put a whole *timed* sequence inside a **single** step —
+   the ten seconds is tight for an instrument, not just a person, and the measured margin is
+   1.7 s — and match a control by an exact pattern (`^Undo \(\d+\)$`), never a prefix,
+   because a capture's own text can contain the word.
+   **The right way to build an FR-1231 fixture**: create the contact **by hand in Google
+   Contacts**, not through Latch. FR-1232's sentence is *the contact was the user's before Latch
+   touched it*, so a Latch-made fixture tests something weaker — and this way Latch creates
+   nothing that cannot be undone.
+   **Still in the account from the failed automated attempts and needing deletion by hand**:
+   two events, `…ALPHA7…` 14 Oct 2029 and `…BRAVO2…` 15 Oct 2029.
+
 3. **SRS 1.190 on Windows** — `RecipeStepRow` on Android shows the date only, so that row is not
    watchable there at all; the desktop's `stepWhenLine` is where it lives.
 
