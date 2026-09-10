@@ -20,6 +20,11 @@ hunting rather than only the success.
 
 ## 0. Housekeeping before you start
 
+- [ ] **Sign in again on Windows.** The grant was revoked on 10 Sep to close FR-806b's positive
+      case, and Android was re-consented but Windows was not. **The tray says "Signed in as …"
+      and is wrong** (SRS 1.200): that only means a token is stored, and the stored one is dead.
+      Captures there are being *held*, not lost — SRS 1.192 — but nothing will reach Google until
+      you sign in from the tray.
 - [ ] **Turn aeroplane mode off and Wi-Fi on.** A test session on 10 Sep left them off.
 - [ ] **Delete the test fixtures** — 2 calendar events and 7 tasks, all in **September 2027**
       except one undated task. The session log lists them individually.
