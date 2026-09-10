@@ -23,8 +23,8 @@ hunting rather than only the success.
 - [x] ~~**Sign in again on Windows.**~~ Done 10 Sep — and the recovery itself confirmed SRS 1.192,
       1.195 and 1.200 in the wild (SRS 1.201).
 - [ ] **Turn aeroplane mode off and Wi-Fi on.** A test session on 10 Sep left them off.
-- [ ] **Delete the test fixtures** — 2 calendar events and 7 tasks, all in **September 2027**
-      except one undated task. The session log lists them individually.
+- [x] ~~**Delete the test fixtures**~~ Done 10 Sep — 5 events and 7 tasks removed by hand. Nothing
+      from that session remains in the account.
 
 ---
 
