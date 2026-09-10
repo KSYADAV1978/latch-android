@@ -58,6 +58,10 @@ at any of them. The four together cost **+172 bytes** of release APK, measured b
 | 1.192 | An expired grant on Windows lost the capture | **Two tests pinned the wrong behaviour** and passed honestly throughout the period captures were being lost |
 | 1.193 | The undo emits no decision line | **SRS 1.189's account was not quite right**: a *transport* line has existed since 6 Sep. What was missing is the decision line above it |
 
+**`docs/MANUAL-TESTS.md` is the follow-along list** — every remaining check written as *what to
+do*, *what passing looks like* and *what failure looks like*, ordered cheapest first, plus the
+publisher steps and the one open decision.
+
 **What is owed now is a person**, and the rows are in `CLAUDE.md` under *Device pass backlog — the
 four slices of 8 September*. Run the **Windows sign-in row first**: it is the only one whose fix is
 unwatched *and* whose failure mode is a lost capture.
