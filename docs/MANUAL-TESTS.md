@@ -68,24 +68,32 @@ byte for byte: CRLF throughout, folded at 74 octets, no §7.2 metadata.
 
 ---
 
-## 2. Rows that need a USB cable
+## 2. The offline rows — two are now done
 
-**Why they are not automated:** adb on this machine is connected over **Wi-Fi**. Turning the
-network off to test the offline paths severs that connection — which is how this was discovered.
-With a USB cable these could all be driven automatically.
+**A correction, because this section said something false.** It claimed adb here is connected over
+Wi-Fi, and that offline testing therefore could not be automated. **It is USB** —
+`persist.sys.usb.config=adb`, no TCP adb port, and the link survived both Wi-Fi being disabled and
+aeroplane mode on the retry. The disconnect that prompted that inference was coincidence, and the
+disconnections through that day remain unexplained. Two of these rows were driven automatically as
+a result and are struck below.
 
-### 2.1 FR-806 — Retry now
+### ~~2.1 FR-806 — Retry now~~ — **DONE 10 Sep 2026**
 
-- **Do:** aeroplane mode on. Capture a dated text and save. Open the home screen.
-- **Passes:** a pending count and a **Retry now** button. Tapped while still offline it leaves the
-  entry queued and loses nothing.
-- **Fails:** no button, or the capture disappearing.
+Offered on the home screen beside *1 capture waiting to be saved to Google*, and tapping it while
+still offline left the entry queued and lost nothing — the half that makes it a manual retry
+rather than a button that only works when it was going to work anyway.
 
-### 2.2 FR-806 — the immediate drain
+### ~~2.2 FR-806 — the immediate drain~~ — **DONE 10 Sep 2026**
 
-- **Do:** with that entry queued, turn the network back on and watch.
-- **Passes:** the item reaches Google **within seconds**, not at the next backoff.
-- **Fails:** nothing happening for up to half an hour.
+On reconnection the drain ran within about 35 seconds — `Worker result SUCCESS` for
+`WriteQueueWorker`, and the queue back to empty — rather than at the next backoff.
+
+### 2.2a FR-806b — the offline banner is a **known open defect** (SRS 1.198)
+
+Not a test to run — it is recorded — but you will meet it and should not be alarmed. Offline with
+something queued, the home screen says *"Latch needs you to sign in to Google again"* over a
+perfectly good grant, and offline that **Sign in** button cannot work anyway. It clears the moment
+the network returns. Ignore it until SRS 1.198 is fixed.
 
 ### 2.3 FR-804 — the offline hold
 
