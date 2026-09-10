@@ -98,11 +98,10 @@ Re-run it if you like — aeroplane mode on, queue a capture, open the home scre
 pending count and **Retry now** should appear with **no sign-in banner**. It was watched on a
 device the day it was fixed.
 
-**Still owed, and it is the half that matters for the risk this fix carries:** a *genuine*
-needs-consent prompt still appearing. That needs the grant actually revoked at
-myaccount.google.com, and it was not done. If you revoke it for the NFR-205 run in section 5, look
-for the banner then — the danger of this fix is suppressing a real warning, not raising a false
-one.
+**Both directions are done.** The grant was revoked for real on 10 Sep and the banner appeared as
+it should, with `PROBE_DEDUP` confirming the grant was actually dead first — Play services' own
+`getToken() -> NEED_REMOTE_CONSENT` beside it. So the fix silences the false alarm without
+silencing a real warning, which was the only risk it carried. Nothing further is owed here.
 - **Known residual, not a failure:** on a **captive portal** the phone looks connected and is not,
   so the banner can still appear there. That case is recorded rather than engineered around.
 
