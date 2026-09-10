@@ -161,6 +161,16 @@ fun trayMenu(model: TrayModel): List<TrayItem> = buildList {
     add(TrayItem.Action(DesktopStrings.TRAY_RECIPES, TrayAction.RECIPES))
     add(TrayItem.Action(DesktopStrings.TRAY_SETTINGS, TrayAction.SETTINGS))
     if (model.configured && model.signedInAs != null) {
+        // SRS 1.202. **The account line above stays status with no action**, and its reasoning is
+        // untouched — it is pressable exactly when there is something to do about it, and a line
+        // that silently meant "re-consent" would be SRS 1.197's second Done one surface over. So
+        // the thing to do about it goes here, beside the other actions, saying what it does.
+        //
+        // Without it a revoked grant strands the user: `isSignedIn` is presence rather than
+        // validity, so the tray reads "Signed in as …", the account line does nothing, and
+        // `SIGN_IN` is attached only to the *Not signed in* row — which needs the token to be
+        // absent. Android has offered this since FR-806b and this client never grew it.
+        add(TrayItem.Action(DesktopStrings.TRAY_SIGN_IN_AGAIN, TrayAction.SIGN_IN))
         add(TrayItem.Action(DesktopStrings.TRAY_SIGN_OUT, TrayAction.SIGN_OUT))
     }
 

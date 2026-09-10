@@ -317,13 +317,46 @@ requirement says so, and FR-1222 says it citing NFR-502's own experience.
 
 ---
 
+## 9a. Two fixes from 10 September that need watching
+
+### 9a.1 SRS 1.202 — "Sign in again" in the tray (**Windows, needs the desktop running**)
+
+The tray had no way to re-consent while a token was stored, which stranded you when the grant was
+revoked. There is now a **Sign in again** action beside **Sign out**.
+
+- **Do:** reinstall the Windows client (`install-local.ps1`), open the tray while signed in.
+- **Passes:** a **Sign in again** row sits beside **Sign out**, and pressing it opens the browser
+  without signing you out first.
+- **Fails:** it is missing, or it signs you out rather than re-consenting.
+- The account line above it should still do **nothing** when pressed — that is deliberate.
+
+### 9a.2 SRS 1.203 — FR-603's two "Done" buttons (**Android, needs the phone connected**)
+
+The top-right **Done** collapsed a recipe card without saving. It now saves, exactly as the button
+at the bottom does.
+
+- **Do:** Home → Recipes → **Edit** on any recipe → change the **Name** → press the **top-right
+  Done** (not the one at the bottom).
+- **Passes:** the list shows the new name, and it survives closing and reopening the app.
+- **Fails:** the name reverts — meaning the top-right control is still discarding.
+- **Also worth one look:** open a card and collapse it *without* typing anything. Nothing should
+  change, and the recipe must not start showing as "edited by you" — an untouched draft saves a
+  value identical to the stored one, and that is what makes this fix free.
+- **Known and deliberate:** there is now **no way to abandon an edit mid-card**. That was never a
+  designed feature, only the toggle's side effect. If you want one it needs a control that says
+  *Cancel*.
+
+---
+
 ## 10. One decision waiting on you — not a test
 
-**SRS 1.197 — FR-603's recipe editor has two controls labelled "Done".** The top-right one
-collapses the card **without saving**, and it sits exactly where "Edit" was a moment earlier; the
-saving one is a filled button at the bottom, often below the fold. Pressing the wrong one loses
-the edit **silently**, which NFR-303 names as a defect.
+~~**SRS 1.197 — FR-603's editor has two controls labelled "Done".**~~ **Decided and fixed at SRS
+1.203**: the top-right one now saves too, so the two identically-labelled controls do the identical
+thing. Relabelling it "Close" was the alternative and is the weaker fix — it corrects the word and
+leaves a silent discard behind a control sitting where "Edit" was a second earlier. See §9a.2 for
+the device row.
 
-Three honest fixes, and each says something different about what an expanded card is: relabel the
-toggle ("Close"), make it save as well, or move the saving button up beside it. It is recorded and
-deliberately not patched, because it is a decision rather than a bug.
+~~**SRS 1.200 — the Windows tray claims a signed-in state it has not got.**~~ **Decided and fixed
+at SRS 1.202**: the claim stays (it is honest about what it knows — a token is stored) and the dead
+end is closed by a **Sign in again** action beside Sign out, which is what Android has offered since
+FR-806b. See §9a.1.

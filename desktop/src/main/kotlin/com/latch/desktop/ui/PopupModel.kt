@@ -330,6 +330,15 @@ object DesktopStrings {
     const val TRAY_SIGNED_IN = "Signed in as %s"
     const val TRAY_NOT_SIGNED_IN = "Not signed in"
     const val TRAY_NO_CLIENT = "No Google client configured"
+    /**
+     * SRS 1.202: the desktop's equivalent of Android's `settings_account_sign_in_again`.
+     *
+     * The hint that requirement carries — *it does not sign you out, and nothing is deleted* —
+     * is why the label says **again**: without it, a user whose tray already reads "Signed in
+     * as …" has no reason to believe this row is for them, and the one who needs it most is
+     * the one whose grant was revoked and who does not yet know.
+     */
+    const val TRAY_SIGN_IN_AGAIN = "Sign in again"
     const val TRAY_SIGN_OUT = "Sign out"
     const val TRAY_QUEUE_WAITING = "%s waiting to be written"
     const val TRAY_QUEUE_STUCK = "%s stuck - retry now"

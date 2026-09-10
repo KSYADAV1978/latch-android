@@ -125,7 +125,23 @@ private fun RecipeCard(
                     }
                 )
             }
-            TextButton(onClick = onToggleExpanded) {
+            // SRS 1.203: this **saves** before collapsing, because it is labelled "Done" while
+            // expanded and the button at the bottom of the card is labelled "Done" too. It used
+            // to collapse without saving — a silent discard, behind a control sitting exactly
+            // where "Edit" was a second earlier, on a card whose saving button is often below
+            // the fold. Two identically-labelled controls now do the identical thing, which is
+            // what a user assumes of them.
+            //
+            // A draft nobody edited *is* [recipe], so collapsing an untouched card writes a
+            // value identical to the stored one. What is given up is a way to abandon an edit
+            // mid-card; that was never designed, only the toggle's side effect, and a real one
+            // would need a control that says "Cancel".
+            TextButton(
+                onClick = {
+                    if (expanded) onSave(draft)
+                    onToggleExpanded()
+                },
+            ) {
                 Text(
                     stringResource(
                         if (expanded) R.string.recipes_done else R.string.recipes_edit

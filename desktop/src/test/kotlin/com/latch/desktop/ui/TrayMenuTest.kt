@@ -2,6 +2,7 @@ package com.latch.desktop.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -22,6 +23,10 @@ class TrayMenuTest {
 
     private fun row(model: TrayModel, action: TrayAction) =
         trayMenu(model).single { it.id == action }
+
+    /** FR-806's queue count line, which is what the two tests below are actually about. */
+    private fun countRow(model: TrayModel) =
+        trayMenu(model).first { it.label?.contains("waiting") == true }.label!!
 
     // ---- what the menu offers ------------------------------------------------------------
 
@@ -80,7 +85,11 @@ class TrayMenuTest {
         // the user to ignore it, which is worse than the silence this replaces.
         val model = signedIn.copy(pending = 2)
         assertEquals(TrayAction.RETRY, row(model, TrayAction.RETRY).id)
-        assertTrue(labels(model).none { it.contains("sign in", ignoreCase = true) })
+        // **Asserted on the count row rather than on the whole menu** (SRS 1.202). This used to
+        // grep every label for "sign in", which was a proxy for the intent above and stopped
+        // being one when a standing `Sign in again` action was added beside `Sign out`. The
+        // count row is what the intent is about, and naming it is stricter than the grep was.
+        assertFalse(countRow(model).contains("sign in", ignoreCase = true), countRow(model))
     }
 
     @Test
@@ -89,7 +98,13 @@ class TrayMenuTest {
         // the same reading, and for the same reason: it would refer to captures that no
         // longer exist.
         val model = signedIn.copy(pending = 0, queueNeedsSignIn = true)
-        assertTrue(labels(model).none { it.contains("sign in", ignoreCase = true) })
+        // At zero there is no count row at all — FR-806's "shall not nag" — so the stale flag
+        // has nothing to say through. Asserted as the row's absence rather than as a text
+        // search, for the reason given in the test above.
+        assertTrue(
+            trayMenu(model).none { it.label?.contains("waiting") == true },
+            labels(model).toString(),
+        )
     }
 
     @Test
@@ -174,8 +189,10 @@ class TrayMenuTest {
         assertEquals(4, groups.size, items.mapNotNull { it.label }.toString())
         assertEquals(listOf(TrayAction.CAPTURE), groups[0].map { it.id })
         assertTrue(groups[1].all { it is TrayItem.Status }, "the second group is where things stand")
+        // SRS 1.202 put `Sign in again` in this group, beside the other actions and before
+        // `Sign out` — the two account actions together, and the destructive one last.
         assertEquals(
-            listOf(TrayAction.RECIPES, TrayAction.SETTINGS, TrayAction.SIGN_OUT),
+            listOf(TrayAction.RECIPES, TrayAction.SETTINGS, TrayAction.SIGN_IN, TrayAction.SIGN_OUT),
             groups[2].map { it.id },
         )
         assertEquals(listOf(TrayAction.QUIT), groups[3].map { it.id })
@@ -260,5 +277,36 @@ class TrayMenuTest {
             "the invoker is ${field.type.simpleName}; a Window that is not a Frame or Dialog " +
                 "cannot take focus, so the menu would never dismiss",
         )
+    }
+
+    @Test
+    fun `signed in, there is still a way to sign in again`() {
+        // SRS 1.200/1.202, and the case that stranded a real user. `isSignedIn` is presence and
+        // not validity, so after a grant is revoked at Google the tray still reads "Signed in
+        // as …" — the account line does nothing, and SIGN_IN was attached only to the *Not
+        // signed in* row, which needs the token to be **absent**. A user whose grant had been
+        // revoked and who had not yet captured anything could not sign in at all.
+        val row = row(signedIn, TrayAction.SIGN_IN)
+        assertTrue(row is TrayItem.Action, "it says what it does, beside the other actions")
+        assertTrue(row.label!!.contains("again", ignoreCase = true), row.label!!)
+    }
+
+    @Test
+    fun `the account line itself is still inert when signed in`() {
+        // The reasoning behind it is untouched: a status line that silently meant "re-consent"
+        // would be SRS 1.197's second Done one surface over. The action goes beside the
+        // actions; the line stays a line.
+        val account = trayMenu(signedIn).filterIsInstance<TrayItem.Status>()
+            .single { it.label.startsWith("Signed in as") }
+        assertEquals(null, account.id)
+    }
+
+    @Test
+    fun `not signed in, the sign-in offer is not doubled`() {
+        // The *Not signed in* row already carries SIGN_IN. Adding a second control for the same
+        // action would be two answers to one question, which is the shape FR-1231 and FR-804
+        // both refuse elsewhere.
+        val model = signedIn.copy(signedInAs = null)
+        assertEquals(1, trayMenu(model).count { it.id == TrayAction.SIGN_IN })
     }
 }
