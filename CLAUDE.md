@@ -1842,7 +1842,7 @@ real test means a real contact. Every row says what it leaves behind.
 | **FR-1227 stands down** | With FR-1231's offer on screen there must be **no** "You may already have this person" line beside it. Two answers about the same person, one weaker, is the conflation FR-1227 was written to avoid | a card with a mobile and an email |
 | **A queued card still drains as a create** | Capture offline a card whose person is already in the account, then reconnect. It writes a **second contact**, and that is the recorded narrowing (SRS 1.152) rather than a defect: an offer needs a surface and a drain has none. Failure would be a silent patch | aeroplane mode |
 | **NFR-101 is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms with `content ready, ocr=false`. FR-1230 adds a classification to the text path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
-| **AC-17 still holds** | A network monitor over a card capture that reaches an update: only `people.googleapis.com` and the other Google hosts. `updateContact` is a new request shape through the same guard | any card cycle |
+| **AC-17 still holds** | **PARTLY: AC-17 passed 31 Aug over an image cycle. **A monitor over a cycle containing an Inbox save has not been run.**** A network monitor over a card capture that reaches an update: only `people.googleapis.com` and the other Google hosts. `updateContact` is a new request shape through the same guard | any card cycle |
 
 ### Device pass backlog — FR-1227
 
@@ -1921,7 +1921,7 @@ does not.
 | **A photograph of nothing says so** | Photograph a blank wall: "Nothing could be read from that photo." and **no sheet**. Failure is an empty card sheet with Save disabled, which reads as the app having broken | a blank wall |
 | **FR-1207 records the camera** | Save a photographed card, then read the contact's `clientData` back: `latch.card.layer` must be **`CAMERA`**, not `SHARE_SHEET`. The whole reason the enum value was added, and unobservable anywhere but the account | a card, and a contact read back |
 | **FR-1003 does not refuse it** | Turn the share sheet **off** in Settings, then press the card button. It must still work — the camera is not one of §5.2's layers. Failure is "that way of capturing is off", which is the upgrade defect `layerOf()` returning null exists to prevent, seen through the setting instead of through a stale record | Settings → Ways to capture |
-| **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms, `content ready, ocr=false` and no spinner. The standing re-check whenever `CaptureActivity` is touched, and it has been touched twice since | "Kickoff 8 September 2027 at 9am" |
+| ~~**NFR-101 for text is unmoved**~~ **PASS, most recently 8 Sep 2026 at 396 ms worst of three cold runs.** Original row: | An ordinary text capture still reaches a filled sheet under 800 ms, `content ready, ocr=false` and no spinner. The standing re-check whenever `CaptureActivity` is touched, and it has been touched twice since | "Kickoff 8 September 2027 at 9am" |
 | **The retake rate** | Not pass/fail. **One retake in three photographs on 5 Sep 2026**, which is a number too small to mean anything and is recorded so the count starts somewhere. That number is the only thing that reopens CameraX | the first dozen real cards |
 | **NFR-101 for an image is unmoved** | ~~Watched in passing on 5 Sep: 416 ms, 449 ms and 1019 ms to a filled sheet against a 2.5 s budget.~~ **Re-run under B3**, where a capture recognises up to four photographs in sequence and the budget is the thing most likely to have moved | a two-sided card |
 | **NFR-205 takes a held card** (SRS 1.121) | Capture a card offline so it is held, then Settings → disconnect and delete everything. The card must be **gone** and must **not** appear in Google Contacts on the next reconnection. JVM-covered by `DeleteEverythingTest` now; what a device adds is the real store and the real drain | aeroplane mode, then disconnect — **needs a throwaway account** |
@@ -1951,6 +1951,21 @@ sharing one `latch.source_hash`.
 
 ## Device pass backlog
 
+**Reconciled against the *Verified on a device* table on 10 Sep 2026.** These tables were written
+in the autonomous session of 1–2 September and were never struck as passes landed, because a pass
+is recorded in the device table above instead. The two views had drifted badly and this one
+**overstated what was owed**: 27 rows were already done and 7 more were partly done with the
+untested half unnamed. Both are now marked, each strike pointing at the run that closed it.
+
+**The count after reconciling is 81 open of 108**, and the shape of what is left is more useful
+than the number: Slices 4, 6 and 7 are untouched on Android — recipes, FR-908/NFR-205/`.ics`, and
+the notification listener — while Slices 1, 3, 5 and 9 are mostly done and what remains of 2, 3
+and 5 is nearly all *"and it reaches Google"*, which is the half that costs a write.
+
+**A partial is marked and not struck.** A row whose sheet half passed and whose account half did
+not is still owed, and calling it done is how AC-07 sat closed-looking for five days.
+
+
 **Everything in this section is JVM-verified and DEVICE-OWED.** It was built in the autonomous
 session of 1 Sep 2026, in which no device pass was run and nothing was written to the
 developer's Google account. A green `./gradlew build` is not evidence for any of it — the
@@ -1967,10 +1982,10 @@ that has not been watched yet.
 | Check | What failure looks like | Fixture |
 |---|---|---|
 | "Reading page N of M…" counts up while a PDF is read | **The callback half is verified** (1 of 2, then 2 of 2, on `letter.pdf`). What is still owed is the **line on screen**: it never appears, or it appears once and sticks at 1, because the flow publishes from a thread the screen does not collect on | `testdata/fr215/long.pdf` (14 pages). It must show **M = 10**, not 14, and must count 1→10 |
-| The cap line still follows | "First 10 of 14 pages read." after the sheet fills. The progress line and the cap line are different sentences about different numbers, and showing 10 in both places is correct | the same file |
-| A short PDF still says the same thing | `letter.pdf` (2 pages) counts 1→2 and shows **no** cap line | `testdata/fr215/letter.pdf` |
+| ~~The cap line still follows~~ **PASS 31 Aug 2026 — `long.pdf` showed "First 10 of 14 pages read.".** Original row: | "First 10 of 14 pages read." after the sheet fills. The progress line and the cap line are different sentences about different numbers, and showing 10 in both places is correct | the same file |
+| A short PDF still says the same thing | **PARTLY: the cap line is correctly absent for `letter.pdf` (31 Aug). The 1→2 **progress line** is not watched.** `letter.pdf` (2 pages) counts 1→2 and shows **no** cap line | `testdata/fr215/letter.pdf` |
 | An **image** capture is unchanged | The spinner says "Reading the text…", never "Reading page…". An image has nothing to count, and a progress line on one would be a number invented from nothing | any `testdata/fr215/*.png` |
-| NFR-101 for text is unmoved | An ordinary text capture is still synchronous — `content ready, ocr=false` in `LatchTiming`, no spinner at any point. NFR-102's note requires this re-check whenever the asynchronous path is touched | "Kickoff 8 September 2027 at 9am" |
+| ~~NFR-101 for text is unmoved~~ **PASS, most recently 8 Sep 2026 at 396 ms worst of three cold runs.** Original row: | An ordinary text capture is still synchronous — `content ready, ocr=false` in `LatchTiming`, no spinner at any point. NFR-102's note requires this re-check whenever the asynchronous path is touched | "Kickoff 8 September 2027 at 9am" |
 
 ### Slice 2 — FR-701 storage, the FR-700 Capture Inbox, FR-806's queue improvements
 
@@ -1984,16 +1999,16 @@ gap in this slice and the first thing to watch.
 | **An unreadable Inbox row is kept** | JVM-unreachable and now covered by an instrumented test, which has **not been run on this device** — the suite destroys the app's local data and was not run against a phone in real use. Run it on a throwaway install, or accept losing the Inbox, queue, recipes and settings. Failure is the old behaviour: the row silently gone and the count one lower | `./gradlew :app:connectedDebugAndroidTest` |
 | **FR-704 still reaches zero over a kept row** | With one unreadable row and nothing else, the home screen must show **no** Inbox count at all, and the Inbox screen must say one held capture could not be read. Failure is a count that never goes to zero, which is the objection the old deletion existed to answer | as above |
 | **FR-1004b's report on the phone** | Configure a `https://` bin that answers 404, enable the webhook, save a capture: Settings must say *"your endpoint answered 404"*. Point it at `https://127.0.0.1:9/hook`: *"could not reach your endpoint"*. A working bin: *"accepted"*. Before this, all three showed nothing | a request-bin endpoint |
-| **The report does not follow a removed endpoint** | Remove the endpoint: the last-delivery line goes with it. A line describing a delivery to an address the user has just removed is worse than none | Settings |
+| ~~**The report does not follow a removed endpoint**~~ **PASS 7 Sep 2026 — removing the endpoint cleared `webhook.last_delivery`.** Original row: | Remove the endpoint: the last-delivery line goes with it. A line describing a delivery to an address the user has just removed is worse than none | Settings |
 | **AC-19 is unmoved** | A notification capture must still produce **no** request and now also **no** report — a suppressed delivery is not a failed one. Needs FR-208, so it is owed until slice 7 | notification listener |
-| **AC-03** — text with no date | An undated row appears in the Inbox and **nothing** is created in Google Calendar or Tasks. Failure: an item appears in the account, or the sheet reports "Saved" | "Ask about the uniform order" |
+| ~~**AC-03** — text with no date~~ **PASS 7 Sep 2026 — *Added to your Inbox…* and nothing in Google.** Original row: | An undated row appears in the Inbox and **nothing** is created in Google Calendar or Tasks. Failure: an item appears in the account, or the sheet reports "Saved" | "Ask about the uniform order" |
 | ~~The database is actually created~~ | **Verified 2 Sep by the instrumented suite.** The database is created on first use and every store round-trips through SQL and the Keystore. |
-| A row survives a **process death** | Still owed: the instrumented tests write and read within one process, so they prove the SQL and the cipher and not the restart. Route a capture to the Inbox, force-stop, reopen: the row is still there with its reason | `adb shell am force-stop com.latch.android` |
+| ~~A row survives a **process death**~~ **PASS 7 Sep 2026 — an assigned date, an edited title and a discard all survived `force-stop`.** Original row: | Still owed: the instrumented tests write and read within one process, so they prove the SQL and the cipher and not the restart. Route a capture to the Inbox, force-stop, reopen: the row is still there with its reason | `adb shell am force-stop com.latch.android` |
 | The Inbox re-parses at the **captured** instant | Capture "kal 4 baje meeting" (routes on confidence), leave it a day, reopen the Inbox: the date must still read the day after the **capture**, not the day after today. Failure is a date that walks forward every time the list is opened | "kal 4 baje meeting", checked on two different days |
-| FR-702's five actions | Assign a date, edit the title, snooze, discard, save. Each must persist across a back-and-return, and Save must produce exactly one item in Google | any Inbox row |
+| FR-702's five actions | **PARTLY: assign a date, edit a title and discard all passed 7 Sep and survived a `force-stop`. **Save and Snooze were deliberately not run** — one writes, one leaves state.** Assign a date, edit the title, snooze, discard, save. Each must persist across a back-and-return, and Save must produce exactly one item in Google | any Inbox row |
 | FR-702's assigned date reaches Google | A row with no date, given 20 Sep 2027, saves as a **TASK due 20 Sep 2027** — not an event, not undated | undated capture + date picker |
-| FR-703 | Nothing in the Inbox appears in Google Calendar or Tasks until Save is pressed. Verified by looking at the account, not at the screen | any row left un-saved |
-| FR-704 does not nag | The count is absent at zero, and there is no notification and no badge anywhere | empty Inbox |
+| ~~FR-703~~ **PASS 7 Sep 2026 — nothing reached Google while the row sat in the Inbox.** Original row: | Nothing in the Inbox appears in Google Calendar or Tasks until Save is pressed. Verified by looking at the account, not at the screen | any row left un-saved |
+| ~~FR-704 does not nag~~ **PASS 7 Sep 2026 — no count and no Inbox control at zero.** Original row: | The count is absent at zero, and there is no notification and no badge anywhere | empty Inbox |
 | FR-705 | A row older than a fortnight shows its review line. Needs a clock change or a seeded row — recorded as awkward rather than skipped | `adb shell date`, or an Inbox row aged by hand |
 | **FR-807 across a process death** | Save, force-stop inside the ten seconds, reopen: the home screen offers Undo with the remaining seconds, and taking it removes the item from Google. This is the limit FR-807's note recorded as unfixable without FR-701 | "Kickoff 8 September 2027 at 9am" |
 | **FR-807 across a rotation** | Save, rotate inside the ten seconds: the offer is **still there**. Before this slice the recreation reset the saver and the offer vanished — a latent defect no test could see | any capture, rotate |
@@ -2003,8 +2018,8 @@ gap in this slice and the first thing to watch.
 | FR-806's backoff ceiling | After eight failed attempts the next drain is scheduled ~30 minutes out rather than hours. **Watch for the `REPLACE`-from-inside-a-worker behaviour**: the worker enqueues its own unique work while running, which cancels the current run. Intended, and the one thing here to watch rather than reason about | aeroplane mode for a long stretch, `adb shell dumpsys jobscheduler` |
 | FR-806's immediate drain | Queue a capture offline, wait past one backoff, turn the network on: the drain runs within seconds rather than at the next scheduled attempt | aeroplane mode on → capture → off |
 | FR-806's Retry now | With something queued, the button appears and a tap drains. With a given-up entry, the tap revives it and it is attempted again | a 403 or an entry given up on |
-| **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms. The Inbox route adds a decision to the save path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
-| **AC-17 still holds** | A network monitor over a cycle including an Inbox save shows only Google hosts. The Inbox adds no network path, but it adds a save path | any capture cycle |
+| ~~**NFR-101 for text is unmoved**~~ **PASS, most recently 8 Sep 2026 at 396 ms worst of three cold runs.** Original row: | An ordinary text capture still reaches a filled sheet under 800 ms. The Inbox route adds a decision to the save path and this is the standing re-check | "Kickoff 8 September 2027 at 9am" |
+| **AC-17 still holds** | **PARTLY: AC-17 passed 31 Aug over an image cycle. **A monitor over a cycle containing an Inbox save has not been run.**** A network monitor over a cycle including an Inbox save shows only Google hosts. The Inbox adds no network path, but it adds a save path | any capture cycle |
 
 ### Slice 3 — FR-506 row 3, FR-507, FR-510
 
@@ -2015,21 +2030,21 @@ a narrow floating dialog — which is exactly the class of defect the FR-804 off
 
 | Check | What failure looks like | Fixture |
 |---|---|---|
-| **FR-506 row 3's chips are on screen without a tap** | The row shows "No day for this time yet" and nothing else, or the chips are below the fold of the sheet | "call at 4pm" |
-| A chip completes the row | Tapping *Tomorrow* fills the date line, **ticks the checkbox**, and Save becomes enabled. Failure: the row stays unticked, which makes the picker feel inert | "call at 4pm" |
-| `Other date…` opens the calendar over the sheet | The dialog appears and is dismissible; confirming is **disabled until a day is picked**, because a confirm that meant "today" would be the app choosing a date | "call at 4pm" |
-| The calendar's date is the one that lands | Pick 20 Sep; the item must be 20 Sep, not the 19th or 21st. The M3 picker's millis are UTC midnight and converting them through the device zone is the off-by-one this is here to catch | "call at 4pm", IST device |
-| **FR-507: the badge is tappable and flips** | EVENT → TASK → EVENT on a single row, and the date line and the note update with it | "Kickoff 8 September 2027 at 9am" |
-| The cost is shown **before** the tap | "…keeps the day but not the time" is visible while the badge still reads EVENT | as above |
+| ~~**FR-506 row 3's chips are on screen without a tap**~~ **PASS 6 and 7 Sep 2026.** Original row: | The row shows "No day for this time yet" and nothing else, or the chips are below the fold of the sheet | "call at 4pm" |
+| ~~A chip completes the row~~ **PASS 7 Sep 2026 — *Tomorrow* filled the row, ticked it and enabled Save.** Original row: | Tapping *Tomorrow* fills the date line, **ticks the checkbox**, and Save becomes enabled. Failure: the row stays unticked, which makes the picker feel inert | "call at 4pm" |
+| ~~`Other date…` opens the calendar over the sheet~~ **PASS 7 Sep 2026 — opened with `Current selection: None`.** Original row: | The dialog appears and is dismissible; confirming is **disabled until a day is picked**, because a confirm that meant "today" would be the app choosing a date | "call at 4pm" |
+| ~~The calendar's date is the one that lands~~ **PASS 7 Sep 2026 — Sun 20 Sept landed as the 20th on an `Asia/Kolkata` device.** Original row: | Pick 20 Sep; the item must be 20 Sep, not the 19th or 21st. The M3 picker's millis are UTC midnight and converting them through the device zone is the off-by-one this is here to catch | "call at 4pm", IST device |
+| ~~**FR-507: the badge is tappable and flips**~~ **PASS 7 Sep 2026 — EVENT → TASK → EVENT, and the time came back.** Original row: | EVENT → TASK → EVENT on a single row, and the date line and the note update with it | "Kickoff 8 September 2027 at 9am" |
+| ~~The cost is shown **before** the tap~~ **PASS 7 Sep 2026, and specific to what would be lost.** Original row: | "…keeps the day but not the time" is visible while the badge still reads EVENT | as above |
 | An override reaches Google | Overridden to TASK, the save produces a **task due 8 Sep 2027** and no event | as above |
-| A range overridden to a task | The note names the lost end date, and the saved task is due on the **first** day | "Trip from 20 September to 24 September 2027" |
+| A range overridden to a task | **PARTLY: the sheet half passed 7 Sep (dropped to the first day). **The written task has not been checked in Google.**** The note names the lost end date, and the saved task is due on the **first** day | "Trip from 20 September to 24 September 2027" |
 | Per-row override in a chain | Two rows, one flipped: the save writes one event and one task | a two-date capture |
-| The override is on the Inbox too | The badge in the Inbox list flips and the saved item follows it | any Inbox row |
-| **AC-04** — a past date | "the order dated 12 March" → **no dated item**; one undated to-do whose notes begin "Originally dated 12 March 2026." Verified in Google Tasks, not on screen | "the order dated 12 March" |
-| A past row's badge is fixed | It reads TASK and does not flip, with "A past date cannot be an event." beside it | as above |
-| FR-510 per candidate | "Invoice dated 12 March, payment due 20 September 2027" → **two** items: an undated follow-up and a task due 20 Sep | as quoted |
+| ~~The override is on the Inbox too~~ **PASS 7 Sep 2026 — and the override survived a `force-stop`.** Original row: | The badge in the Inbox list flips and the saved item follows it | any Inbox row |
+| **AC-04** — a past date | **PARTLY: the sheet half passed 7 Sep. **The undated follow-up in Google Tasks is not verified.**** "the order dated 12 March" → **no dated item**; one undated to-do whose notes begin "Originally dated 12 March 2026." Verified in Google Tasks, not on screen | "the order dated 12 March" |
+| ~~A past row's badge is fixed~~ **PASS 7 Sep 2026 — a `TextView` with `clickable="false"`, structurally not flippable.** Original row: | It reads TASK and does not flip, with "A past date cannot be an event." beside it | as above |
+| FR-510 per candidate | **PARTLY: two ticked rows with the right notes passed 7 Sep. **The two items reaching Google are not verified.**** "Invoice dated 12 March, payment due 20 September 2027" → **two** items: an undated follow-up and a task due 20 Sep | as quoted |
 | A queued follow-up keeps its note | Aeroplane mode, capture a past date, reconnect: the note survives the queue (record v5) and is in the item Google receives | as above, offline |
-| **The action row still fits** | With chips, a badge, a cost note and Save on one sheet, nothing clips and nothing wraps mid-word. This is the defect class the FR-804 offer already produced once | a past-dated multi-row capture |
+| ~~**The action row still fits**~~ **PASS 6 and 7 Sep 2026.** Original row: | With chips, a badge, a cost note and Save on one sheet, nothing clips and nothing wraps mid-word. This is the defect class the FR-804 offer already produced once | a past-dated multi-row capture |
 
 ### Slice 4 — recipes, FR-601 to FR-608
 
@@ -2064,10 +2079,10 @@ deliberately contacts something that is not Google.
 | Settings opens and lists real calendars and task lists | Both lists populate; the current destination is selected; a hidden calendar shows its badge (FR-903) | a real account |
 | Changing the destination takes effect on the next capture | The chip on the sheet shows the new calendar and the write lands there | any capture after the change |
 | **AC-12** | Switch Option B → A → B. **Nothing in Google moves, changes or disappears**, and the other mode's calendar choice is still selected when you switch back. Verified in the account, not on screen | an account with items already saved |
-| FR-1003's tile toggle | Turning the tile off **removes it from Quick Settings**. Turning it on puts it back | the QS shade |
-| FR-1003's other two | Turning the share sheet off: Latch still appears in the resolver and the sheet says it is switched off. That is the documented limit, not a defect | share any text |
-| FR-504 through settings | Set month-first, capture "05/09": it must read **9 May**. Then cold-start the app and repeat — this is the case where the first frames use defaults | "Invoice 05/09" |
-| FR-512's threshold | Raise it to 99%: an ordinary capture starts routing to the Inbox. Lower it to 0: nothing does | "Kickoff 8 September 2027 at 9am" |
+| ~~FR-1003's tile toggle~~ **PASS 6 Sep 2026 — verified against `dumpsys`, not the screen.** Original row: | Turning the tile off **removes it from Quick Settings**. Turning it on puts it back | the QS shade |
+| ~~FR-1003's other two~~ **PASS 6 Sep 2026 — the documented Android limit, with the refusal message.** Original row: | Turning the share sheet off: Latch still appears in the resolver and the sheet says it is switched off. That is the documented limit, not a defect | share any text |
+| ~~FR-504 through settings~~ **PASS 6 Sep 2026 — the *interpretation* moved, not just the rendering.** Original row: | Set month-first, capture "05/09": it must read **9 May**. Then cold-start the app and repeat — this is the case where the first frames use defaults | "Invoice 05/09" |
+| ~~FR-512's threshold~~ **PASS 6 Sep 2026 — Save at 60, Add to Inbox at 99.** Original row: | Raise it to 99%: an ordinary capture starts routing to the Inbox. Lower it to 0: nothing does | "Kickoff 8 September 2027 at 9am" |
 | Default duration and reminder | Set 45 minutes and a 10-minute reminder; an ordinary timed capture creates a 45-minute event with a 10-minute popup | as above |
 | FR-605 from Settings | Change the working week to six days; AC-06's prep step moves from Thu 3 Sep to Fri 4 Sep | AC-06's capture |
 | **FR-904's picker** | Tap Change on the sheet: the calendar list loads **and the sheet does not block while it does**. Choosing one changes the chip, and the write goes there | any capture |
@@ -2077,9 +2092,9 @@ deliberately contacts something that is not Google.
 | **AC-19** | Configure a webhook, then confirm a notification capture: **no** request to the endpoint. Needs FR-208, so it is owed until slice 7 | notification listener |
 | **AC-20** | Point the webhook at an unreachable host and save: the item still reaches Google, no blocking error appears, and undo still works | `https://127.0.0.1:9/hook` |
 | **AC-21** | Reachable webhook, save offline, reconnect: Google gets the item from the queue and **no** webhook request is sent for it. Documented behaviour, not a defect | aeroplane mode |
-| NFR-203's masking | Once saved, the endpoint shows as `https://host/••••••••` and the real path is nowhere on screen | a URL with a token in the path |
-| The endpoint survives a cold start | It is still configured after a force-stop, and still masked | as above |
-| **NFR-101 for text is unmoved** | An ordinary text capture still reaches a filled sheet under 800 ms with settings loaded. The settings read is new on this path | "Kickoff 8 September 2027 at 9am" |
+| ~~NFR-203's masking~~ **PASS 7 Sep 2026 — masked on screen *and* at rest.** Original row: | Once saved, the endpoint shows as `https://host/••••••••` and the real path is nowhere on screen | a URL with a token in the path |
+| ~~The endpoint survives a cold start~~ **PASS 7 Sep 2026 — still masked afterwards.** Original row: | It is still configured after a force-stop, and still masked | as above |
+| ~~**NFR-101 for text is unmoved**~~ **PASS, most recently 8 Sep 2026 at 396 ms worst of three cold runs.** Original row: | An ordinary text capture still reaches a filled sheet under 800 ms with settings loaded. The settings read is new on this path | "Kickoff 8 September 2027 at 9am" |
 
 ### Slice 6 — FR-908, NFR-205, FR-1005
 
@@ -2154,8 +2169,8 @@ assertions may not hold, so it is not counted among the 576 tests that pass.
 
 | Check | What failure looks like |
 |---|---|
-| It runs at all | The two assets (`latin-chat.png`, `letter.pdf`) resolve from `app/src/androidTest/assets` and copy to the cache. A missing asset fails every OCR test at once and says so |
-| **The app is still installed afterwards** | `adb shell pm list packages com.latch.android` still lists it. If it does not, the AGP property has stopped working and the note in `gradle.properties` is now wrong |
+| ~~It runs at all~~ **PASS 2 Sep 2026 — 21/21 in 13.3 s.** Original row: | The two assets (`latin-chat.png`, `letter.pdf`) resolve from `app/src/androidTest/assets` and copy to the cache. A missing asset fails every OCR test at once and says so |
+| ~~**The app is still installed afterwards**~~ **PASS 2 Sep 2026 — the AGP property works.** Original row: | `adb shell pm list packages com.latch.android` still lists it. If it does not, the AGP property has stopped working and the note in `gradle.properties` is now wrong |
 | The three defect tests genuinely bite | Each is written against a defect that actually shipped. Worth confirming at least one **fails** when reintroduced — the launch canary was verified that way and it is what makes a regression test a regression test |
 | The storage tests are order-independent | Run the class twice, and run it after a device pass has left real data behind. `@Before` clears every store; a test that only passes on a clean install is one that will fail on someone's phone |
 | NFR-103 is unmoved | The androidTest APK is separate and never linked into the app's, so the release APK must not have grown. `./gradlew :app:assembleRelease` and compare |
