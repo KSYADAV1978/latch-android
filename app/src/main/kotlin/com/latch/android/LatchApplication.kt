@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Network
 import com.latch.android.capture.CaptureSaver
 import com.latch.android.capture.CaptureTileService
@@ -417,7 +418,11 @@ class LatchApplication : Application() {
         if (!shouldCheckGrant(lastGrantCheckAt, now)) return
         lastGrantCheckAt = now
         appScope.launch {
-            val check = grantCheck(runCatching { authClient.grantNeedsConsent() })
+            // SRS 1.199: a check made with no network has not been made. Offline `authorize()`
+            // does not fail — it succeeds and offers a resolution, because it cannot confirm a
+            // grant without reaching Google — so without this the banner told a user in
+            // aeroplane mode that their grant was bad and offered a button that could not work.
+            val check = grantCheck(runCatching { authClient.grantNeedsConsent() }, looksOnline())
             // Null is "leave it alone", which is the whole of GrantCheck.Unknown.
             promptAfter(check)?.let { _grantNeedsConsent.value = it }
         }
@@ -532,6 +537,25 @@ class LatchApplication : Application() {
      * backoff timer does not notice the network coming back, and `ExistingWorkPolicy.KEEP`
      * correctly refuses to reset that timer for an ordinary request.
      */
+    /**
+     * Whether this phone currently has a validated network (SRS 1.199).
+     *
+     * **A weak proxy, deliberately, and wrong in only the harmless direction.** `VALIDATED` is
+     * the system's own judgement that the network actually reaches the internet, which is
+     * stronger than "an interface is up" — but a captive portal can still satisfy a check and
+     * fail a request. What it cannot do is claim a genuinely online phone is offline, so it
+     * never suppresses a real `NeedsConsent`; the worst it does is let one through, which is the
+     * behaviour that was there before.
+     *
+     * Unreadable for any reason answers **true**, so a fault here degrades to exactly the old
+     * behaviour rather than silencing the prompt altogether.
+     */
+    private fun looksOnline(): Boolean = runCatching {
+        val manager = getSystemService(ConnectivityManager::class.java) ?: return true
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }.getOrDefault(true)
+
     private val connectivity = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             drainNow(DrainTrigger.CONNECTIVITY_RESTORED)

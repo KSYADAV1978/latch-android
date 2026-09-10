@@ -43,14 +43,36 @@ sealed interface GrantCheck {
 /**
  * Read a completed silent check.
  *
- * [hasResolution] is what `AuthorizationResult` reports: consent is required and here is the
+ * [outcome] carries what `AuthorizationResult` reports: consent is required and here is the
  * intent that would ask for it. The intent is deliberately discarded by the caller — FR-806a
  * says nothing interactive happens without a tap, and this check has had no tap.
+ *
+ * **[online] is the fix for SRS 1.198 and it guards *both* answers, not just the positive one.**
+ * This function used to take the result alone, so [GrantCheck.Unknown] was reachable only when
+ * the Play services call *failed*. Offline it does not fail: `authorize()` **succeeds** and
+ * offers a resolution, because it cannot confirm a grant without reaching Google. So
+ * `hasResolution` came back true, [GrantCheck.NeedsConsent] followed, and a user in aeroplane
+ * mode was told their grant was bad and shown a button that could not work.
+ *
+ * A check made with no network has **not been made**, whichever way it came back. The guard is
+ * in front of the fold rather than inside the `hasResolution` branch because the other direction
+ * is the more damaging one: a `false` reached without a network would mean [GrantCheck.Sufficient]
+ * and would **clear a standing prompt** on no evidence, which is a real warning lost rather than
+ * a false one raised.
+ *
+ * [online] is a weak proxy — a captive portal looks connected and is not, so one can still
+ * produce the false banner. What it cannot do is the damaging direction: it never suppresses a
+ * real [GrantCheck.NeedsConsent], because a phone that is genuinely online says so.
  */
-fun grantCheck(outcome: Result<Boolean>): GrantCheck = outcome.fold(
-    onSuccess = { hasResolution -> if (hasResolution) GrantCheck.NeedsConsent else GrantCheck.Sufficient },
-    onFailure = { GrantCheck.Unknown },
-)
+fun grantCheck(outcome: Result<Boolean>, online: Boolean): GrantCheck {
+    if (!online) return GrantCheck.Unknown
+    return outcome.fold(
+        onSuccess = { hasResolution ->
+            if (hasResolution) GrantCheck.NeedsConsent else GrantCheck.Sufficient
+        },
+        onFailure = { GrantCheck.Unknown },
+    )
+}
 
 /**
  * Whether a [GrantCheck] changes the standing prompt, and to what.

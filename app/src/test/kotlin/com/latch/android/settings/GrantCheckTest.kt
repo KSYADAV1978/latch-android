@@ -20,19 +20,19 @@ class GrantCheckTest {
 
     @Test
     fun `a check that reports a resolution needs consent`() {
-        assertEquals(GrantCheck.NeedsConsent, grantCheck(Result.success(true)))
+        assertEquals(GrantCheck.NeedsConsent, grantCheck(Result.success(true), online = true))
     }
 
     @Test
     fun `a check that reports no resolution is sufficient`() {
-        assertEquals(GrantCheck.Sufficient, grantCheck(Result.success(false)))
+        assertEquals(GrantCheck.Sufficient, grantCheck(Result.success(false), online = true))
     }
 
     @Test
     fun `a check that could not be completed concludes nothing`() {
         // The case the requirement calls out by name: no network, a server error, Play services
         // unavailable. None of it is evidence about the grant.
-        assertEquals(GrantCheck.Unknown, grantCheck(Result.failure(RuntimeException("no network"))))
+        assertEquals(GrantCheck.Unknown, grantCheck(Result.failure(RuntimeException("no network")), online = true))
     }
 
     // ---- what a check may change ----------------------------------------------------------
@@ -63,7 +63,7 @@ class GrantCheckTest {
         // avoid, and it would look exactly like working software: a banner that is wrong often
         // enough to be ignored is worse than no banner at all.
         val standing = false
-        val after = promptAfter(grantCheck(Result.failure(java.io.IOException("offline"))))
+        val after = promptAfter(grantCheck(Result.failure(java.io.IOException("offline")), online = true))
         assertNull(after)
         assertFalse(after ?: standing)
     }
@@ -139,5 +139,45 @@ class GrantCheckTest {
             SignInPrompt.NONE,
             signInPrompt(queueNeedsSignIn = false, queueWaiting = 3, grantNeedsConsent = false),
         )
+    }
+
+    // ---- SRS 1.198/1.199: a check made with no network has not been made -------------------
+
+    @Test
+    fun `offline, a reported resolution concludes nothing rather than needing consent`() {
+        // **The defect, and the case this file did not have.** Offline `authorize()` does not
+        // fail — it *succeeds* and offers a resolution, because it cannot confirm a grant
+        // without reaching Google. So the failure branch below was never the one that ran, and
+        // a user in aeroplane mode was told their grant was bad and shown a button that could
+        // not work.
+        assertEquals(GrantCheck.Unknown, grantCheck(Result.success(true), online = false))
+    }
+
+    @Test
+    fun `offline, a reported absence of a resolution also concludes nothing`() {
+        // The guard sits in front of **both** answers, and this is the more damaging direction:
+        // `false` would mean Sufficient, which *clears a standing prompt* — a real warning lost
+        // on no evidence, where the other mistake is only a false one raised.
+        assertEquals(GrantCheck.Unknown, grantCheck(Result.success(false), online = false))
+        assertNull(
+            promptAfter(grantCheck(Result.success(false), online = false)),
+            "an offline check must leave the prompt exactly as it is",
+        )
+    }
+
+    @Test
+    fun `offline never suppresses a prompt that is already standing`() {
+        // FR-806b's whole purpose is that the banner precedes the loss. A flaky network must not
+        // be able to take it down.
+        assertNull(promptAfter(grantCheck(Result.success(true), online = false)))
+        assertNull(promptAfter(grantCheck(Result.failure(java.io.IOException()), online = false)))
+    }
+
+    @Test
+    fun `online, the three readings are unchanged`() {
+        // The regression guard: the fix must not have moved the cases that were already right.
+        assertEquals(GrantCheck.NeedsConsent, grantCheck(Result.success(true), online = true))
+        assertEquals(GrantCheck.Sufficient, grantCheck(Result.success(false), online = true))
+        assertEquals(GrantCheck.Unknown, grantCheck(Result.failure(RuntimeException()), online = true))
     }
 }

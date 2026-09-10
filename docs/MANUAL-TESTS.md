@@ -88,12 +88,19 @@ rather than a button that only works when it was going to work anyway.
 On reconnection the drain ran within about 35 seconds — `Worker result SUCCESS` for
 `WriteQueueWorker`, and the queue back to empty — rather than at the next backoff.
 
-### 2.2a FR-806b — the offline banner is a **known open defect** (SRS 1.198)
+### 2.2a FR-806b — the offline banner (SRS 1.198, **fixed** at SRS 1.199) — worth re-watching
 
-Not a test to run — it is recorded — but you will meet it and should not be alarmed. Offline with
-something queued, the home screen says *"Latch needs you to sign in to Google again"* over a
-perfectly good grant, and offline that **Sign in** button cannot work anyway. It clears the moment
-the network returns. Ignore it until SRS 1.198 is fixed.
+Offline with something queued, the home screen used to say *"Latch needs you to sign in to Google
+again"* over a perfectly good grant, and offline that **Sign in** button could not work anyway. A
+silent check made with no network now concludes nothing.
+
+- **Do:** aeroplane mode on, capture and save something so an entry is queued, then open the home
+  screen.
+- **Passes:** the pending count and **Retry now** appear, and **no sign-in banner**.
+- **Fails:** the banner is back — which would mean the connectivity proxy answered true while the
+  phone was offline.
+- **Known residual, not a failure:** on a **captive portal** the phone looks connected and is not,
+  so the banner can still appear there. That case is recorded rather than engineered around.
 
 ### 2.3 FR-804 — the offline hold
 
