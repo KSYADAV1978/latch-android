@@ -23,8 +23,11 @@ hunting rather than only the success.
 - [ ] **Sign in again on Windows.** The grant was revoked on 10 Sep to close FR-806b's positive
       case, and Android was re-consented but Windows was not. **The tray says "Signed in as …"
       and is wrong** (SRS 1.200): that only means a token is stored, and the stored one is dead.
-      Captures there are being *held*, not lost — SRS 1.192 — but nothing will reach Google until
-      you sign in from the tray.
+      Captures there are being *held*, not lost — SRS 1.192 — but nothing reaches Google until you
+      sign in. **Pressing the account line does nothing** — it is status, not an action, and the
+      Sign in row only appears when no token is stored at all. **Make a capture instead**: it is
+      held, the tray count row then reads *"1 waiting - sign in to save them"*, and **that** row
+      opens the browser. (Sign out then Sign in also works, but forgets your destination.)
 - [ ] **Turn aeroplane mode off and Wi-Fi on.** A test session on 10 Sep left them off.
 - [ ] **Delete the test fixtures** — 2 calendar events and 7 tasks, all in **September 2027**
       except one undated task. The session log lists them individually.
