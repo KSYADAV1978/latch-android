@@ -344,6 +344,20 @@ M". *Skipping the second recogniser* for a document whose first page shows no De
 roughly half the per-page cost, to be measured before adopted. All four are written up against
 their requirements in the SRS.
 
+**The rule below is not about taps and not about one script — 10 Sep 2026.** Driving Latch's UI
+by hand from `adb`, **Back from the recipe editor left the application entirely** and landed in a
+third-party messaging app that was behind it. Eight **swipes** went into that app before the dump
+was read. They were vertical, so they scrolled rather than acted — a horizontal swipe on a chat
+row archives it — and no tap or key was sent, so the damage is believed to be nil; it was reported
+to the developer as a belief rather than a fact, because a negative about somebody else's
+software is not mine to certify. **Three things follow and all three are the rule, not the
+anecdote.** *Assert the foreground package before **any** input event, not just before a tap* —
+`share-to-latch.ps1` has always done this and the discipline was never carried into ad-hoc
+driving. *A swipe is an input event.* And **`KEYCODE_BACK` is not a safe way to leave a screen**:
+it is a guess about the navigation stack, and from the last screen of an app it exits the app.
+Use `am start` to go where you mean to go, and reserve Back for dismissing something you just
+opened and can see.
+
 **A second harness hazard, found on 10 Sep 2026 and worth the same standing.** Tapping
 **Export .ics** opens the *system share sheet*, whose top row is contact suggestions — real
 people. An automated pass that taps a remembered coordinate there can send a calendar file to
