@@ -358,6 +358,11 @@ it is a guess about the navigation stack, and from the last screen of an app it 
 Use `am start` to go where you mean to go, and reserve Back for dismissing something you just
 opened and can see.
 
+**And a third, which typed into the user's data.** With a text field focused the on-screen
+keyboard is up, and a vertical **swipe over it is glide-typing**, not scrolling: five scroll
+gestures put five words into a recipe name. **Dismiss the IME before any swipe** — and read back
+what a field actually contains rather than assuming the text you sent is the text that arrived.
+
 **A second harness hazard, found on 10 Sep 2026 and worth the same standing.** Tapping
 **Export .ics** opens the *system share sheet*, whose top row is contact suggestions — real
 people. An automated pass that taps a remembered coordinate there can send a calendar file to
@@ -2091,8 +2096,8 @@ intact, that a reminder actually fires, and that the editor is usable on a phone
 | A recipe on an all-day capture | "Project sync on 8 September 2026" expands to an **all-day** event, not a meeting at 00:00 | as quoted |
 | ~~FR-605's working week~~ **PASS 10 Sep 2026 — Saturday ticked, prep moved **Thu 9 → Fri 10 Sept 2027** and FR-606 read **"weekend or rest day skipped (1 day)"**. Restored and re-verified.** Original row: | Set a six-day week; the same AC-06 capture puts prep on **Fri 4 Sep** instead of Thursday. Needs the Settings screen (slice 5) or a seeded record | as AC-06 |
 | ~~FR-605's holidays~~ **PASS 10 Sep 2026 — a holiday added on the prep day moved it **9 → 8 Sept 2027** and the row gained a second line, **"Skipped: LatchTestHoliday"**, naming it. Removed and re-verified.** Original row: | Add a holiday on the prep day; the shift steps over it and the row names it | any working-day step |
-| **FR-603, all four verbs** | Create, edit, duplicate, delete — each surviving a return to Home and a cold start. **Editing a built-in must not change the others**, and deleting the edited copy must restore the shipped one | the Recipes screen |
-| The editor is usable on a phone | Six filter chips, a number field and a template field per step. This is the same narrow-dialog class as the FR-804 offer's clipped label, one screen over | a recipe with three steps |
+| ~~**FR-603, all four verbs**~~ **PASS on Android 10 Sep 2026, each across a `force-stop` — create appends a user recipe, duplicate mints `(copy)`, edit persists **through the lower Done** (SRS 1.197), and delete removed all four of the test recipes leaving the shipped **eight** with no "edited by you" marker.** Original row: | Create, edit, duplicate, delete — each surviving a return to Home and a cold start. **Editing a built-in must not change the others**, and deleting the edited copy must restore the shipped one | the Recipes screen |
+| ~~The editor is usable on a phone~~ **PASS 10 Sep 2026 — name, title template, offset value, calendar/working unit, before/after, EVENT/TASK, Remove and Add step are all present and reachable.** Original row: | Six filter chips, a number field and a template field per step. This is the same narrow-dialog class as the FR-804 offer's clipped label, one screen over | a recipe with three steps |
 | **A queued chain keeps its reminders** | Aeroplane mode, apply a recipe, save, reconnect: the drained event still carries the reminder (queue record v6) | AC-06's capture, offline |
 | ~~FR-803 over a chain~~ **PASS 10 Sep 2026, and stronger than the row asked for — `save decision=Duplicate basis=SOURCE_HASH`, so the **source-hash** query answered rather than an `item_key` fall-through, and nothing was written.** Original row: | Re-capturing the same text with the same recipe answers "Already saved" — the chain shares one `source_hash`, so one check covers it | AC-06's capture, twice |
 
