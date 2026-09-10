@@ -88,17 +88,21 @@ rather than a button that only works when it was going to work anyway.
 On reconnection the drain ran within about 35 seconds — `Worker result SUCCESS` for
 `WriteQueueWorker`, and the queue back to empty — rather than at the next backoff.
 
-### 2.2a FR-806b — the offline banner (SRS 1.198, **fixed** at SRS 1.199) — worth re-watching
+### ~~2.2a FR-806b — the offline banner~~ — **FIXED and RE-WATCHED 10 Sep 2026** (SRS 1.198, 1.199)
 
 Offline with something queued, the home screen used to say *"Latch needs you to sign in to Google
 again"* over a perfectly good grant, and offline that **Sign in** button could not work anyway. A
 silent check made with no network now concludes nothing.
 
-- **Do:** aeroplane mode on, capture and save something so an entry is queued, then open the home
-  screen.
-- **Passes:** the pending count and **Retry now** appear, and **no sign-in banner**.
-- **Fails:** the banner is back — which would mean the connectivity proxy answered true while the
-  phone was offline.
+Re-run it if you like — aeroplane mode on, queue a capture, open the home screen — and the
+pending count and **Retry now** should appear with **no sign-in banner**. It was watched on a
+device the day it was fixed.
+
+**Still owed, and it is the half that matters for the risk this fix carries:** a *genuine*
+needs-consent prompt still appearing. That needs the grant actually revoked at
+myaccount.google.com, and it was not done. If you revoke it for the NFR-205 run in section 5, look
+for the banner then — the danger of this fix is suppressing a real warning, not raising a false
+one.
 - **Known residual, not a failure:** on a **captive portal** the phone looks connected and is not,
   so the banner can still appear there. That case is recorded rather than engineered around.
 
