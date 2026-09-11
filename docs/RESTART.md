@@ -1,4 +1,4 @@
-# Restart prompt — Latch, after the device-pass run of 10 September 2026
+# Restart prompt — Latch, after the card-scanning and classifier run of 11 September 2026
 
 Copy everything below the line into a fresh session.
 
@@ -7,130 +7,152 @@ Copy everything below the line into a fresh session.
 I am developing **Latch** at `C:\dev\latch-android` — an Android + Windows app that captures dates
 and business cards into Google Calendar, Tasks and Contacts. Read `CLAUDE.md` and `docs/SRS.md`
 first; they are the authoritative record and they are long. `docs/SRS.md`'s revision table now runs
-to **1.201**.
+to **1.216**.
 
 ## Standing rules — these override defaults and stay in force all session
 
 - **My Google account is live on both clients and writes are real.** Do not touch the account
   except as a slice genuinely requires, and tell me before you do.
-- **If a test must write, put every dated fixture in one month** and give me the list at the end.
-  September 2027 was used on 10 Sep and it worked: one search to clean up instead of an audit.
-- **Plan into the SRS revision row and the commit message, not to me.** Record every decision and
-  the reading it rests on.
+- **Never put a real person's name, number or address in this repository.** SRS 1.155 recorded this
+  happening once. **SRS 1.216 records it happening again on 11 September, by the same mechanism** —
+  a rule gets explained by naming the card that forced it, and the name travels into a KDoc, a test
+  fixture and a revision row. It was caught one command before publication. **Before any push, grep
+  the tracked files for the names on the cards you have been holding.** `cards/.../card_corpus.tsv`
+  is git-ignored and lives only on this machine; it must never be published.
+- **The refusal to guess is limited to three fields** (SRS 1.211): a **name**, a **telephone
+  number** and an **email address** are acted on, so a wrong one is worse than a blank and must
+  never be repaired. A **company**, **job title**, **address** and **website** are read, so they may
+  be assembled across lines and spell-corrected — but an address may be *assembled*, never invented.
+- **A protected field that is suspect must say so** rather than be placed in silence (SRS 1.213).
+- **Measure a classifier rule against the corpus before keeping it.** It will say *fixes N, breaks
+  M*. Every guard in the 11 Sep rules exists because the corpus caught the rule taking something
+  wrong; not one was foreseen.
+- **Plan into the SRS revision row and the commit message, not to me.**
 - **Every slice ends green**: the full JVM suite and `./gradlew build`. **One commit per slice.**
-  **SRS row first wherever a reading changes.**
 - **No new dependencies without asking**, with measured APK impact (NFR-501).
-- **Prefer moving shared logic into `:wire` / `:google`** over duplicating it between clients.
-- **Put decisions in pure functions a JVM test can reach.**
-- **Never record an unwatched thing as verified.** Android must stay green.
-- **Never put a real person's name, number or address in this repository.** See SRS 1.155.
-  `cards/.../card_corpus.tsv` is git-ignored and lives only on this machine.
-- **For a device pass I drive the phone and you watch.** Arm a `Monitor` on `adb logcat`, give me
-  one step at a time, and give steps that share a ten-second window *together* so I am never
-  waiting on you mid-countdown.
-- `adb` is not on PATH — use `"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe"`. It is **USB**.
+- **For a device pass I drive the phone and you watch.** Arm a capture on `adb logcat`, give me one
+  step at a time, and say what failure looks like before I press anything.
+- `adb` is not on PATH — use `"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe"`. It is **USB**,
+  and it dropped **four times** on 11 Sep. Use the self-healing capture (below) or lose readings.
 - `JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"` for every Gradle command.
 - Do not use subagents or workflows unless I ask.
 
 ## Where the build stands
 
-Clean tree on `main`, full suite green (**1403 tests**), pushed to GitHub. Both clients installed,
-signed in, grants live, queues empty. **The account is clean** — every fixture the 10 Sep session
-wrote was deleted by hand.
+Clean tree on `main`, **1429 tests green**, pushed. Both clients installed and signed in.
 
-**The device backlog was reconciled and then worked down: 55 open of 108**, from roughly a hundred
-apparent. `CLAUDE.md`'s slice tables had never been struck as passes landed, because a pass is
-recorded in the *Verified on a device* table instead; 27 rows were already done and 7 more partly
-done. What remains is mostly what only a person can do.
+**FR-1222's corpus went from 11 to 52 of 120 real cards** (60 recognitions) in one sitting — 39
+cards scanned, 47 readings, 34 contacts created. It is now a **scoreboard**: every row records what
+the card actually says, and the **18 fields the classifier still gets wrong are listed as
+`# known-miss` lines** inside the corpus file. A ratchet test asserts each one *still fails*, so a
+rule that fixes one turns the build red until the line is struck — a fix cannot land uncounted.
+**The ceiling may be lowered and never raised.**
 
-**`docs/MANUAL-TESTS.md` is the follow-along guide** — every remaining check written as *what to
-do*, *what passing looks like* and *what failure looks like*, cheapest first, plus the publisher
-steps and the open decisions.
+**The measured error rates that drove the work** (47 readings): company wrong or blank **45%**,
+address **45%**, email 26%, name 21%, job title 9%. And the account was read back and diffed against
+the classifier's draft: **manual correction rate 7 of 35 contacts, 20% — five name corrections, five
+company corrections and nothing else.** Two independent measurements agreeing on which fields are
+weak.
 
-**Five defects were found on 10 Sep, four of them by using the thing rather than testing it.**
+## What was built on 11 September
 
 | SRS | What | State |
 |---|---|---|
-| 1.195 | The desktop drain had no mutual exclusion; two overlapping drains both passed FR-803 and both inserted | **Fixed** |
-| 1.196 | The tray menu never dismissed — a `JWindow` invoker cannot take focus, so the listener could not fire | **Fixed, watched** |
-| 1.197 | FR-603's editor has **two controls labelled "Done"**; the top-right one discards the edit silently | **Open — a decision** |
-| 1.198 | FR-806b's banner fired when merely offline, naming a cure the user could not apply | **Fixed at 1.199, watched both ways** |
-| 1.200 | The Windows tray claims *"Signed in as…"* over a revoked grant and, with an empty queue, offers **no route back** | **Open — a decision** |
+| 1.205 | A lost space defeated the company guard (`AMini Ratna Company`) | Fixed |
+| 1.206 | **Every camera card shared one capture key**, so the second card of a session opened on the first one's "Saved" and was never written | Fixed, watched |
+| 1.207–1.209 | The scanning run, the identity merge, the scoreboard corpus | Recorded |
+| 1.210 | Company from the card's own domain, trade-body suffixes, one name split by layout | Fixed, watched |
+| 1.211 | The guessing policy narrowed; address rule rebuilt off the comma | Fixed, watched |
+| 1.212 | **An identity match may no longer rename a contact** | Fixed, watched on the card that broke it |
+| 1.213 | A suspect name or email says so and is never repaired | Fixed, watched |
+| 1.214–1.215 | A bare unit number joins an address, and leads it | Fixed, watched |
+| 1.216 | The personal-data leak and the purge of all 319 commits | Done |
 
 ## The two things owed, in the order they bite
 
-### 1. SRS 1.200 — the tray claims a signed-in state it has not got, and strands the user
+### 1. The account still holds what the old classifier produced
 
-`isSignedIn` is `secrets.get(REFRESH_TOKEN_KEY) != null` — **presence, not validity**. After a real
-revocation the tray still reads *Signed in as …*; the account line is a `Status` with **no action**;
-and `SIGN_IN` is attached only to the *Not signed in* row, which needs the token to be **absent**.
-So a user whose grant is revoked and who has not yet captured anything has no way to sign in except
-Sign out, which looks like leaving the account.
+Latch never rewrites a contact it created — §7.2 is write-once. **Fixing the classifier fixed
+nothing already saved.** Outstanding by hand in Google Contacts:
 
-**It self-heals on the first capture** — the `invalid_grant` handler removes the dead token, which
-restores both rows — and SRS 1.192 means that capture is *held*, not lost. The harm is bounded, and
-that whole sequence was watched end to end on 10 Sep (SRS 1.201).
+- **JSW** — email should be `prashantkumar.saraf@jsw.in`; it holds the half-address `Saraf@jsw.in`
+- **SICMA** — job title reads `ceo@sicmain`
+- **Adani** — email ends `.cam`, should be `.com`
+- **Chetan Bhardwaj (Vedanta)** — email domain is damaged
+- **One duplicate Prabhat Trivedi (ALIMCO)** — delete one
+- **Deloitte** — company is the fragment `Tohmatsu India LLP` unless it was corrected on the sheet
 
-**The amendment names a fix that needs no network call**: offer `SIGN_IN` on the account line
-whenever a stored token has failed. That sidesteps the cost objection which made this a decision —
-an honest tray otherwise means asking Google on a surface that reads four local files and is
-expected to open instantly. **Decide, then fix.**
+Five cards were deleted and re-scanned on 11 Sep to verify the fixes and are correct: Deloitte,
+Grant Thornton, Reliance, FIMI and Vedanta.
 
-### 2. SRS 1.197 — FR-603's two "Done" buttons
+### 2. The 6 September backup bundle carries the leaked address
 
-The top-right `TextButton` reads `recipes_edit` collapsed and **`recipes_done` expanded**, and its
-`onClick` is `onToggleExpanded` — collapse, no save. The saving control is a filled `Button` at the
-**bottom**, often below the fold. Three things make it a trap: the discarding button sits where
-"Edit" was a second earlier; it is the only "Done" visible until you scroll; and the outcome is
-**silent**, which NFR-303 names as a defect in as many words.
+`C:\dev\latch-backup\latch-android-2026-09-06-1837.bundle` contains
+`sarita.ghorpade@vedanta.co.in` in its history. It is a real backup point and deleting it costs one.
+The 4 September bundle predates the address and is clean. **A decision, not a task.**
 
-Three honest fixes, each saying something different about what an expanded card is: relabel the
-toggle ("Close"), make it save as well, or move the saving button up beside it.
+## Three misses recorded and not fixed
 
-## After that, what is left is mine rather than the code's
+1. **Multi-line fields keep only one line.** A company across two lines (`Deloitte Touche` +
+   `Tohmatsu India LLP`) and a job title across three both lose the tail to `unplaced`. This is the
+   same root cause as the address rule and is now *permitted* by SRS 1.211's policy — it is the
+   largest single remaining win.
+2. **Multi-address cards.** One card prints works, registered office and a mine within six lines;
+   the anchor's cluster wins and the rest is dropped. `CardDraft.addresses` is already a list.
+3. **A stranded local part that loses its trailing dot** raises no email doubt — a genuinely damaged
+   address placed in silence.
 
-`docs/MANUAL-TESTS.md` §3–§9. The long pole is **the two corpora** — NFR-502 wants 300 real captured
-strings and stands at **113**; FR-1222 wants 120 real cards and stands at **11**. Neither may be met
-with invented entries. **Start OAuth verification regardless** (§9.1): it gates general availability
-and is the commonest cause of launch slippage.
+## Instrument lessons from 11 September, each of which produced a wrong answer first
 
-## Four instrument lessons from 10 September, each of which nearly produced a wrong answer
+**A rule added inside a guard that already refuses the case is indistinguishable from no rule, and
+a green build says nothing about it.** The `B-201` fix was gated behind a check demanding the exact
+vocabulary that line lacks; it could never run, and the corpus stayed green with nothing changed.
 
-**Run a positive control beside the thing under test.** FR-904's picker looked inert across a dozen
-taps — clickable bounds, coordinates provably inside them. The phone had **disconnected** and every
-dump was a stale file. The badge would not flip either, and that is what caught it. *A control that
-fails alongside the check means the instrument is dead, not the app.*
+**A `logcat` capture through a pipe is block-buffered.** Reading it at a saved line offset gave an
+empty tail twice and produced two confident wrong conclusions — *"the app logs nothing"* and *"an
+update with no capture"*. Read the whole tail by timestamp. The device's own main buffer holds
+**about two minutes** under load, so a continuous capture is the instrument and not a convenience.
+Use `scratchpad/watch.sh`, which waits for the device and restarts itself.
 
-**Read the code before calling anything a defect.** Three of four apparent defects were deliberate:
-the recipe chooser is folded until tapped, "New recipe" appends at the **bottom** of the list, and
-the rename that "would not save" was the wrong Done button. Each cost a minute to check and would
-have cost a false report.
+**`latch.card.captured_at` sits at the save, not at the recognition.** Matching contacts to drafts
+on the recognition instant paired every contact with the *next* card's draft and produced twelve
+plausible-looking "manual edits" that were all artefacts. A near-miss key gives a table that reads
+perfectly and is wrong in every row.
 
-**Guard every input event, not just taps.** Back from the recipe editor left Latch entirely and
-eight **swipes** went into a third-party messaging app. `KEYCODE_BACK` is a guess about the
-navigation stack — use `am start` to go where you mean to go. And with a text field focused, a swipe
-over the keyboard is **glide-typing**: five scroll gestures put five words into a recipe name.
+**Reading order is not printed order** (SRS 1.134, again). The same card returned `B-201` before the
+street once and after the city the next time, so the corpus row recorded the reading that happened
+to be right and a fix went in untested.
 
-**One instrument can destroy another's measurement.** Polling `uiautomator` to catch FR-207's
-progress line inflated that same read from 5128 ms to **7130 ms**, against a 6500 ms budget — a
-breach that was not there. Measure the line or measure the budget, never both in one run.
+**The developer found four defects in one verification pass by reading the screen**, none of which
+any JVM test could see: a false email note on a logotype, a missing unit number, its ordering, and a
+company fragment. **Ask them to look at the sheet, not just the log.**
 
 ## The git repository
 
 GitHub is the primary remote: `https://github.com/KSYADAV1978/latch-android`, public, `origin/main`
-tracking `main`. Commit identity is the GitHub noreply address. `backup.cmd` and
-`C:\dev\latch-backup` stay as the secondary backup, and `backup.cmd` copies the git-ignored card
-corpus separately — a bundle is a packfile of git objects and has never contained it.
+tracking `main`. **History was rewritten and force-pushed on 11 Sep** (SRS 1.216) — all 319 commits,
+content and messages. Any clone taken before that is stale and carries personal data.
+`backup.cmd` and `C:\dev\latch-backup` remain the secondary backup, and `backup.cmd` copies the
+git-ignored corpus separately because a bundle is a packfile of git objects and has never contained
+it.
 
 ## Two limits worth knowing before you measure anything
 
-**Neither device contacts table counts what it looks like** (SRS 1.135). `contacts` is the
-aggregated view; `raw_contacts` shows one created contact as two rows in this account. **Google
-Contacts on the web is the only authority.**
+**Neither device contacts table counts what it looks like** (SRS 1.135). **Google Contacts on the
+web is the only authority.**
 
-**A grant survives its own revocation for a while.** Play services answers `authorize()` from a
-cached record, so the app keeps working after a revocation at `myaccount.google.com`. Probe before
-judging anything: `PROBE_DEDUP` returning `found=true` means the grant is still live and the fixture
-is not ready. On 10 Sep it answered `SignInRequiredException` with Play services' own
-`getToken() -> NEED_REMOTE_CONSENT` beside it, and that is what made the run conclusive rather than
-suggestive.
+**A grant survives its own revocation for a while.** Probe before judging: `PROBE_DEDUP` returning
+`found=true` means the grant is still live and the fixture is not ready.
+
+## Useful instruments built on 11 September
+
+- **`DebugSavedCardsProbe`** — read-only, debug source set only, creates and patches nothing. Pages
+  `connections`, keeps the contacts carrying FR-1207's record, prints them. This is how the manual
+  correction rate became measurable at all.
+  ```
+  adb shell am broadcast -a com.latch.android.debug.PROBE_SAVED_CARDS \
+    -n com.latch.android/com.latch.android.debug.DebugSavedCardsProbeReceiver
+  adb logcat -d -v time -s LatchSavedProbe:I
+  ```
+- **`LatchCardOcr`** prints a card's recognised lines and classification, debug-only. It is the only
+  diagnostic in this application that prints content, and it is why the run could be analysed.
