@@ -85,11 +85,23 @@ nothing already saved.** Outstanding by hand in Google Contacts:
 Five cards were deleted and re-scanned on 11 Sep to verify the fixes and are correct: Deloitte,
 Grant Thornton, Reliance, FIMI and Vedanta.
 
-### 2. The 6 September backup bundle carries the leaked address
+### 2. Tell the person whose address was public for six days — or decide not to
 
-`C:\dev\latch-backup\latch-android-2026-09-06-1837.bundle` contains
-`sarita.ghorpade@vedanta.co.in` in its history. It is a real backup point and deleting it costs one.
-The 4 September bundle predates the address and is clean. **A decision, not a task.**
+The only part of SRS 1.216 nobody but you can do. `sarita.ghorpade@vedanta.co.in` — the real address
+behind that pseudonym is in the corpus — was on GitHub from 5 to 11 September. It is gone from the
+server, from both bundles and from this repository, verified by fresh clone. Whether the person is
+told is a judgement, and it is the last open item from that incident.
+
+**Everything else about the leak is closed.** The 6 September bundle that still carried it was
+deleted, `backup.cmd` was re-run, and the new bundle was verified by restoring it: 320 commits,
+`docs/SRS.md` present, corpus absent, zero occurrences. The superseded corpus copy was deleted after
+checking row by row that the current one contains all twelve of its rows unchanged plus forty-eight
+more. `C:\dev\latch-backup` now holds three files: two clean bundles and one corpus.
+
+**The boundary the design always intended now holds cleanly**, and it is worth keeping in mind
+before writing anything down: GitHub, every bundle and this repository carry **no** real personal
+data; the corpus and its single backup copy carry it **by design**, git-ignored and never
+bundled.
 
 ## Three misses recorded and not fixed
 
