@@ -586,7 +586,16 @@ internal fun addressAmong(lines: List<String>): List<String> {
             cluster += next
         }
     }
-    return (clusters.firstOrNull { anchor in it } ?: clusters.first()).map { lines[it] }
+    val chosen = (clusters.firstOrNull { anchor in it } ?: clusters.first()).map { lines[it] }
+    // **A unit number leads the address wherever it was recognised** (SRS 1.215). The order kept
+    // here is the *recogniser's*, and SRS 1.134 already records that this is not printed order: on
+    // a Reliance card `B-201` came back after the street and the city, so the assembled address
+    // ended with the flat number. Anything that qualifies only as a bare designator - no comma, no
+    // vocabulary of its own - is the top of a postal address in every hand it has been seen in.
+    // Everything else keeps the order it arrived in, this being a repair of one displaced line
+    // rather than an attempt to sort an address, which needs to know what each line *is*.
+    val (designators, rest) = chosen.partition { !hasAddressVocabulary(it) && ',' !in it }
+    return designators + rest
 }
 
 /**

@@ -125,6 +125,27 @@ class CardClassifierTest {
     }
 
     @Test
+    fun `a unit number leads the address wherever the recogniser returned it`() {
+        // SRS 1.215, from a device. The same card read twice put "B-201" before the street once
+        // and after the city the next time - reading order is not printed order (SRS 1.134) - and
+        // the second assembled an address ending in the flat number.
+        val displaced = classifyCard(
+            listOf(
+                "A. N. Seshadri",
+                "Group President - Corporate Affairs",
+                "6, Dr. APJ Abdul Kalam Marg",
+                "New Delhi - 110 011, India",
+                "B-201",
+                "Tel.: +91 22 4303 8939",
+            ),
+        )
+        assertEquals(
+            "B-201, 6, Dr. APJ Abdul Kalam Marg, New Delhi - 110 011, India",
+            displaced.draft.addresses.firstOrNull(),
+        )
+    }
+
+    @Test
     fun `nothing is invented from an empty card`() {
         val result = classify("   ", "")
         assertTrue(result.draft.isEmpty)
