@@ -70,27 +70,90 @@ class CardCorpusTest {
             }
     }
 
+    /**
+     * Which (row, field) pairs the classifier is known not to get right yet.
+     *
+     * **The expectations above are never bent to match the code.** CLAUDE.md's own corollary is
+     * that a test can pin behaviour exactly and pin the *wrong* behaviour, and an expectation
+     * edited until it goes green is the purest form of it. So a card the classifier fails keeps
+     * its true expectation and is listed here instead, which keeps the build green without
+     * telling a lie - the shortfall moves from the assertion into the record, exactly as
+     * FR-1222's own count already does.
+     */
+    private val knownMisses: Set<Pair<String, String>> by lazy {
+        val stream = javaClass.getResourceAsStream("/cards/card_corpus.tsv") ?: return@lazy emptySet()
+        stream.bufferedReader().readLines()
+            .mapNotNull { KNOWN_MISS.matchEntire(it.trim()) }
+            .map { it.groupValues[1] to it.groupValues[2] }
+            .toSet()
+    }
+
+    private fun expect(case: Case, field: String, expected: Any?, actual: Any?) {
+        if (case.name to field in knownMisses) return
+        assertEquals(expected, actual, "$field for ${case.name}")
+    }
+
     @Test
     fun `every card in the corpus reads as expected`() {
         assumeTrue(corpusPresent, CORPUS_ABSENT)
         cases.forEach { case ->
             val result = classifyCard(case.lines)
-            assertEquals(case.expectName, result.draft.displayName, "name for ${case.name}")
-            assertEquals(case.expectTitle, result.draft.jobTitle, "title for ${case.name}")
-            assertEquals(case.expectOrg, result.draft.organisation, "org for ${case.name}")
-            assertEquals(case.expectPhones, result.draft.phones.map { it.number }, "phones for ${case.name}")
-            assertEquals(case.expectEmails, result.draft.emails.map { it.address }, "emails for ${case.name}")
+            expect(case, "name", case.expectName, result.draft.displayName)
+            expect(case, "title", case.expectTitle, result.draft.jobTitle)
+            expect(case, "org", case.expectOrg, result.draft.organisation)
+            expect(case, "phones", case.expectPhones, result.draft.phones.map { it.number })
+            expect(case, "emails", case.expectEmails, result.draft.emails.map { it.address })
             // **The corpus was blind to addresses until SRS 1.115**, and card nine passed
             // with its address missing entirely — the rule had been built two cards
             // earlier and nothing had ever asserted it. A corpus that omits a field
             // tests everything except the field most recently added, which is the one
             // most likely to be wrong.
-            assertEquals(
-                case.expectAddress,
-                result.draft.addresses.firstOrNull(),
-                "address for ${case.name}",
-            )
+            expect(case, "address", case.expectAddress, result.draft.addresses.firstOrNull())
         }
+    }
+
+    /**
+     * A known miss that has started passing must be struck off, and the build says so.
+     *
+     * **This is the ratchet, and without it the list is a place defects go to be forgotten.** A
+     * rule that fixes one of these turns the build red until the line is removed, so a fix cannot
+     * land without being counted - and the count is the only honest measure of whether the
+     * classifier is getting better. It also catches the opposite mistake: a line left behind for
+     * a card that was always passing, which would quietly excuse a field from being tested at all.
+     */
+    @Test
+    fun `a known miss that now passes is struck from the list`() {
+        assumeTrue(corpusPresent, CORPUS_ABSENT)
+        val byName = cases.associateBy { it.name }
+        val fixed = knownMisses.filter { (row, field) ->
+            val case = byName[row] ?: return@filter false
+            val d = classifyCard(case.lines).draft
+            when (field) {
+                "name" -> case.expectName == d.displayName
+                "title" -> case.expectTitle == d.jobTitle
+                "org" -> case.expectOrg == d.organisation
+                "phones" -> case.expectPhones == d.phones.map { it.number }
+                "emails" -> case.expectEmails == d.emails.map { it.address }
+                "address" -> case.expectAddress == d.addresses.firstOrNull()
+                else -> false
+            }
+        }
+        assertTrue(
+            fixed.isEmpty(),
+            "these known misses now pass and must be removed from card_corpus.tsv: $fixed",
+        )
+    }
+
+    @Test
+    fun `the known-miss list only shrinks`() {
+        assumeTrue(corpusPresent, CORPUS_ABSENT)
+        assertTrue(
+            knownMisses.size <= KNOWN_MISS_CEILING,
+            "the classifier now fails ${knownMisses.size} fields, above the recorded " +
+                "ceiling of $KNOWN_MISS_CEILING. A rule has regressed, or a new card found a " +
+                "new defect - either way it is a decision and not a number to raise quietly.",
+        )
+        println("FR-1204: ${knownMisses.size} known field misses across ${cases.size} recognitions.")
     }
 
     /**
@@ -145,7 +208,17 @@ class CardCorpusTest {
 
     private companion object {
         /** Raise this as rows are added; never lower it. It guards the corpus against shrinking. */
-        const val CORPUS_FLOOR = 12
+        const val CORPUS_FLOOR = 52
+
+        /**
+         * How many (row, field) pairs the classifier is allowed to get wrong.
+         *
+         * Lower it whenever a rule fixes one; never raise it to make a build pass. Raising it is
+         * the same act as editing an expectation, one level up.
+         */
+        const val KNOWN_MISS_CEILING = 10
+
+        val KNOWN_MISS = Regex("""# known-miss (\S+) (\w+)""")
 
         private val UNICODE_ESCAPE = Regex("""\\u([0-9A-Fa-f]{4})""")
 

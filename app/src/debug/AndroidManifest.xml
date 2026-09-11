@@ -68,6 +68,14 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name="com.latch.android.debug.DebugSavedCardsProbeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.latch.android.debug.PROBE_SAVED_CARDS" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
