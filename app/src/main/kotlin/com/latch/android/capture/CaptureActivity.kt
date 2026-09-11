@@ -1394,7 +1394,14 @@ class CaptureActivity : ComponentActivity() {
      */
     private fun captureKeyOf(request: CaptureRequest): String = when (request) {
         is CaptureRequest.Ready -> "text:" + request.captured.text.hashCode()
-        is CaptureRequest.Image -> "image:" + request.uri
+        // SRS 1.206: a card photograph's URI is the same for every capture, so the key carries
+        // the photograph's own stamp. `imageCaptureKey` is where the reasoning lives.
+        is CaptureRequest.Image -> imageCaptureKey(
+            uri = request.uri.toString(),
+            cardPath = request.cardPath,
+            photoStamp = cardPhotoFiles(cacheDir).firstOrNull()
+                ?.let { photoStampOf(it.lastModified(), it.length()) },
+        )
         is CaptureRequest.Pdf -> "pdf:" + request.uri
         // Two empty captures in a row are indistinguishable and there is nothing to preserve
         // for either, so they may as well be the same one.
