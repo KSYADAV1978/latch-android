@@ -84,23 +84,34 @@ internal fun emailDoubt(draft: CardDraft, unplaced: List<String>): CardDoubt? {
     if (domain.substringAfterLast('.') !in KNOWN_TLDS) return CardDoubt(CardDoubtField.EMAIL)
 
     val local = email.substringBefore('@').lowercase()
-    if (unplaced.any { strandsALocalPart(it, local) }) return CardDoubt(CardDoubtField.EMAIL)
-
     val stem = domain.split('.').firstOrNull().orEmpty()
     val known = wordsOf(draft.organisation.orEmpty()) + draft.urls.flatMap(::hostWordsOf)
+    if (unplaced.any { strandsALocalPart(it, local, known + stem) }) {
+        return CardDoubt(CardDoubtField.EMAIL)
+    }
+
     if (stem.length < 4 || known.isEmpty() || known.any { it == stem }) return null
     val nearMiss = known.any { editsBetween(stem, it) in 1..MOST_EDITS_THAT_IS_STILL_DAMAGE }
     return if (nearMiss) CardDoubt(CardDoubtField.EMAIL) else null
 }
 
-/** A word ending in a full stop that the address does not begin with is half of somebody's. */
-private fun strandsALocalPart(line: String, local: String): Boolean =
+/**
+ * A word ending in a full stop that the address does not begin with is half of somebody's.
+ *
+ * **Unless it is the card's own name, and the first card this ran on proved it.** `Deloitte.` is a
+ * logotype whose full stop is part of the mark, and it has every property this looks for: eight
+ * letters, a trailing dot, and an email address that does not begin with it. What tells it from
+ * `prashantkumar.` is that `deloitte` is the card's **own domain** — a fragment matching the host or
+ * the company is the brand printed at the top of the card, not a local part left behind.
+ */
+private fun strandsALocalPart(line: String, local: String, cardsOwnWords: List<String>): Boolean =
     line.split(WHITESPACE).any { token ->
-        val body = token.removeSuffix(".")
+        val body = token.removeSuffix(".").lowercase()
         token.endsWith('.') &&
             body.length >= SHORTEST_STRANDED_LOCAL_PART &&
             body.all { it.isLetter() || it == '.' } &&
-            !local.startsWith(body.lowercase())
+            !local.startsWith(body) &&
+            cardsOwnWords.none { it == body || it.contains(body) || body.contains(it) }
     }
 
 private fun hostWordsOf(url: String): List<String> =

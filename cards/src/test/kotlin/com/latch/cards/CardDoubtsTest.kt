@@ -72,6 +72,20 @@ class CardDoubtsTest {
     }
 
     @Test
+    fun `a logotype ending in a full stop is not a stranded local part`() {
+        // Found on a device the minute this shipped, on the very first card of the pass. The
+        // trademark full stop in "Deloitte." has every property the rule looks for; what tells it
+        // apart is that the word is the card's own domain.
+        val draft = CardDraft(
+            displayName = "Ranjit Mehra",
+            organisation = "Tohmatsu India LLP",
+            emails = listOf(CardEmail("ranmehra@deloitte.com", "WORK")),
+            urls = listOf("www.deloitte.com"),
+        )
+        assertNull(emailDoubt(draft, listOf("Deloitte.", "Deloitte Touche")))
+    }
+
+    @Test
     fun `a domain nearly the company's is questioned`() {
         val draft = CardDraft(
             organisation = "VEDANTA LIMITED",
