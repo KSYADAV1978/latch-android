@@ -121,8 +121,10 @@ Console.
   image left the device at all; that stopped being true on 6 Sep 2026, and a policy written from
   the old line would be false. `docs/STORE-LISTING.md` item 4 has the same wording.
 
-  **A draft is in `docs/PRIVACY-POLICY.md`** (11 Sep 2026). It needs the publisher's name, a
-  contact address, a verified domain to host it on, and a legal review before it is filed.
+  **Hosted from 11 Sep 2026 at `https://ksyadav1978.github.io/latch-android/privacy/`**, homepage
+  one level up, both on the `gh-pages` branch; `docs/PRIVACY-POLICY.md` is the source and changes
+  first. Still owed: a legal review, and confirming in the Cloud console that Google's OAuth
+  branding accepts a `github.io` domain — the draft's reviewer notes say why that is uncertain.
 - **FR-1103 — Data Safety.** `docs/STORE-LISTING.md` now carries the form **answered row by row**, with the one distinction that decides four of them. Google's form asks about data transmitted **off the device**, not
   only data reaching publisher servers, so the webhook is very likely to require declaration
   even though the publisher never receives the data. Confirm the correct treatment against

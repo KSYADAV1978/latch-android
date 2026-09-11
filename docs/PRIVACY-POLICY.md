@@ -1,21 +1,21 @@
-# Privacy policy — DRAFT for the publisher's review
+# Privacy policy — the source of the hosted page
 
-**This is a draft, not a published policy.** FR-1102 requires a publicly hosted policy, and
-`docs/RELEASE.md` item 6 is where filing it is tracked. A privacy policy is a legal document: read
-every sentence against the product before hosting it, and have it reviewed by whoever answers for
-it. Everything between the two horizontal rules is the policy text. Everything after the second
-rule is for the reviewer and is **not** to be published.
+**Hosted from 11 Sep 2026 at <https://ksyadav1978.github.io/latch-android/privacy/>**, on the
+repository's `gh-pages` branch, which holds the site and nothing else. This file is the source:
+**change the policy here first, then make the same change on `gh-pages`**, so the page and this
+file never say different things. Everything between the two horizontal rules is the policy text.
+Everything after the second rule is for the reviewer and is **not** published.
 
-Placeholders are in square brackets: `[Publisher]`, `[contact address]`, `[effective date]`, and
-the app name, which stays "Latch" only until §13 decision 1 clears it.
+The app name stays "Latch" only until §13 decision 1 clears it; when it changes, this page changes
+with it. The policy has not had a legal review.
 
 ---
 
 # Latch privacy policy
 
-Effective [effective date]
+Effective 11 September 2026
 
-Latch is published by [Publisher]. This policy covers the Latch app for Android and Latch for
+Latch is published by KSYADAV1978. This policy covers the Latch app for Android and Latch for
 Windows.
 
 ## The short version
@@ -92,7 +92,8 @@ Latch remembers the names of the apps that have sent notifications, so you can c
 monitor; it does not keep what they said.
 
 **The clipboard** (Windows). Latch reads the clipboard only when you press its shortcut or choose
-"Capture copied text".
+"Capture copied text". If what you copied is a picture, Latch writes it to a temporary file so
+that Windows' text recognition can read it, and deletes that file as soon as it has been read.
 
 ## What stays on your device
 
@@ -138,23 +139,25 @@ never sends an image, never sends a notification capture, and tries once only: a
 while offline is never sent. The address is stored encrypted, because such addresses often
 contain a password.
 
-**Files you export.** "Export .ics" creates a calendar file and hands it to the app you choose to
-share it with. What happens to it next is up to you and that app.
+**Files you export.** "Export .ics" creates a calendar file. On Android it is handed to the app
+you choose to share it with; on Windows it is saved in your Downloads folder. What happens to it
+next is up to you.
 
 Latch sends nothing to anyone else. It does not sell data, share it with advertisers, or pass it
 to data brokers.
 
 ## Deleting your data
 
-**On Android**, Settings → "Disconnect and delete everything" revokes Latch's access to your
+**On Android**, Settings → "Disconnect Google and delete everything on this phone" revokes Latch's access to your
 Google account and deletes everything Latch keeps on the device: the Inbox, waiting captures,
 settings, recipes, the digest list and its encryption keys. Uninstalling Latch also deletes its
 local data.
 
 **On Windows**, "Sign out" removes the stored sign-in. To withdraw Latch's access to your Google
 account completely, remove it at [myaccount.google.com/connections](https://myaccount.google.com/connections).
-[Where Latch for Windows keeps its files, and whether uninstalling removes them, to be confirmed
-before publication.]
+Latch for Windows keeps everything it stores in the `Latch` folder inside `%LOCALAPPDATA%`;
+deleting that folder removes all of it from the PC. Calendar files you exported are in your
+Downloads folder and are yours to keep or delete.
 
 **Items already in your Google account stay there.** They are yours: Latch will not delete them
 when you disconnect, and you can remove them in Google Calendar, Google Tasks or Google Contacts
@@ -177,9 +180,9 @@ If this policy changes, the new version will be posted at this address with a ne
 
 ## Contact
 
-[Publisher], [contact address].
+Questions about this policy or about your data: KSYADAV1978, at kulveer.gcf@gmail.com.
 
-Latch is open source: [repository address]. Everything this policy says about how the app
+Latch is open source: <https://github.com/KSYADAV1978/latch-android>. Everything this policy says about how the app
 handles data can be checked in its source code.
 
 ---
@@ -203,8 +206,9 @@ handles data can be checked in its source code.
 | Local storage and encryption | FR-701, NFR-203, NFR-204, `KeystoreCipher`, DPAPI; `allowBackup="false"` in the manifest |
 | ML Kit | AC-17's pass of 31 Aug 2026 (`firebaselogging.googleapis.com`); `docs/DEPENDENCIES.md`; Google's ML Kit data disclosure page, read 11 Sep 2026 |
 | Webhook | FR-1004, FR-1004a, FR-1004b, FR-210a, NFR-203 |
-| `.ics` export | FR-1005, `IcsExport.kt` |
-| Deletion | NFR-205, `deleteAllLocalData` / `deleteEveryStore`; the Windows narrowing recorded in `CLAUDE.md` |
+| `.ics` export | FR-1005, `IcsExport.kt`; on Windows `IcsFile.downloadsDirectory()` |
+| Deletion | NFR-205, `deleteAllLocalData` / `deleteEveryStore`, the button label `settings_revoke` quoted verbatim; the Windows narrowing recorded in `CLAUDE.md`, `latchDataDirectory()` in `SecretFile.kt`, and the tray's `TRAY_SIGN_OUT` |
+| The Windows clipboard picture | `writeForRecognition` in `Clipboard.kt`, deleted in a `finally` at its one call site in `Main.kt` |
 | Security | AC-17, `ALLOWED_HOSTS` |
 
 ### Three places where the policy and the record disagreed
@@ -222,20 +226,28 @@ handles data can be checked in its source code.
    Whether that counts as data this app collects is Play's question to answer, and it must be
    answered consistently with this policy.
 
-### Owed before this can be hosted
+### Settled on 11 Sep 2026, when it was hosted
 
-- **Publisher name and contact address.** An organisation account (FR-1105) shows these publicly
-  anyway.
-- **Where to host it.** Google's OAuth verification requires the policy on a **domain you have
-  verified**, the same domain as the app's homepage (or one you own), at a URL different from the
-  homepage. A GitHub Pages site on the public repository is the cheapest route. Whether
-  `*.github.io` satisfies verification, or a registered domain is needed, is for the publisher to
-  confirm in the Cloud console — the answer decides where the homepage lives too.
-- **The Windows bracket** under "Deleting your data": confirm where the desktop client keeps its
-  files (`%LOCALAPPDATA%\Latch`) and whether the MSIX uninstaller removes them, since FR-305's
-  package is not built.
+- **Publisher and contact**: `KSYADAV1978` and `kulveer.gcf@gmail.com`, both the developer's
+  choice. If Play publication moves to an organisation account (FR-1105), both change.
+- **Hosting**: GitHub Pages from the `gh-pages` branch. Homepage
+  `https://ksyadav1978.github.io/latch-android/`, policy at `…/privacy/` — a different URL on the
+  same domain, which is what Google's OAuth guidance asks for.
+- **The Windows bracket**: `%LOCALAPPDATA%\Latch` holds every store (`latchDataDirectory()`), a
+  clipboard picture is a temp file deleted after recognition, and exports go to Downloads. The
+  sentence deliberately says nothing about an uninstaller, because FR-305's package is not built.
+- **The effective date**: 11 September 2026.
+
+### Still owed
+
+- **Domain verification for OAuth.** Google asks for the homepage and policy to be on a domain the
+  developer has verified in Search Console. A `github.io` project site is a sub-path of
+  `ksyadav1978.github.io`, and that domain's root is served by a **different** repository
+  (`KSYADAV1978.github.io`), which is where a verification file or tag would have to live. Whether
+  Google's consent-screen branding accepts it, or insists on a registered domain, is only
+  answerable in the Cloud console. If it refuses, the site moves to a custom domain and this page
+  moves with it — GitHub Pages supports one with a `CNAME` file.
 - **The app name**, after §13 decision 1.
-- **The effective date**, which is the day it is hosted.
 - **Legal review.** This draft was assembled from the specification and the code by someone who
   is not a lawyer, and the jurisdictions it must satisfy (India's DPDP Act among them, given
   §3.1's users) have not been considered at all.
