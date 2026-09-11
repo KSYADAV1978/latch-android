@@ -384,10 +384,46 @@ internal fun organisationAmong(lines: List<String>): String? {
 }
 
 private fun hasDistinguishingWord(line: String): Boolean =
-    line.lowercase()
-        .split(WORD_BREAK)
-        .map { it.trim() }
+    line.split(WORD_BREAK)
+        .flatMap { it.splitWhereOcrLostASpace() }
+        .map { it.trim().lowercase() }
         .any { it.length > 2 && it !in BOILERPLATE }
+
+/**
+ * Split a word where OCR ran two together, because **a case boundary is where the space was**.
+ *
+ * SRS 1.205: a second reading of the ALIMCO card returned `AMini Ratna Company` as a real person's
+ * employer. Every word of `A Mini Ratna Company` is boilerplate, so the line is refused as the
+ * claim it is - but `AMini` is in no list, is over the two-character floor, and so reads as the
+ * distinguishing word [hasDistinguishingWord] demands. The same card passed or failed on one
+ * space. Listing `amini` would have fixed that card and left `ACertified` and `AGovernment`
+ * waiting; what is wrong is the comparison being sensitive to spacing at all.
+ *
+ * **It breaks only before an upper-case letter that follows a letter and precedes a lower-case
+ * one**, so `VEDANTA` and `JSW` are left whole and only a genuine case *change* splits.
+ *
+ * **A wrong split is harmless in one direction only, which is why this is safe.** It can add a
+ * word that is not boilerplate - keeping a company that would otherwise be dropped - and it
+ * cannot remove one. `SWsteel` splits to `S` + `Wsteel`, which is not how anybody would read it
+ * and costs nothing: `wsteel` is still distinguishing, so that corpus row is undisturbed.
+ */
+private fun String.splitWhereOcrLostASpace(): List<String> {
+    if (length < 2) return listOf(this)
+    val parts = mutableListOf<String>()
+    var start = 0
+    for (i in 1 until length) {
+        val breaksHere = this[i].isUpperCase() &&
+            this[i - 1].isLetter() &&
+            i + 1 < length &&
+            this[i + 1].isLowerCase()
+        if (breaksHere) {
+            parts += substring(start, i)
+            start = i
+        }
+    }
+    parts += substring(start)
+    return parts
+}
 
 /**
  * The address, which the first version did not attempt at all.

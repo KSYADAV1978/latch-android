@@ -94,6 +94,37 @@ class CardClassifierTest {
     }
 
     @Test
+    fun `a claim about a company is refused even where OCR ran two words together`() {
+        // SRS 1.205. Every word of "A Mini Ratna Company" is boilerplate, so it is refused as the
+        // claim it is. This reading lost the space: "AMini" is in no list and is over the
+        // two-character floor, so before the fix it read as the distinguishing word the rule
+        // demands and a real person's employer became "AMini Ratna Company".
+        val merged = classify("Prabhat Trivedi", "AMini Ratna Company", "pankaj@alimco.test")
+        assertNull(merged.draft.organisation)
+        assertTrue("AMini Ratna Company" in merged.unplaced)
+
+        // The spaced form was already refused and must stay refused - the fix moves one case onto
+        // the other, rather than trading one for the other.
+        val spaced = classify("Prabhat Trivedi", "A Mini Ratna Company", "pankaj@alimco.test")
+        assertNull(spaced.draft.organisation)
+    }
+
+    @Test
+    fun `a real company is not dropped by the same rule`() {
+        // The direction that would make the fix worse than the defect. An all-capitals name has no
+        // case boundary to break at, and a genuine one splits into halves that are still nobody's
+        // boilerplate - so both survive.
+        assertEquals(
+            "VEDANTA LIMITED",
+            classify("Sourav Dinda", "VEDANTA LIMITED", "s@vedanta.test").draft.organisation,
+        )
+        assertEquals(
+            "SWsteel Limited",
+            classify("A Satija", "SWsteel Limited", "a@jsw.test").draft.organisation,
+        )
+    }
+
+    @Test
     fun `nothing is invented from an empty card`() {
         val result = classify("   ", "")
         assertTrue(result.draft.isEmpty)
