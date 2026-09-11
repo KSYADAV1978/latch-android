@@ -612,13 +612,14 @@
     <!-- Step 1. FR-102 requires the privacy statement to be on the screen itself. -->
     <string name="setup_signin_title">Connect your Google account</string>
     <string name="setup_signin_blurb">Latch turns dates you find in any app into calendar events and tasks.</string>
-    <string name="setup_signin_privacy_mail">Latch does not read your mail or your messages.</string>
+    <string name="setup_signin_privacy_mail">Latch does not read your Gmail.</string>
     <string name="setup_signin_privacy_servers">Nothing you capture is stored on our servers. Parsing happens on this phone.</string>
     <string name="setup_signin_scopes_heading">Latch asks Google for permission to:</string>
     <string name="setup_signin_scope_events">create and update calendar events</string>
     <string name="setup_signin_scope_calendars">see your calendar list, and create the Latch calendar</string>
     <string name="setup_signin_scope_tasks">create tasks and see your task lists</string>
-    <string name="setup_signin_scopes_footer">Nothing else. Not Gmail, not Drive, not Contacts.</string>
+    <string name="setup_signin_scope_contacts">add a business card you photograph to your contacts, after checking whether that person is already there. Google\'s screen will say this permission can delete contacts; Latch never does</string>
+    <string name="setup_signin_scopes_footer">Nothing else. Not Gmail, not Drive.</string>
     <string name="setup_signin_action">Continue with Google</string>
     <string name="setup_signin_continue_as">Continue as %1$s</string>
     <string name="setup_signin_working">Signing in…</string>

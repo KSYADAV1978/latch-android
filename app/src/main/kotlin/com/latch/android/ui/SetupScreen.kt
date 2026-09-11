@@ -94,11 +94,14 @@ private fun SignInStep(state: SetupState, onEvent: (SetupEvent) -> Unit) {
             }
         }
 
-        // FR-002: the four scopes, said in the user's words rather than Google's.
+        // FR-002: the five scopes, said in the user's words rather than Google's. Contacts arrived
+        // at v1.84 and this list said "not Contacts" for a week afterwards, directly above a
+        // consent screen asking for it (SRS 1.219). Every scope in GoogleAuthClient needs a line.
         Text(stringResource(R.string.setup_signin_scopes_heading), style = MaterialTheme.typography.bodyMedium)
         Bullet(stringResource(R.string.setup_signin_scope_events))
         Bullet(stringResource(R.string.setup_signin_scope_calendars))
         Bullet(stringResource(R.string.setup_signin_scope_tasks))
+        Bullet(stringResource(R.string.setup_signin_scope_contacts))
         Text(
             stringResource(R.string.setup_signin_scopes_footer),
             style = MaterialTheme.typography.bodyMedium,
