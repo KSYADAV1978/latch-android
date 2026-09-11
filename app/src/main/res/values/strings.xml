@@ -197,6 +197,10 @@
       blocks the save, and the wording is careful not to imply that it might.
     -->
     <string name="card_probably_saved">You may already have this person: a contact with this name and mobile number is in your Google Contacts. Saving will add a second one.</string>
+    <!-- SRS 1.213: FR-1204 will not repair a name or an email address, so it says which one to
+         look at. Both sentences name the field and stop; the answer is the user's. -->
+    <string name="card_check_name">Check the name. This card’s email address suggests it might be “%1$s”, so Latch has left the name as it read it.</string>
+    <string name="card_check_email">Check the email address. It does not quite match the rest of this card, and Latch will not guess at one.</string>
     <string name="card_attach_photo">Use this photo as the contact’s picture</string>
     <!-- FR-1226 with FR-1225: several photographs on the sheet, so the control says which. -->
     <string name="card_attach_photo_numbered">Use photo %1$d as the contact’s picture</string>

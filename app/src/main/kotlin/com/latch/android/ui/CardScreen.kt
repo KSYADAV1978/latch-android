@@ -41,6 +41,8 @@ import com.latch.google.ContactField
 import com.latch.android.cards.CardSaveBlocker
 import com.latch.android.cards.CardSaveResult
 import com.latch.android.cards.CardSheetState
+import com.latch.cards.CardDoubtField
+import com.latch.cards.cardDoubts
 import com.latch.android.cards.cardSaveBlocker
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Checkbox
@@ -349,6 +351,18 @@ fun CardScreen(
                 // this line never has to say "and one of them was ignored".
                 state.photos?.takeIf { it.capped }?.let { photos ->
                     Note(stringResource(R.string.card_photos_read, photos.read, photos.added))
+                }
+
+                // SRS 1.213. **Above the fields and never beside Save**, on SRS 1.131's reasoning:
+                // a sentence next to a button reads as the reason the button is disabled, and
+                // these never disable anything. They name a field and stop.
+                cardDoubts(draft, state.unplaced).forEach { doubt ->
+                    when (doubt.field) {
+                        CardDoubtField.NAME -> doubt.alternative?.let {
+                            Note(stringResource(R.string.card_check_name, it))
+                        }
+                        CardDoubtField.EMAIL -> Note(stringResource(R.string.card_check_email))
+                    }
                 }
 
                 Field(R.string.card_field_name, draft.displayName) {
