@@ -110,9 +110,12 @@ Console.
   creates contacts in the user's own Google Contacts; that the data written is a third party's
   and comes off a card the user photographed or was handed; and — verbatim, because the app tells
   the user this on the card sheet and a policy that did not say it would contradict the product —
-  that **Latch never deletes a contact**. FR-1226 is not built, so the policy must not claim a
-  card image is stored anywhere: FR-1211 says it is not, and the amended version of that
-  requirement (SRS 1.120) is what to quote if asked how a photograph is handled.
+  that **Latch never deletes a contact**. On card images the policy needs two sentences, not
+  one: the photograph itself is not stored (FR-1211, amended at SRS 1.120), **but FR-1226 is
+  built** — when the user ticks the box, a crop of the card is sent to Google Contacts as the
+  contact's picture. This line used to say FR-1226 was unbuilt and the policy could claim no
+  image left the device at all; that stopped being true on 6 Sep 2026, and a policy written from
+  the old line would be false. `docs/STORE-LISTING.md` item 4 has the same wording.
 - **FR-1103 — Data Safety.** `docs/STORE-LISTING.md` now carries the form **answered row by row**, with the one distinction that decides four of them. Google's form asks about data transmitted **off the device**, not
   only data reaching publisher servers, so the webhook is very likely to require declaration
   even though the publisher never receives the data. Confirm the correct treatment against
@@ -189,6 +192,28 @@ not something a release build should advertise.
 **Re-run this sweep on the artifact you actually submit.** It is thirty seconds and it is the only
 form of this check that a stray edit to a guard cannot pass.
 
+**Re-swept on 11 Sep 2026, on the `.aab` as well as the APK, and the pattern is wider now.**
+`DebugSavedCardsProbe` (tag `LatchSavedProbe`, action `PROBE_SAVED_CARDS`) was added that day
+and is a third debug receiver, so the pattern must name it. This machine has no `strings`, so
+the sweep greps the dex directly — and takes the **debug** APK first as a positive control,
+because a pattern that matches nothing anywhere proves nothing:
+
+```
+P="LatchCardOcr|LatchTiming|LatchSavedProbe|DebugDedupProbe|DebugSavedCardsProbe|PROBE_DEDUP|PROBE_SAVED_CARDS|INVALIDATE_TOKEN|PROBE_CLIENT_DATA"
+unzip -o app/build/outputs/apk/debug/app-debug.apk '*.dex' -d sweep/dbg
+unzip -o app/build/outputs/bundle/release/app-release.aab 'base/dex/*' -d sweep/aab
+grep -raoE "$P" sweep/dbg | wc -l    # must be non-zero: the control
+grep -raoE "$P" sweep/aab | wc -l    # must be zero: what ships
+```
+
+Debug: all five tags present across 21 dex files. Release APK and `.aab`: **zero**.
+
+**The per-device estimate moved, and is still an estimate.** The same subtraction item 4 warns
+about, taken on the 11 Sep universal APK: **45.15 MB universal, 15.16 MB for arm64-v8a** — 4.08
+MB of non-native content plus 11.07 MB of `lib/arm64-v8a`. Against 31 Aug's 13.97 MB that is
++1.19 MB across two weeks of card work, and 24.8 MB of headroom remains. Item 4's `bundletool`
+measurement is still what replaces it.
+
 ---
 
 ## Knowingly unmet at submission
@@ -221,7 +246,8 @@ is unchanged — the extension is owed, not withdrawn — but the *product* ship
 
 Both are `[MUST]` with numeric floors that only real-world data can close, and both are short.
 NFR-502 asks for 300 real captured strings and stands at **113**; FR-1222 asks for 120 real
-business cards and stands at **11**. Neither number may be met with invented entries — each
+business cards and stands at **52** (SRS 1.207, 1.209 — 11 until the scanning run of 11 Sep
+2026). Neither number may be met with invented entries — each
 requirement says so, and FR-1222 says it citing NFR-502's own experience.
 
 These are the developer's to settle before submission, and the options are to ship with the gap
