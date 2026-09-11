@@ -8,8 +8,8 @@ This file is the whole list, and it exists because the distance between each of 
 and the day someone opens the Play Console is months — long enough that nothing in the code will
 remind them.
 
-Two of the seven are done, one is a grep in this repository, and **four are things only the
-publisher can do**, marked so. §5.11 also makes two of the publisher items *wider* rather than
+Three of the seven are done — item 4's measurement joined the first two on 11 Sep 2026 — one is a
+grep in this repository, and **three are things only the publisher can do**, marked so. §5.11 also makes two of the publisher items *wider* rather than
 merely due: FR-1102's privacy policy must now carry "Latch never deletes contacts", FR-1103's
 Data Safety declaration must cover Contacts, and FR-1241's OAuth verification must be requested
 against the final scope set including `.../auth/contacts`.
@@ -64,7 +64,11 @@ ability to publish updates. Losing it means the app can never be updated under t
 unless Play App Signing is enrolled — which it should be, and which is the safety net for
 exactly this.
 
-### 4. Measure the bundle, per device ⛔ **you**
+### 4. Measure the bundle, per device ✅ **11 Sep 2026**
+
+**Done: 17.20 MB on the device and 8.16 MB downloaded, arm64-v8a, against 40 MB.** Recorded in
+`docs/DEPENDENCIES.md` under *NFR-103, measured with bundletool*, with the commands and the split
+breakdown. Re-run it on the bundle you actually submit; what follows is the original instruction.
 
 FR-1108 item 2, and it is separate from items 1 and 3 on purpose. **The figure NFR-103 currently
 rests on is an estimate**: it subtracts the other ABIs' entries from a universal APK, which is
@@ -214,8 +218,9 @@ Debug: all five tags present across 21 dex files. Release APK and `.aab`: **zero
 **The per-device estimate moved, and is still an estimate.** The same subtraction item 4 warns
 about, taken on the 11 Sep universal APK: **45.15 MB universal, 15.16 MB for arm64-v8a** — 4.08
 MB of non-native content plus 11.07 MB of `lib/arm64-v8a`. Against 31 Aug's 13.97 MB that is
-+1.19 MB across two weeks of card work, and 24.8 MB of headroom remains. Item 4's `bundletool`
-measurement is still what replaces it.
++1.19 MB across two weeks of card work, and 24.8 MB of headroom remains. **Superseded the same
+day by item 4's measurement: 17.20 MB.** The estimate was 2.04 MB low, because Play's splits store
+dex uncompressed and the universal APK does not.
 
 ---
 

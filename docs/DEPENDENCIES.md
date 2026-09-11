@@ -223,6 +223,47 @@ certificate's SHA-1 registered against the Android OAuth client. Written as a re
 because the distance between this decision and that submission is months, and because whoever
 ships is not necessarily whoever measured.
 
+### NFR-103, measured with bundletool — 11 Sep 2026 (FR-1108 item 2)
+
+**Pass: 17.20 MB per device against a 40 MB budget, and 8.16 MB downloaded.** This replaces the
+subtraction above as the figure NFR-103 rests on. `app-release.aab` from the tree at `a9a5bbf`
+(24.41 MB), `bundletool` 1.18.3 (`bundletool-all-1.18.3.jar`, sha256 `a099cfa1…028e29`), run from
+a scratch directory — a measuring tool, never on the build's classpath and never shipped, so it is
+not a dependency in this file's sense.
+
+    ./gradlew :app:bundleRelease
+    java -jar bundletool.jar build-apks --bundle=app/build/outputs/bundle/release/app-release.aab \
+      --output=latch.apks --mode=default
+    java -jar bundletool.jar extract-apks --apks=latch.apks --output-dir=splits \
+      --device-spec=pixel6pro.json
+    java -jar bundletool.jar get-size total --apks=latch.apks --dimensions=ABI
+
+`pixel6pro.json` is the development phone: `arm64-v8a`, `en-GB`, 560 dpi, SDK 37.
+
+| Split delivered to that phone | Bytes |
+|---|---|
+| `base-master` — dex 3.95 MB, assets 1.92 MB (the OCR models), resources | 6,064,288 |
+| `base-arm64_v8a` — `libmlkit_google_ocr_pipeline.so`, 11.06 MB | 11,104,522 |
+| `base-xxxhdpi` | 35,995 |
+| **On the device** | **17,204,805** |
+| **Downloaded** (`get-size`, the compressed transfer) | **8,161,659** |
+
+Across every ABI and SDK range the download is 7.24–8.35 MB; arm64-v8a's worst is 8.16 MB.
+
+**Two numbers, and which one NFR-103 means.** `get-size` reports what Play *transfers*, gzip over
+the wire. NFR-103 says "APK size", and every figure in this file until today has been APK bytes, so
+the like-for-like reading is the split files on the device: **17.20 MB is the one that governs**,
+and it passes with 22.8 MB to spare. The download figure is recorded beside it because it is what
+the Play listing will show.
+
+**The subtraction understated the real figure, by 2.04 MB.** Taken on the same day's universal APK
+it gave 15.16 MB. Play's splits for SDK 28 and above store `classes.dex` **uncompressed** — 3.95 MB
+stored where the universal APK deflates it to 1.94 MB — so that ART can map it rather than extract
+it. The native library is stored uncompressed in both, which is why that half agreed to 0.3%. The
+lesson generalises: **an estimate from a universal APK undercounts anything a split stores
+differently**, and uncompressed dex is the largest such thing in this app. The 13.97 MB of 28 Aug
+was taken the same way and should be read as low by about the same amount.
+
 **The merged manifest was inspected on adoption, 28 Aug 2026, and ML Kit adds no permission
 at all.** Established by merging the manifest with and without `:ocr` and diffing the two, so
 it is a measurement rather than a reading of the library's documentation: the permission sets
