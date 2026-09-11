@@ -70,7 +70,11 @@ Screen recording: the Quick Settings *Screen record* tile, with *Show touches* o
 your Gmail"*; a video showing Latch reading a Gmail notification would contradict it on camera,
 even though the listener reads a notification and not the mailbox.
 
-**6. Rehearse once without recording**, then remove the demo account's Latch calendar, the
+**6. Rehearse once without recording.** The rehearsal is also **the device verification of SRS
+1.219's sign-in screen**, so `adb logcat` is armed for it. *Failure looks like* four permission
+lines, or the old footer *"not Contacts"*: the demo user got a stale install. It also fails if
+the Contacts line is cut off or pushes **Continue with Google** below the fold at the phone's
+font size. Then remove the demo account's Latch calendar, the
 contact and the to-do, and clear Latch's data in the demo user (*Settings → Apps → Latch →
 Storage → Clear storage*) so the recorded run starts from setup. Also remove Latch at
 `myaccount.google.com/connections` for the demo account, so the consent screen appears in full.
@@ -259,8 +263,10 @@ asks for the narrowest scope that works (`developers.google.com/workspace/calend
 >
 > Why not a narrower scope: the user chooses which calendar their captures are saved to, and may
 > choose any calendar they can write to, including one shared with them that they do not own,
-> such as a family calendar. calendar.events.owned would exclude shared calendars, and
-> calendar.app.created would confine the user to a calendar Latch made.
+> such as a family calendar. calendar.events.owned would exclude shared calendars.
+> calendar.app.created cannot write to calendars that already exist, and Latch's routing — a
+> shipped feature the user configures in Settings — sends captures to calendars the user already
+> has.
 
 Traced to: `insertEvent`, `findEventBySourceHash` (`eventDedupUrl`, `findEventPaged`), `findEventByItemKey`, `patchEventDates`,
 `deleteEvent` in `:google`; FR-801, FR-803, FR-804, FR-807, FR-901.
@@ -290,18 +296,20 @@ Traced to: `listWritableCalendars` (`users/me/calendarList`), `setColourAndVisib
 > account the user signed in with, because Latch requests no profile or email scope. Latch never
 > changes the properties of any existing calendar.
 >
-> Why not calendar.calendars.readonly: it cannot create a calendar.
+> Why not calendar.calendars.readonly: it cannot create a calendar. Why not calendar.app.created:
+> it cannot write to calendars that already exist, and Latch's routing — a shipped feature the
+> user configures in Settings — sends captures to calendars the user already has.
 
-Traced to: `createLatchCalendar` (`POST calendars`) and the `GET calendars/primary` identity read in `GoogleRest.kt`; FR-102, FR-105, AC-16.
+Traced to: `createLatchCalendar` (`POST calendars`) and the `GET calendars/primary` identity read in `GoogleRest.kt`; FR-102, FR-105, AC-16; routing is FR-905 and FR-1002's Option A.
 
-**A reviewer may ask why not `calendar.app.created`, and that question is real.** That scope can
-create a secondary calendar and write to it. `calendar.events` would still be needed for the
-user's own calendars, and the primary calendar's id is also in the calendar list, so
-`calendar.calendars` could in principle be replaced by `calendar.app.created`. **This has not
-been tried**, and it is not a wording change: it changes the scope set, which SRS 1.87 records
-invalidates every existing grant, and whether a calendar created by the Android client counts as
-"created by this app" for the Windows client (FR-1002's adoption rule) is unknown. If a reviewer
-raises it, the answer is a slice and a device pass, not a sentence.
+**Decided 11 Sep 2026 (SRS 1.220): the calendar scopes stay as they are, with no build change**,
+and the sentence above is the answer to the narrower-scope question. **If a reviewer asks a
+follow-up, it will be this one**: *`calendar.events` already covers existing calendars, so why not
+`calendar.app.created` for the Latch calendar instead of `calendar.calendars`?* The routing
+sentence doesn't answer that combination. The honest reply is that changing the scope set
+invalidates every existing grant (SRS 1.87), and that whether a calendar created by the Android
+client counts as "created by this app" for the Windows client, which adopts it (FR-1002), has
+not been tested. Write that reply only if the question comes.
 
 ### `https://www.googleapis.com/auth/tasks`
 

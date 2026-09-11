@@ -16,6 +16,77 @@ against the final scope set including `.../auth/contacts`.
 
 ---
 
+## The release sequence — personal account, planned 11 Sep 2026 (SRS 1.220)
+
+The items below are *what* must be true at submission; this is *the order*, because a personal
+Play account adds a 14-day closed test (FR-1105), and three of the items change what that test can
+do. **Budget about five weeks** from the first upload to production, not the two weeks the test
+alone suggests. OAuth verification runs alongside and its length is Google's.
+
+**A — Before anything is uploaded**
+1. Create the upload keystore and `keystore.properties` (item 3).
+2. Register the **upload key's** SHA-1 on the Android OAuth client (item 5, first half).
+3. Decide `versionName` for the first upload. It is `0.1.0` now and shows on the listing;
+   `versionCode` must rise with every upload after the first.
+4. Record the demo video (`docs/OAUTH-VERIFICATION.md`) on the debug build.
+
+**B — The Play Console account**
+5. A **personal** account: US$25, identity verification with a government ID whose address
+   matches the Google payments profile, and the device check through the Play Console app on a
+   physical Android 10+ phone. Google says verification may take a few days.
+6. Create the app. New apps are enrolled in Play App Signing.
+
+**C — Internal testing: the sign-in gate**
+7. `./gradlew :app:bundleRelease`, re-run item 0's sweep and item 4's measurement on **that**
+   bundle, and upload it to the **Internal testing** track.
+8. Play Console → *Setup → App signing*: register the **app signing key's** SHA-1 on the Android
+   OAuth client (item 5, second half). Testers install Play's re-signed build, and without this
+   fingerprint **every tester's sign-in fails**, on the only build they have.
+9. Install from the internal track on your own phone and sign in. *Failure looks like* a sign-in
+   error on a Play-installed Latch while the debug build still works — that is step 8 missing. No
+   other check proves that the build testers get can sign in.
+
+**D — The listing and OAuth, in parallel**
+10. App content: privacy policy URL, Data Safety (`docs/STORE-LISTING.md`), no ads, the content
+    rating questionnaire, and a target audience that is not children. **App access**: everything
+    in Latch is behind Google sign-in, so Play's reviewers need a way in. Google's form asks for
+    instructions or credentials; what it accepts for a Google sign-in is to be read in the Console
+    rather than assumed.
+11. The store listing text and screenshots (`docs/STORE-LISTING.md`).
+12. **OAuth: move the consent screen to *In production* and submit verification**, with the video
+    and the justifications, **before the closed test starts**. In *Testing*, every tester's
+    authorization expires seven days after consent, so a 14-day test would ask every tester to sign
+    in again at least once, and a Play reviewer who is not a listed test user could not sign in at
+    all. In production and still unverified, sign-in is open to up to **100 users in total**,
+    behind an unverified-app warning. Tell testers that warning is expected.
+
+**E — The closed test, 14 days at least**
+13. Recruit **15–20** testers for a requirement of 12, because the rule is 12 opted in
+    *continuously* for the 14 days before applying, and people drop out. Each needs an Android
+    phone and a Google account, and each counts against the 100-user cap. Recruit from §3.1's
+    users, not developers (`docs/MARKETING.md`, Phase 1): parents, people who get bills and courier
+    messages, people who collect cards.
+14. Create the **Closed testing** track, add the testers (an email list or a Google Group), and
+    roll out the release. Google reviews it, which can take days. Then send the opt-in link;
+    testers opt in and install from Play.
+15. **Day 0 is the day the twelfth tester opts in.** Check the opted-in count every day. If it
+    drops below 12, read Google's current wording before assuming the 14 days carry on.
+16. During the test: collect feedback, ship fixes to the closed track, and keep a note of what
+    changed. The production application asks for **how testers were recruited, how they engaged,
+    what they said, and what changed because of it**, and that is easy to write from notes and
+    hard to reconstruct later.
+
+**F — Production**
+17. After day 14: *Dashboard → Apply for production*. Google says review is usually seven days or
+    less.
+18. On the exact bundle to be released: item 0's sweep, item 4's measurement, and the
+    *Knowingly unmet* section below, read again.
+19. Release. **Until OAuth verification completes, the 100-user cap applies to production too.**
+    Don't promote Latch beyond the closed test until verification is granted; the 101st person
+    to install it would be unable to sign in.
+
+---
+
 ## What is done in the repository
 
 ### 1. A release signing configuration ✅
@@ -149,17 +220,14 @@ Console.
 
 ### 7. Publication account and store listing ⛔ **you**
 
-- **FR-1105**: publish from a Play **organisation** account. A personal account is subject to a
-  closed-testing requirement — a panel of testers over a fixed period — which materially delays
-  launch. Developer name and address are publicly displayed either way.
-
-  **Checked against Google and D&B on 11 Sep 2026, and the premise narrows.** Google's own
-  organisation guide (*Verifying your Play Console developer account for organizations*, Oct 2024,
-  p. 6): **"Choose 'Organization' for any formal business entity. Otherwise, select 'Personal'."**
-  Its sole-proprietor FAQ (p. 31): verify as an organisation **if you have a D-U-N-S number and
-  can provide the required documents**; otherwise choose Individual. **The account type cannot be
-  changed after verification.** So the organisation route needs a registered business behind it,
-  not only a D-U-N-S number — that is the developer's decision, and it is a legal one.
+- **FR-1105: a personal Play account — decided 11 Sep 2026 (SRS 1.220).** The developer has no
+  registered business, and Google's organisation guide (*Verifying your Play Console developer
+  account for organizations*, Oct 2024, p. 6) says **"Choose 'Organization' for any formal
+  business entity. Otherwise, select 'Personal'."** Its sole-proprietor FAQ (p. 31) allows an
+  organisation account only with a D-U-N-S number **and** an organisation registration document.
+  **The account type cannot be changed after verification**, so this is decided once. The cost is
+  the closed test, planned in *The release sequence* at the top of this file. The comparison that
+  decided it, checked against Google's and D&B's pages that day:
 
   | | Personal | Organisation |
   |---|---|---|
@@ -170,31 +238,12 @@ Console.
   | D-U-N-S | Not needed | **Required**, and its legal name and address must match the Google payments profile exactly — a mismatch leaves 28 days to fix or the account and apps are removed. **Limited attempts** to enter it |
   | Fee | US$25, once, card only, not refunded if identity fails | Same |
 
-  **Getting a D-U-N-S number in India** (D&B's Google-developer page routes India to
-  `dnb.co.in/duns/get-a-duns`):
-  1. Fill the form there: legal name and headquarters address (**exactly** as they will appear in
-     the Google payments profile), state, turnover band, contact details, and **"Google
-     Developer"** as the reason. D&B India says an individual solo developer may register.
-  2. Standard assignment is **free, up to 30 business days**; D&B's paid *D-U-N-SFile* does it in
-     five. D&B's free five-day route is for Apple and US FDA requests only, not Google.
-  3. Google's guide says to have the number **before** starting verification.
-
-  **Then the Play Console**, as the owner of the Google account that will own the listing:
-  1. `play.google.com/console` → choose **Organization** → create or select a **Google payments
-     profile of the organisation**, enter the D-U-N-S number, and confirm the business details D&B
-     returns.
-  2. Organisation details: type, size, phone, **website** — `ksyadav1978.github.io/latch-android`
-     is the obvious one. New organisation accounts must verify their website (Google introduced
-     this in Feb 2024); the Console shows how.
-  3. Private contact name, email and phone (OTP) — the guide says that email should differ from the
-     Google account's and match the website's domain, **which a Gmail address cannot**.
-  4. Public developer email and phone (OTP).
-  5. Pay the US$25 fee, then upload the organisation document and ID when the Console asks.
-     **Never edit a document**; Google treats that as fraud.
-
-  **The same thing personally**: choose Personal, verify ID and the phone check, publish to a
-  closed track, recruit 12 testers for 14 days, apply for production. It costs about three weeks
-  and no business registration.
+  **The route not taken**, for if a business is ever registered: a D-U-N-S number from
+  `dnb.co.in/duns/get-a-duns` (free, up to 30 business days, "Google Developer" as the reason, name
+  and address exactly as in the payments profile), then an organisation payments profile, a
+  verified website and an organisation registration document. Because the account type is fixed,
+  that would mean a **new** developer account and moving the app to it. The full steps are in
+  commit `382d0dc`.
 
   **Also noted**: Android developer verification — identity for apps installed on certified
   devices, on Play or off it — starts **30 Sep 2026 in Brazil, Indonesia, Singapore and
@@ -205,7 +254,9 @@ Console.
 - **§8.6 / FR-002 / FR-1241**: the scopes are Sensitive, so OAuth verification is required before
   general availability. Expect a demo video, a published privacy policy and domain verification.
   §11 recommends submitting at the **start** of Phase 2, not the end: it is the most common cause
-  of launch slippage. Until it completes, only test users on the consent screen can sign in.
+  of launch slippage. Until it completes, sign-in is limited: in *Testing*, to up to 100 listed
+  test users whose grants expire after seven days; in *In production*, to 100 users in total,
+  behind an unverified-app warning. The release sequence below chooses between them.
   **Submit against the final scope set, `.../auth/contacts` included.** Verification is granted
   per scope, so adding one afterwards is a second verification and a second wait — and SRS 1.87
   records what adding that scope does to an application already published: every existing user's

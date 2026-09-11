@@ -229,7 +229,8 @@ handles data can be checked in its source code.
 ### Settled on 11 Sep 2026, when it was hosted
 
 - **Publisher and contact**: `KSYADAV1978` and `kulveer.gcf@gmail.com`, both the developer's
-  choice. If Play publication moves to an organisation account (FR-1105), both change.
+  choice. Play publication is from a personal account (FR-1105, SRS 1.220), so these stay as they
+  are unless the developer changes them.
 - **Hosting**: GitHub Pages from the `gh-pages` branch. Homepage
   `https://ksyadav1978.github.io/latch-android/`, policy at `…/privacy/` — a different URL on the
   same domain, which is what Google's OAuth guidance asks for.

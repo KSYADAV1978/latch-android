@@ -61,9 +61,10 @@ phone that is not the developer's — a different Android version, a different k
 set of apps that do or do not cooperate with `PROCESS_TEXT` (FR-204's help topic ships with **one**
 entry because one is all anybody has checked).
 
-**They satisfy FR-1105 if the account is personal.** A personal Play account triggers closed
-testing — a panel of testers over a fixed period — which is this phase whether you wanted it or
-not. An organisation account skips the requirement, and that is the reason to prefer one.
+**They satisfy FR-1105, because the account is personal** (decided 11 Sep 2026, SRS 1.220). A
+personal Play account must run a closed test — 12 testers opted in continuously for 14 days —
+before it can apply for production, so the first of this phase's testers *are* that closed test.
+Recruit 15–20 for the 12, from the people below. `docs/RELEASE.md` stage E has the steps.
 
 **Where to find a hundred people who are the actual users.** §3.1 names them: people receiving
 school circulars, bills, courier and appointment notifications. That is not a developer audience

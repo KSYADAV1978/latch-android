@@ -310,8 +310,9 @@ requirement says so, and FR-1222 says it citing NFR-502's own experience.
    including that Latch never deletes a contact), FR-1103 Data Safety (contacts counts as
    *collected* even though you never see it; the app holds **no** camera permission), and FR-1104
    notification access.
-6. **Publish from an organisation account** (FR-1105 — a personal account triggers a closed-testing
-   delay) and clear the name "Latch" for trademark and Play Store use.
+6. **Publish from a personal account, after its 14-day closed test** (FR-1105, amended 11 Sep 2026
+   — there is no registered business to verify as an organisation), and clear the name "Latch" for
+   trademark and Play Store use. The order is in `docs/RELEASE.md`, *The release sequence*.
 7. **Re-run the artifact sweep** on the exact build you submit. Thirty seconds, and the only form
    of that check a stray edit to a guard cannot pass. See `docs/RELEASE.md` item 0.
 
