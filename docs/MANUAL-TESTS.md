@@ -319,16 +319,15 @@ requirement says so, and FR-1222 says it citing NFR-502's own experience.
 
 ## 9a. Two fixes from 10 September that need watching
 
-### 9a.1 SRS 1.202 — "Sign in again" in the tray (**Windows, needs the desktop running**)
+### ~~9a.1 SRS 1.202 — "Sign in again" in the tray~~ — **DONE 11 Sep 2026**
 
 The tray had no way to re-consent while a token was stored, which stranded you when the grant was
 revoked. There is now a **Sign in again** action beside **Sign out**.
 
-- **Do:** reinstall the Windows client (`install-local.ps1`), open the tray while signed in.
-- **Passes:** a **Sign in again** row sits beside **Sign out**, and pressing it opens the browser
-  without signing you out first.
-- **Fails:** it is missing, or it signs you out rather than re-consenting.
-- The account line above it should still do **nothing** when pressed — that is deliberate.
+The row appears between `Settings…` and `Sign out`, the account line above it still does nothing,
+and pressing it opened consent without signing out on the way. **The pass was the store, not the
+tray**: `secrets.dat` was rewritten with a fresh refresh token — the tray reads *Signed in as …*
+either way, which is exactly the trap SRS 1.200 recorded, here used as the instrument.
 
 ### ~~9a.2 SRS 1.203 — FR-603's two "Done" buttons~~ — **DONE 11 Sep 2026**, and it found a regression
 
