@@ -114,6 +114,9 @@ fun classifyCard(lines: List<String>): CardClassification {
     val afterTitle = rest.filterNot { it == title }
 
     val organisation = organisationAmong(afterTitle)
+        // **Only where the suffix rules found nothing**, so this can fill a gap and never
+        // overwrite an answer. See [organisationCorroboratedBy].
+        ?: organisationCorroboratedBy(afterTitle, emails, urls)
     val withoutOrg = afterTitle.filterNot { it == organisation }
 
     val address = addressAmong(withoutOrg)
@@ -380,8 +383,111 @@ internal fun hasOrganisationSuffix(line: String): Boolean {
  */
 internal fun organisationAmong(lines: List<String>): String? {
     val candidates = lines.filter { hasOrganisationSuffix(it) && hasDistinguishingWord(it) }
-    return candidates.singleOrNull()
+    if (candidates.size <= 1) return candidates.singleOrNull()
+    // **Where every survivor is contained in the longest, they are one name the layout split**
+    // (SRS 1.210). A card printing "HDFC BANK" as its logotype above "HDFC Bank Ltd." in the
+    // address block offers two candidates and one company; so does "Dalmia" over "Bharat Limited"
+    // beside "Dalmia Bharat Limited". The blanket refusal below was written for two *different*
+    // companies and this is not that case - it was discarding a correct answer that had been
+    // recognised perfectly.
+    //
+    // **Compared on letters and digits alone**, because the repetition is rarely exact: case,
+    // punctuation and spacing differ between a logotype and the legal name beneath it.
+    val longest = candidates.maxByOrNull { it.length } ?: return null
+    val whole = longest.squashed()
+    return if (candidates.all { whole.contains(it.squashed()) }) longest else null
 }
+
+/** A line holding a domain-shaped token is the contact block, whatever OCR did to its `@`. */
+private val DOMAIN_SHAPED =
+    Regex("""[A-Za-z0-9-]\.(com|in|net|org|edu|gov|io|biz)""", RegexOption.IGNORE_CASE)
+
+/**
+ * The company, where the card names it only as a logotype (SRS 1.210).
+ *
+ * **A logotype carries no suffix, so the suffix rules cannot see it** — and on the thirty-nine
+ * cards scanned on 11 September the company was left blank **45% of the time**, more often than
+ * any other field, with the answer usually sitting in the unplaced list as `ALIMCO`, `MCX`,
+ * `ReLIANCe` or `KIOCL LIMITED`. The developer's own hand-corrections agree: five of their ten
+ * edits were to the company.
+ *
+ * **The card corroborates itself.** One card belongs to one organisation, so the host of its email
+ * address and of its website is evidence about the employer's name that no amount of line-shape
+ * analysis can supply. `namedInEmail` already applies this reasoning to the *name*; this is the
+ * same evidence one field over.
+ *
+ * **It fills and never overwrites**, which is what makes it safe enough to apply silently. It runs
+ * only where [organisationAmong] returned null, so a card that named its company keeps that
+ * answer, and the worst case here is a blank field staying blank.
+ *
+ * **The registrable part only.** `co`, `com`, `in`, `net`, `org` and the like are shared by
+ * everybody and would match any line containing them; comparing against `gvpr` from
+ * `gvpr.co.in` is the whole signal.
+ *
+ * **The longest match wins**, because a card printing both `ALIMCO` and
+ * `Artificial Limbs Manufacturing Corporation of India` should yield the name and not the
+ * acronym — and where only the acronym is printed, the acronym is the best answer available.
+ */
+internal fun organisationCorroboratedBy(
+    lines: List<String>,
+    emails: List<CardEmail>,
+    urls: List<String>,
+): String? {
+    val hosts = emails.map { it.address.substringAfter('@') } + urls
+    val stems = hosts
+        .flatMap { it.lowercase().split('.', '/', '@') }
+        .map { it.removePrefix("www") }
+        .filter { it.length > 3 && it !in HOST_NOISE && it !in FREE_MAIL_HOSTS }
+        .toSet()
+    if (stems.isEmpty()) return null
+    return lines
+        .filter { line ->
+            val squashed = line.squashed()
+            squashed.length > 2 && stems.any { squashed.contains(it) || it.contains(squashed) }
+        }
+        // **The line carrying the address cannot corroborate it**, which is circular and was the
+        // first thing this rule got wrong: a card whose email line reads
+        // "e bansal.anuragadalmiabharat.com" contains the domain by construction, so it matched
+        // itself and became the employer.
+        //
+        // **Testing for an `@` is not enough**, and the same card proved it: OCR read that card's
+        // `@` as a letter, so the line carried the domain and looked like ordinary prose. What
+        // identifies a contact line is the *domain-shaped token*, which survives the damage.
+        .filterNot { it.contains("://") || it.contains(DOMAIN_SHAPED) }
+        // A line that is already a phone number, an email or an address is not a company, and
+        // `looksLikeJobTitle` keeps "Head of Corporate Affairs" from becoming an employer on a
+        // card whose domain happens to contain "corporate".
+        .filterNot { looksLikeJobTitle(it) || looksLikePersonName(it) }
+        // **A name beats a claim about one, and the claim is the longer of the two.** The card
+        // that forced this prints "Dalmia Bharat Limited" and "A Dalmia Bharat Group company";
+        // both carry the domain and taking the longest took the claim. Ranking on how much of a
+        // line is *not* corporate boilerplate separates them without a list of claim phrases -
+        // "Limited" is one boilerplate word in three, "A ... Group company" is three in five.
+        .minWithOrNull(
+            compareBy<String> { line ->
+                val words = line.lowercase().split(WORD_BREAK).filter { it.length > 2 }
+                if (words.isEmpty()) 1.0 else words.count { it in BOILERPLATE }.toDouble() / words.size
+            }.thenByDescending { it.length },
+        )
+}
+
+
+/** Host parts that belong to everybody and so corroborate nothing. */
+private val HOST_NOISE = setOf("com", "net", "org", "gov", "edu", "info", "mail", "co", "in")
+
+/**
+ * Hosts that say nothing about an employer, because anybody may have one.
+ *
+ * A card printing a personal `@rediffmail.com` address is common here, and matching a line
+ * against `rediffmail` picked a logo fragment as the company. The domain corroborates an employer
+ * only when the employer is who issued it.
+ */
+private val FREE_MAIL_HOSTS = setOf(
+    "gmail", "hotmail", "yahoo", "rediffmail", "outlook", "live", "aol", "protonmail", "icloud",
+)
+
+/** Letters and digits, lower case: what two printings of one name have in common. */
+private fun String.squashed(): String = lowercase().filter { it.isLetterOrDigit() }
 
 private fun hasDistinguishingWord(line: String): Boolean =
     line.split(WORD_BREAK)
@@ -532,6 +638,16 @@ private val ORG_SUFFIXES = listOf(
     "ltd", "limited", "llp", "llc", "inc", "plc", "gmbh", "pvt", "private limited", "co",
     "company", "corp", "corporation", "industries", "enterprises", "associates", "partners",
     "solutions", "services", "systems", "technologies", "textiles", "logistics",
+    // **A trade body is not an edge case in this corpus's domain** (SRS 1.210). Scanning
+    // thirty-nine real cards produced a cement manufacturers' association, two mineral
+    // federations and a bank, and not one of them could name its own employer because the list
+    // knew only the shapes a private company takes. These are the words the rest of an economy
+    // ends its name with.
+    "association", "federation", "confederation", "chamber", "council", "institute",
+    "society", "foundation", "bank", "mills", "cements", "minerals", "steels",
+    // **"trust" was tried and withdrawn the same minute**, which is the corpus paying for itself:
+    // it made the strapline "Trade with Trust" into somebody's employer - the very card SRS 1.109
+    // records that phrase from. A word that ends a slogan as readily as a name cannot be a suffix.
 )
 
 /**
@@ -544,6 +660,12 @@ private val BOILERPLATE = setOf(
     "the", "and", "for", "ltd", "limited", "llp", "llc", "inc", "plc", "pvt", "private",
     "company", "corp", "corporation", "certified", "mini", "ratna", "government", "enterprise",
     "enterprises", "iso", "group", "india", "indian",
+    // **Words that belong to a claim about a company rather than to its name** (SRS 1.210). A card
+    // printing "Grant Thornton Bharat LLP" also prints "Member firm of Grant Thornton
+    // International Ltd" at its foot, and the footer carries the domain just as well - so a rule
+    // choosing between them needs to know that "member" and "firm" are the vocabulary of a
+    // disclaimer. This is the same list that already refuses "A Mini Ratna Company".
+    "member", "firm", "unit", "regd", "office",
 )
 
 /**
