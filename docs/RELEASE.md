@@ -140,11 +140,66 @@ Console.
   prominent disclosure it also requires **is** built and is unavoidable before the permission can
   be requested — `NotificationAccessScreen` — so what is owed here is the Console half.
 
+  **Checked 11 Sep 2026: there is no Console form for it.** Play's declaration form covers SMS and
+  call log, background location, all-files access, `QUERY_ALL_PACKAGES`, accessibility,
+  `REQUEST_INSTALL_PACKAGES`, Health Connect, exact alarms and full-screen intents — not
+  notification listeners. What governs Latch is the user-data policy's prominent-disclosure rule,
+  which the screen meets. Scene 11 of `docs/OAUTH-VERIFICATION.md` records it on video, for a
+  reviewer who asks.
+
 ### 7. Publication account and store listing ⛔ **you**
 
 - **FR-1105**: publish from a Play **organisation** account. A personal account is subject to a
   closed-testing requirement — a panel of testers over a fixed period — which materially delays
   launch. Developer name and address are publicly displayed either way.
+
+  **Checked against Google and D&B on 11 Sep 2026, and the premise narrows.** Google's own
+  organisation guide (*Verifying your Play Console developer account for organizations*, Oct 2024,
+  p. 6): **"Choose 'Organization' for any formal business entity. Otherwise, select 'Personal'."**
+  Its sole-proprietor FAQ (p. 31): verify as an organisation **if you have a D-U-N-S number and
+  can provide the required documents**; otherwise choose Individual. **The account type cannot be
+  changed after verification.** So the organisation route needs a registered business behind it,
+  not only a D-U-N-S number — that is the developer's decision, and it is a legal one.
+
+  | | Personal | Organisation |
+  |---|---|---|
+  | Testing before production | **12 testers opted in for 14 consecutive days**, then *Apply for production* (review ≤ 7 days) — accounts created after 13 Nov 2023 | Not required |
+  | Device check | Play Console mobile app on a physical Android 10+ phone | Not required |
+  | Shown on Play | Developer name, legal name and country; an email | Organisation name and **address**, plus a **public email and phone**, both OTP-verified |
+  | Documents | Government ID; the address must match the payments profile | Government ID of an authorised person **and** an organisation registration document from a government or business registry; the list shown is country-specific |
+  | D-U-N-S | Not needed | **Required**, and its legal name and address must match the Google payments profile exactly — a mismatch leaves 28 days to fix or the account and apps are removed. **Limited attempts** to enter it |
+  | Fee | US$25, once, card only, not refunded if identity fails | Same |
+
+  **Getting a D-U-N-S number in India** (D&B's Google-developer page routes India to
+  `dnb.co.in/duns/get-a-duns`):
+  1. Fill the form there: legal name and headquarters address (**exactly** as they will appear in
+     the Google payments profile), state, turnover band, contact details, and **"Google
+     Developer"** as the reason. D&B India says an individual solo developer may register.
+  2. Standard assignment is **free, up to 30 business days**; D&B's paid *D-U-N-SFile* does it in
+     five. D&B's free five-day route is for Apple and US FDA requests only, not Google.
+  3. Google's guide says to have the number **before** starting verification.
+
+  **Then the Play Console**, as the owner of the Google account that will own the listing:
+  1. `play.google.com/console` → choose **Organization** → create or select a **Google payments
+     profile of the organisation**, enter the D-U-N-S number, and confirm the business details D&B
+     returns.
+  2. Organisation details: type, size, phone, **website** — `ksyadav1978.github.io/latch-android`
+     is the obvious one. New organisation accounts must verify their website (Google introduced
+     this in Feb 2024); the Console shows how.
+  3. Private contact name, email and phone (OTP) — the guide says that email should differ from the
+     Google account's and match the website's domain, **which a Gmail address cannot**.
+  4. Public developer email and phone (OTP).
+  5. Pay the US$25 fee, then upload the organisation document and ID when the Console asks.
+     **Never edit a document**; Google treats that as fraud.
+
+  **The same thing personally**: choose Personal, verify ID and the phone check, publish to a
+  closed track, recruit 12 testers for 14 days, apply for production. It costs about three weeks
+  and no business registration.
+
+  **Also noted**: Android developer verification — identity for apps installed on certified
+  devices, on Play or off it — starts **30 Sep 2026 in Brazil, Indonesia, Singapore and
+  Thailand**, and globally in 2027. India is not in the first wave. Google's page does not say
+  whether Play Console verification satisfies it; check when it reaches India.
 - **FR-1101**: no advertising, no in-app purchase, no paid tier. Nothing in the app contradicts
   this; the listing must not either.
 - **§8.6 / FR-002 / FR-1241**: the scopes are Sensitive, so OAuth verification is required before
