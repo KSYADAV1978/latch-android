@@ -73,6 +73,46 @@ enum class CardWriteBasis {
 }
 
 /**
+ * Do the card and the contact it matched name the same person?
+ *
+ * **An identity match must never rename a contact** (SRS 1.208), and this is the guard that costs
+ * nothing and closes the only defect in this pillar that destroys data the user already had.
+ *
+ * FR-1209 keys identity on a normalised email address alone. SRS 1.94 rejected the same hazard on
+ * the other axis and said why — *"a phone number contributes nothing at all, and the switchboard
+ * case is a test: two colleagues, one shared number, different addresses, two identities"* — and a
+ * **shared mailbox is the switchboard one field over.** On Indian cards a departmental `info@`,
+ * `office@` or association address is printed in place of a personal one often enough that this is
+ * the ordinary case rather than a corner of it. It happened in the developer's own account: two
+ * office-holders at one federation, each printing `fimi@fedmin.com`, and accepting the offer
+ * replaced the first man's name and job title with the second's. He is gone from the account, with
+ * both men's seven telephone numbers under one name.
+ *
+ * **A differing name is evidence that the identity is wrong, not that the contact is stale.** That
+ * is the whole reasoning: FR-1231 exists to update somebody's details when they hand you a new
+ * card, and the one thing a new card from the *same* person cannot do is change who they are.
+ *
+ * **Compared on letters alone, and containment counts as agreement**, because the alternative
+ * failure is worse than the one being fixed: SRS 1.131 measured the name as the most stable field
+ * on a card and two readings still disagreed over `VS.` and `V.S.`, so an exact test would refuse
+ * real matches and put a second contact in the account for the person FR-1231 had just recognised.
+ * `Rakesh M` and `Rakesh Menon` agree; `Anand Mukherji` and `Prakash Tandon` do not.
+ *
+ * **An absent name on either side agrees with anything**, which is deliberate: a card whose name
+ * the classifier could not read says nothing about whether this is the same person, and refusing
+ * the match there would create the duplicate FR-1231 exists to prevent, on the evidence of a field
+ * that is missing rather than different.
+ */
+internal fun namesAgree(stored: ContactRecord, draft: CardDraft): Boolean {
+    val theirs = stored.displayName?.lettersOnly().orEmpty()
+    val ours = draft.displayName?.lettersOnly().orEmpty()
+    if (theirs.isBlank() || ours.isBlank()) return true
+    return theirs.contains(ours) || ours.contains(theirs)
+}
+
+private fun String.lettersOnly(): String = lowercase().filter { it.isLetter() }
+
+/**
  * FR-1208, then FR-1231 — the order FR-803 and FR-804 already take on the date side.
  *
  * [identityMatch] is the contact FR-1209's identity found, **already read back**, or null where
@@ -92,7 +132,7 @@ fun cardWriteDecision(
     // FR-1231, and it is placed **above** the capped check deliberately: a scan that gave up may
     // still have found this person on the pages it did read, and that answer is real. What a cap
     // costs is the pages it did not reach, not the ones it did.
-    identityMatch != null -> {
+    identityMatch != null && namesAgree(identityMatch, draft) -> {
         val changes = contactChanges(identityMatch, draft)
         if (changes.isEmpty()) {
             // §7.2's row 3 on a third transport: same identity, nothing would change, therefore

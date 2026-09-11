@@ -66,6 +66,49 @@ class CardUpdateDecisionTest {
     }
 
     @Test
+    fun `a card naming a different person is never offered as an update`() {
+        // SRS 1.208, and it happened in a real account. Two office-holders at one federation
+        // each print the organisation's shared mailbox on their own card, so FR-1209's
+        // email-only identity matches - and accepting the offer replaced the first man's name
+        // and job title with the second's. A differing name is evidence that the identity is
+        // wrong, not that the contact is stale.
+        val colleague = draft.copy(displayName = "Prakash Tandon", jobTitle = "Secretary General")
+        val decision = cardWriteDecision(
+            ContactDuplicateSearch(identityResourceName = "people/c1"),
+            colleague,
+            stored,
+        )
+        assertIs<CardWriteDecision.Create>(decision)
+    }
+
+    @Test
+    fun `a name the recogniser read differently still matches`() {
+        // The failure a stricter test would cause, and it would be worse than the one being
+        // fixed: SRS 1.131 measured the name as the most stable field on a card and two readings
+        // still disagreed over "VS." and "V.S.". Refusing here would write a second contact for
+        // the person FR-1231 had just recognised.
+        val punctuated = draft.copy(displayName = "Anita  Kapoor.")
+        assertIs<CardWriteDecision.UpdateOffered>(
+            cardWriteDecision(
+                ContactDuplicateSearch(identityResourceName = "people/c1"),
+                punctuated,
+                stored,
+            ),
+        )
+        // A fuller form of the same name agrees with the shorter one it contains.
+        assertTrue(namesAgree(stored.copy(displayName = "Anita"), draft))
+    }
+
+    @Test
+    fun `a missing name on either side does not refuse the match`() {
+        // A name the classifier could not read says nothing about whether this is the same
+        // person, and refusing on a field that is absent rather than different would create the
+        // duplicate FR-1231 exists to prevent.
+        assertTrue(namesAgree(stored.copy(displayName = null), draft))
+        assertTrue(namesAgree(stored, draft.copy(displayName = null)))
+    }
+
+    @Test
     fun `an identity match with nothing to change is already saved, and says which row`() {
         val decision = cardWriteDecision(
             ContactDuplicateSearch(identityResourceName = "people/c1"),
