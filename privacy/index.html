@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Latch privacy policy</title>
+<meta name="description" content="How Latch for Android and Windows handles your data: what it reads, what it stores, and what leaves your device.">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="site">
+  <nav>
+    <a class="name" href="../">Latch</a>
+    <a href="./">Privacy policy</a>
+    <a href="https://github.com/KSYADAV1978/latch-android">Source code</a>
+  </nav>
+</header>
+<main>
+<h1>Latch privacy policy</h1>
+<p class="meta">Effective 11 September 2026</p>
+
+<p>Latch is published by KSYADAV1978. This policy covers the Latch app for Android and Latch for
+Windows.</p>
+
+<h2>The short version</h2>
+<ul>
+  <li><strong>We run no servers.</strong> Latch has no backend, and nothing you capture ever reaches
+  a computer we operate. We could not read your messages, your calendar or your contacts even if we
+  wanted to, because none of it is ever sent to us.</li>
+  <li>Latch reads text and images <strong>on your device</strong>. <strong>Nothing you capture
+  leaves your phone except to your own Google account</strong>: the calendar events, to-dos and
+  contacts you confirm.</li>
+  <li>There is one exception you would have to set up yourself: an optional
+  <strong>webhook</strong>, off by default, that sends a copy of each saved item to an address you
+  choose. It is described below.</li>
+  <li>Latch contains <strong>no advertising, no analytics and no crash reporting</strong>. The one
+  part of the app that sends usage data to anyone is Google's on-device text recognition, and what
+  it sends is described below.</li>
+</ul>
+
+<h2>What Latch does with your Google account</h2>
+<p>When you sign in, you grant Latch permission to use Google Calendar, Google Tasks and Google
+Contacts on your behalf. Latch uses that permission only to do what you ask it to on screen:</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Google data</th><th>What Latch reads</th><th>What Latch writes</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Calendar</strong></td>
+        <td>Your list of calendars, so you can choose where entries go. Existing Latch entries, to
+        tell whether something you capture is already saved or has moved</td>
+        <td>Events you confirm, and a calendar named “Latch” if you choose that option during
+        setup</td></tr>
+    <tr><td><strong>Tasks</strong></td>
+        <td>Your task lists, and existing Latch to-dos, for the same two reasons</td>
+        <td>To-dos you confirm</td></tr>
+    <tr><td><strong>Contacts</strong> (Android only)</td>
+        <td>Your contacts, <strong>on your device</strong>, to tell whether a business card you
+        photographed belongs to someone already there</td>
+        <td>Contacts you confirm from a business card, and changes to an existing contact that you
+        confirm field by field</td></tr>
+    <tr><td><strong>Your account address</strong></td>
+        <td>The email address of the account you signed in with, so Latch knows which account it
+        is working in. It is kept on your device, encrypted</td>
+        <td>Nothing</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>To recognise its own entries later, Latch writes a small record into each item it creates: a
+one-way digest of the captured text, a digest used to recognise a rescheduled item, the time of
+capture, the app it was captured from, and — where you applied one — the name of the recipe used.
+On a contact, the record holds a digest of the card, a digest of the card's email address, the time
+of capture and how it was captured. These records are digests and labels, not copies of your
+content, and they stay in your own Google account.</p>
+
+<p><strong>Latch never deletes a contact.</strong> Google's permission for Contacts also allows
+deleting them, because Google offers no narrower one, and the sign-in screen will tell you so. Latch
+does not use that part of it. The one exception is Latch's own Undo button, offered for about ten
+seconds after you save a contact: pressing it removes the contact Latch has just created. If you
+undo a change Latch made to a contact you already had, Latch puts the old values back and deletes
+nothing.</p>
+
+<h3>Google API Services User Data Policy</h3>
+<p>Latch's use and transfer to any other app of information received from Google APIs will adhere
+to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API
+Services User Data Policy</a>, including the Limited Use requirements. Google user data is used only
+to provide the features described in this policy. It is not sold, not used for advertising, not used
+to decide creditworthiness, not read by any person, and not used to develop, improve or train
+artificial intelligence or machine-learning models.</p>
+
+<h2>What you capture</h2>
+<p><strong>Text and screenshots.</strong> When you select text, share a message, share a screenshot
+or PDF, or press the Windows shortcut, Latch reads the dates in it on your device. When you save,
+the item's description includes the captured text, so you can see later where the entry came from —
+this is in your own calendar and nowhere else. For a screenshot or PDF, only a short extract around
+the dates goes into the description, not everything that was on the screen.</p>
+
+<p><strong>Business cards</strong> (Android only). When you photograph a card, the photograph is
+read on your device and <strong>deleted when you close the capture</strong>. It is never stored
+anywhere else and never sent anywhere — with one exception you choose card by card: if you tick
+“Use this photo as the contact's picture”, a cropped copy of the card is sent to Google Contacts as
+that contact's picture. That box is off every time, and a picture is never sent for a contact saved
+while you are offline.</p>
+
+<p>A business card is someone else's information. Latch puts it only where you tell it to: in your
+own Google Contacts.</p>
+
+<p><strong>Notifications</strong> (Android only, off unless you turn it on). If you switch on
+notification capture, Latch reads incoming notifications from the apps you pick, in memory, to spot
+dates. It never writes a notification's text to storage, never puts the message into the calendar
+entry it offers, and never sends it to a webhook. The offer it shows you carries only a suggested
+title. Latch remembers the names of the apps that have sent notifications, so you can choose which
+to monitor; it does not keep what they said.</p>
+
+<p><strong>The clipboard</strong> (Windows). Latch reads the clipboard only when you press its
+shortcut or choose “Capture copied text”. If what you copied is a picture, Latch writes it to a
+temporary file so that Windows' text recognition can read it, and deletes that file as soon as it
+has been read.</p>
+
+<h2>What stays on your device</h2>
+<p>Latch keeps some things locally so that it works offline and so that nothing you capture is
+lost:</p>
+<ul>
+  <li><strong>Captures waiting for you</strong> in the Capture Inbox — things with no date, or that
+  Latch was not sure about. They stay until you save or discard them.</li>
+  <li><strong>Captures waiting for a connection</strong>, held until they can be written to Google,
+  then removed.</li>
+  <li><strong>Your settings and recipes.</strong></li>
+  <li><strong>A list of digests</strong> of items Latch has written, used to avoid saving the same
+  thing twice. These are one-way digests, not content.</li>
+</ul>
+<p>On Android these are kept in the app's private storage and encrypted with a key held in the
+Android Keystore. On Windows they are kept in your user profile and encrypted with Windows' own data
+protection. <strong>Latch turns off Android's cloud backup and device-to-device transfer</strong>
+for its data, so none of it is copied to a backup service.</p>
+
+<p><strong>Sign-in.</strong> On Android, Google Play services holds your sign-in and Latch stores no
+password or token of its own. On Windows, Latch stores a Google sign-in token, encrypted with
+Windows' data protection, so that you do not have to sign in every time.</p>
+
+<h2>Who else receives data</h2>
+<p><strong>Google</strong>, as your calendar, to-do and contacts provider, receives the items you
+save. Google's own <a href="https://policies.google.com/privacy">privacy policy</a> covers what it
+does with them.</p>
+
+<p><strong>Google's text recognition.</strong> On Android, Latch reads images with Google ML Kit,
+which runs on your device. ML Kit sends Google information about the device (such as manufacturer,
+model and Android version), the app (its name and version), and performance (such as how long
+recognition took). According to Google, it does not send the image or the text it read. See
+<a href="https://developers.google.com/ml-kit/android-data-disclosure">ML Kit's data
+disclosure</a>. Latch for Windows uses the text recognition built into Windows and sends
+nothing.</p>
+
+<p><strong>Google Play services</strong> handles signing in on Android.</p>
+
+<p><strong>A webhook, only if you set one up.</strong> In Settings you can give Latch an https
+address to receive a copy of each item you save. It is off by default and takes two separate steps
+to turn on: you enter the address, and then you enable sending. When it is on, each save sends that
+address the item's type, title, dates, location, notes, the recipe and group it belongs to, the app
+it came from, and the time it was captured. The notes may contain the captured text. <strong>That
+content leaves your device and goes to whoever runs that address, under their terms, not
+ours.</strong> Latch never sends an image, never sends a notification capture, and tries once only:
+an item saved while offline is never sent. The address is stored encrypted, because such addresses
+often contain a password.</p>
+
+<p><strong>Files you export.</strong> “Export .ics” creates a calendar file. On Android it is handed
+to the app you choose to share it with; on Windows it is saved in your Downloads folder. What
+happens to it next is up to you.</p>
+
+<p>Latch sends nothing to anyone else. It does not sell data, share it with advertisers, or pass it
+to data brokers.</p>
+
+<h2>Deleting your data</h2>
+<p><strong>On Android</strong>, Settings → “Disconnect Google and delete everything on this phone”
+revokes Latch's access to your Google account and deletes everything Latch keeps on the device: the
+Inbox, waiting captures, settings, recipes, the digest list and its encryption keys. Uninstalling
+Latch also deletes its local data.</p>
+
+<p><strong>On Windows</strong>, “Sign out” removes the stored sign-in. To withdraw Latch's access to
+your Google account completely, remove it at
+<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>. Latch for
+Windows keeps everything it stores in the <code>Latch</code> folder inside
+<code>%LOCALAPPDATA%</code>; deleting that folder removes all of it from the PC. Calendar files you
+exported are in your Downloads folder and are yours to keep or delete.</p>
+
+<p><strong>Items already in your Google account stay there.</strong> They are yours: Latch will not
+delete them when you disconnect, and you can remove them in Google Calendar, Google Tasks or Google
+Contacts like anything else. Removing Latch's access at myaccount.google.com/connections also works
+at any time, from any device.</p>
+
+<h2>Security</h2>
+<p>Every connection Latch makes to Google uses HTTPS, and the Android app refuses to send any
+request it composes to any address other than Google's own, or to follow a redirect elsewhere. The
+webhook is the one exception, and it accepts only https addresses.</p>
+
+<h2>Children</h2>
+<p>Latch is not directed at children under 13 and does not knowingly process their data.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the new version will be posted at this address with a new effective
+date.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy or about your data: KSYADAV1978, at
+<a href="mailto:kulveer.gcf@gmail.com">kulveer.gcf@gmail.com</a>.</p>
+
+<p>Latch is open source:
+<a href="https://github.com/KSYADAV1978/latch-android">https://github.com/KSYADAV1978/latch-android</a>.
+Everything this policy says about how the app handles data can be checked in its source code.</p>
+</main>
+<footer class="site">Published by KSYADAV1978 · <a href="../">Latch</a></footer>
+</body>
+</html>
