@@ -42,9 +42,9 @@ deliberately is not — FR-501 forbids a cloud or LLM call.
 > say so.
 >
 > **It reads your messages on your phone.**
-> There is no server. Nothing is uploaded, there is no account to create, and no computer we
-> operate ever sees a word you capture. The only thing that leaves your phone is the finished
-> calendar entry, sent to Google as you.
+> There is no server and no account to create, and no computer we operate ever sees a word you
+> capture. Nothing you capture leaves your phone except to your own Google account: the entries,
+> to-dos and contacts you confirm, sent to Google as you.
 >
 > **It does not guess.**
 > No date found means an undated to-do, never "today". A missing year means this year, never next.
@@ -74,8 +74,9 @@ deliberately is not — FR-501 forbids a cloud or LLM call.
 > • No screen recording and no accessibility service. Both would make capture easier and both would
 >   let an app read everything on your screen, all the time.
 > • No advertising, no in-app purchase, no paid tier.
-> • No analytics. Nothing measures how you use this, because there is nowhere for a measurement to
->   go.
+> • No analytics and no tracking. Latch has nowhere to send a measurement. The one exception is
+>   not ours: Google's on-device text reader reports device and performance details to Google —
+>   never your pictures or the text it read.
 >
 > Works offline — captures are held and written when you reconnect.
 >
@@ -90,8 +91,17 @@ kind of thing a listing gets wrong by simplifying:
   endpoint *the user configures themselves*, off by default, requiring two separate deliberate
   acts to enable. It is an advanced feature that would need a paragraph to describe honestly, and
   a listing that says "nothing leaves your device" without it would be false. The copy above says
-  *no computer we operate* and *the only thing that leaves your phone is the finished entry*,
-  which stays true; if a reviewer asks, the answer is FR-1004 and its Settings screen.
+  *no computer we operate* and *nothing you capture leaves your phone except to your own Google
+  account*, which is true of the default configuration; if a reviewer asks, the answer is FR-1004
+  and its Settings screen.
+
+### Two sentences corrected on 11 Sep 2026 (SRS 1.217)
+
+The copy used to say *"Nothing is uploaded"* and *"No analytics. Nothing measures how you use
+this, because there is nowhere for a measurement to go."* Neither was true. FR-1226 uploads a card
+photo when the user ticks the box, and ML Kit sends Google device, app and latency metrics after an
+image capture. Both claims were narrowed to what is true. **Say "your own Google account", never
+"Gmail"**: Latch has no Gmail access (FR-003), and naming Gmail would suggest it does.
 - **A business card is somebody else's data.** The copy says Latch adds it to *your own* Google
   Contacts and never deletes one, which is the whole of what FR-1226 and FR-1214 promise.
 
@@ -138,8 +148,8 @@ built and is unavoidable before the permission can be requested.
 
 **A draft now exists in `docs/PRIVACY-POLICY.md`** (11 Sep 2026), written at the developer's
 request, with each sentence traced to its requirement and three disagreements with this file and
-the SRS listed at its end — one of them this listing's "No analytics" line, which ML Kit's metrics
-make untrue as written. It is a draft for review, not a policy. What `docs/RELEASE.md` requires it
+the SRS listed at its end. Two of them — FR-1102 and this listing's analytics line — were fixed the
+same day (SRS 1.217). It is a draft for review, not a policy. What `docs/RELEASE.md` requires it
 to state:
 
 1. That no user content reaches publisher servers, and that there are no publisher servers.

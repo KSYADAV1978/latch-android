@@ -23,8 +23,8 @@ Windows.
 - **We run no servers.** Latch has no backend, and nothing you capture ever reaches a computer
   we operate. We could not read your messages, your calendar or your contacts even if we wanted
   to, because none of it is ever sent to us.
-- Latch reads text and images **on your device**. What leaves the device is the calendar event,
-  to-do or contact you confirm, sent directly to **your own Google account**.
+- Latch reads text and images **on your device**. **Nothing you capture leaves your phone except
+  to your own Google account**: the calendar events, to-dos and contacts you confirm.
 - There is one exception you would have to set up yourself: an optional **webhook**, off by
   default, that sends a copy of each saved item to an address you choose. It is described below.
 - Latch contains **no advertising, no analytics and no crash reporting**. The one part of the app
@@ -207,19 +207,17 @@ handles data can be checked in its source code.
 | Deletion | NFR-205, `deleteAllLocalData` / `deleteEveryStore`; the Windows narrowing recorded in `CLAUDE.md` |
 | Security | AC-17, `ALLOWED_HOSTS` |
 
-### Three places where the policy and the record disagree, which the publisher must settle
+### Three places where the policy and the record disagreed
 
-1. **FR-1102's own wording is wrong, and this draft departs from it on purpose.** It requires the
-   policy to say the card image is "never stored or transmitted (FR-1211)". FR-1226, built on
-   6 Sep 2026, transmits a crop of it to Google Contacts when the user ticks the box, and names
-   itself "the only case in which an image leaves the device". A policy that repeated FR-1102
-   word for word would be false. The SRS should be amended so FR-1102 names FR-1226 as the
-   exception.
-2. **The store listing says "No analytics. Nothing measures how you use this."** ML Kit sends
-   Google device, app and latency metrics after image captures — observed on 31 Aug 2026. This
-   draft is honest about it. `docs/STORE-LISTING.md` is not, and a Play reviewer comparing the
-   two would find the difference. The listing sentence should be narrowed before either is filed.
-3. **The Data Safety form** (`docs/STORE-LISTING.md`) has no row for ML Kit's metrics. Google
+1. ~~**FR-1102's own wording is wrong.**~~ **Fixed 11 Sep 2026 (SRS 1.217).** It required the
+   policy to say the card image is "never stored or transmitted"; FR-1226 transmits a crop when
+   the user ticks the box. FR-1102 now names that exception, and requires the policy to name
+   ML Kit's telemetry.
+2. ~~**The store listing says "No analytics. Nothing measures how you use this."**~~ **Fixed
+   11 Sep 2026 (SRS 1.217)**, in the listing, the README and the marketing plan alike. All of them
+   now say *nothing you capture leaves your phone except to your own Google account*, and name
+   ML Kit's metrics as the one measurement, which is Google's recogniser's and not Latch's.
+3. **Still open: the Data Safety form** (`docs/STORE-LISTING.md`) has no row for ML Kit's metrics. Google
    documents them as device and app information and performance data, collected for analytics.
    Whether that counts as data this app collects is Play's question to answer, and it must be
    answered consistently with this policy.

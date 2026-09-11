@@ -49,9 +49,11 @@ after — with working days and holidays taken into account.
   are refused: they are the two permissions that would let an app read everything on your screen
   all the time.
 - **No advertising, no in-app purchase, no paid tier.**
-- **No analytics.** Nothing measures your use of this app, because there is nowhere for a
-  measurement to go.
-- **No content leaves the device** except the finished entry sent to Google. The one exception is
+- **No analytics and no tracking.** Latch has nowhere to send a measurement. The one exception is
+  not ours: on Android, Google's ML Kit text recogniser reports device, app and performance details
+  to Google after reading an image — never the image or the text it read. See
+  [ML Kit's data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
+- **Nothing you capture leaves the device** except to your own Google account. The one exception is
   a webhook you configure yourself, which is off by default, cannot be enabled by accident, and is
   never used for anything read out of a notification.
 

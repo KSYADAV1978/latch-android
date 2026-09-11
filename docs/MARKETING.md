@@ -104,11 +104,16 @@ messages in, on a real phone. Thirty seconds.
 Latch's differentiator is not that it reads dates. It is **what it refuses to do**, and that is a
 story rather than a feature list:
 
-> It has no backend. There is no account to create, nothing is uploaded, and no server the
-> publisher operates ever sees a message. It refuses screen recording and it refuses the
-> accessibility service — the two permissions that would make capture easier and would let it read
-> everything on your screen for ever. It has no analytics, because there is nowhere for a
-> measurement to go.
+> It has no backend. There is no account to create, nothing you capture leaves your phone except
+> to your own Google account, and no server the publisher operates ever sees a message. It refuses
+> screen recording and it refuses the accessibility service — the two permissions that would make
+> capture easier and would let it read everything on your screen for ever. It has no analytics of
+> its own, because there is nowhere for a measurement to go.
+
+*Corrected 11 Sep 2026 (SRS 1.217). This used to say "nothing is uploaded" and "no analytics"
+unqualified. A ticked FR-1226 box uploads a card photo to the user's Google Contacts, and ML Kit
+sends Google device and latency metrics after an image capture. The claim is only an asset while
+it is true, and the narrowed one still is. Say "Google account", never "Gmail".*
 
 That claim is unusually strong and — this is the part that makes it usable in public — it is
 **auditable**. The repository is open, `AC-17` is a network-monitor check anybody can repeat, and
