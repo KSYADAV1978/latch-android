@@ -563,7 +563,7 @@ internal fun addressAmong(lines: List<String>): List<String> {
     if (strong.isEmpty()) return emptyList()
     val taken = strong.toMutableSet()
     lines.indices.forEach { i ->
-        if (i !in taken && looksLikeAddressLine(lines[i]) && ',' in lines[i] &&
+        if (i !in taken && isNotAContactLine(lines[i]) && weaklyAddressLike(lines[i]) &&
             strong.any { kotlin.math.abs(it - i) <= COMMA_REACH }
         ) {
             taken += i
@@ -609,18 +609,27 @@ internal fun addressAmong(lines: List<String>): List<String> {
  * five digits that reads as a postcode, so the comma rule would have taken it too. A telephone
  * number is refused before anything else is asked.
  */
-internal fun looksLikeAddressLine(line: String): Boolean {
+internal fun looksLikeAddressLine(line: String): Boolean =
+    isNotAContactLine(line) &&
+        (',' in line || POSTCODE.containsMatchIn(line) || hasAddressVocabulary(line))
+
+/**
+ * Everything an address line is **not**, which is the half that has to run before any evidence is
+ * weighed (SRS 1.214).
+ *
+ * Separated from the evidence because the two are asked at different strengths: a line joins an
+ * address outright only on real vocabulary, but a *weak* signal beside an anchored line is enough —
+ * and the weak pass still needs every one of these refusals. `B-201` was dropped from an otherwise
+ * correct address because the weak test was gated behind the strong one and could never be reached.
+ */
+private fun isNotAContactLine(line: String): Boolean {
     if (line.isBlank()) return false
     if (line.contains('@') || line.contains(DOMAIN_SHAPED)) return false
     if (CERTIFICATION.containsMatchIn(line)) return false
     // A number with a label, or a bare run long enough to be one, is the contact block.
     if (PHONE.containsMatchIn(line) && !POSTCODE.containsMatchIn(line)) return false
     if (PHONE_LABEL.containsMatchIn(line)) return false
-    if (hasOrganisationSuffix(line) || looksLikeJobTitle(line)) return false
-    if (',' in line || POSTCODE.containsMatchIn(line)) return true
-    // Split on anything that is not a letter, so `Sector-V`, `Block-EP` and `Road,` all offer
-    // the word they are built on. `WORD_BREAK` keeps hyphens and would have missed every one.
-    return line.lowercase().split(NOT_LETTERS).any { it in ADDRESS_WORDS }
+    return !hasOrganisationSuffix(line) && !looksLikeJobTitle(line)
 }
 
 /**
@@ -640,9 +649,38 @@ private const val COMMA_REACH = 2
  */
 private const val ADDRESS_GAP = 6
 
+/**
+ * Evidence too weak to place a line on its own, but enough beside one that was placed.
+ *
+ * A comma, **or a bare unit designator** (SRS 1.214). `B-201` is the flat number on a real card and
+ * carries none of the evidence [hasAddressVocabulary] looks for — no comma, no postcode, no street
+ * word — so it was dropped from an address the rest of which assembled correctly. It is the shape
+ * that opens an Indian address as often as any word is: a letter, a separator and a number, on a
+ * line of its own. Too weak to anchor anything, which is why it only joins a line that anchored
+ * itself; the telephone and certification guards have already run before this is asked.
+ */
+private fun weaklyAddressLike(line: String): Boolean {
+    if (',' in line) return true
+    val trimmed = line.trim()
+    if (trimmed.length > LONGEST_UNIT_DESIGNATOR) return false
+    if (!trimmed.any { it.isDigit() }) return false
+    if (!trimmed.all { it.isLetterOrDigit() || it in "-/ ." }) return false
+    // **A separator, or nothing but digits.** Without this the rule takes a logotype: `J4S` and
+    // `SJ4S` are short, carry a digit and sit beside the address on their own card, and both were
+    // joined to it. What a unit designator has and a wordmark does not is the break between its
+    // letter and its number - `B-201`, `H-1`, `D-002` - or no letters at all, as in `1603`.
+    return trimmed.any { it in "-/ " } || trimmed.none { it.isLetter() }
+}
+
+/** `B-201`, `H-1`, `D-002`, `1603` — long enough for any of them, short enough to exclude prose. */
+private const val LONGEST_UNIT_DESIGNATOR = 12
+
 /** Does this line carry the evidence that earns a place in an address outright? */
 private fun hasAddressVocabulary(line: String): Boolean =
-    POSTCODE.containsMatchIn(line) || line.lowercase().split(NOT_LETTERS).any { it in ADDRESS_WORDS }
+    POSTCODE.containsMatchIn(line) ||
+        // Split on anything that is not a letter, so `Sector-V`, `Block-EP` and `Road,` all offer
+        // the word they are built on. `WORD_BREAK` keeps hyphens and would have missed every one.
+        line.lowercase().split(NOT_LETTERS).any { it in ADDRESS_WORDS }
 
 /** Anything that is not a letter, for reading the word a hyphenated fragment is built on. */
 private val NOT_LETTERS = Regex("[^a-z]+")
