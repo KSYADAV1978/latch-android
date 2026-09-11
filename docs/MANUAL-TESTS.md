@@ -330,7 +330,7 @@ revoked. There is now a **Sign in again** action beside **Sign out**.
 - **Fails:** it is missing, or it signs you out rather than re-consenting.
 - The account line above it should still do **nothing** when pressed — that is deliberate.
 
-### 9a.2 SRS 1.203 — FR-603's two "Done" buttons (**Android, needs the phone connected**)
+### ~~9a.2 SRS 1.203 — FR-603's two "Done" buttons~~ — **DONE 11 Sep 2026**, and it found a regression
 
 The top-right **Done** collapsed a recipe card without saving. It now saves, exactly as the button
 at the bottom does.
@@ -339,12 +339,20 @@ at the bottom does.
   Done** (not the one at the bottom).
 - **Passes:** the list shows the new name, and it survives closing and reopening the app.
 - **Fails:** the name reverts — meaning the top-right control is still discarding.
-- **Also worth one look:** open a card and collapse it *without* typing anything. Nothing should
-  change, and the recipe must not start showing as "edited by you" — an untouched draft saves a
-  value identical to the stored one, and that is what makes this fix free.
-- **Known and deliberate:** there is now **no way to abandon an edit mid-card**. That was never a
+**Watched and passed**, and the "also worth one look" line below is why it was worth writing:
+collapsing an untouched card **did** mark the built-in as edited, because FR-603 stores an edit as
+a copy that *shadows* the original — so writing an identical value still made the shadow. SRS 1.203
+claimed that cost was zero and it was not. Fixed at **SRS 1.204** (save only where the draft
+differs) and both halves re-watched: an untouched collapse now costs nothing, and a real edit still
+saves through the top-right Done.
+
+- **Known and deliberate:** there is **no way to abandon an edit mid-card**. That was never a
   designed feature, only the toggle's side effect. If you want one it needs a control that says
   *Cancel*.
+- **Noted in passing, not fixed:** on Android the control that reverts an edited built-in is
+  labelled **Delete**, though it restores the shipped recipe rather than deleting anything. Windows
+  calls the same control *Restore the shipped version*, which is right. Same family as SRS 1.197 —
+  a label that does not say what the control does.
 
 ---
 

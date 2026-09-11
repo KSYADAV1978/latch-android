@@ -138,7 +138,14 @@ private fun RecipeCard(
             // would need a control that says "Cancel".
             TextButton(
                 onClick = {
-                    if (expanded) onSave(draft)
+                    // SRS 1.204: **only where something actually changed.** 1.203 claimed this
+                    // was free because an unedited draft *is* [recipe] — true of the value and
+                    // false of the consequence. FR-603 stores an edit as a copy carrying the
+                    // built-in's id, which **shadows** it, so writing an identical value still
+                    // made the shadow and merely opening and closing a built-in marked it
+                    // "edited by you". `Recipe` is a data class, so this comparison is
+                    // structural and covers every field the editor can reach.
+                    if (expanded && draft != recipe) onSave(draft)
                     onToggleExpanded()
                 },
             ) {
