@@ -136,8 +136,11 @@ built and is unavoidable before the permission can be requested.
 
 ## FR-1102 — what the privacy policy must contain
 
-Not drafted here, because a privacy policy is a legal document and should not be assembled from a
-checklist by somebody who is not writing it. What `docs/RELEASE.md` requires it to state:
+**A draft now exists in `docs/PRIVACY-POLICY.md`** (11 Sep 2026), written at the developer's
+request, with each sentence traced to its requirement and three disagreements with this file and
+the SRS listed at its end — one of them this listing's "No analytics" line, which ML Kit's metrics
+make untrue as written. It is a draft for review, not a policy. What `docs/RELEASE.md` requires it
+to state:
 
 1. That no user content reaches publisher servers, and that there are no publisher servers.
 2. **The FR-1004 webhook**: that the capability exists, is disabled by default, sends to an
