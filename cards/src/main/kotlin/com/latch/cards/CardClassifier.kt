@@ -539,24 +539,133 @@ private fun String.splitWhereOcrLostASpace(): List<String> {
  * street address wraps; anything else is left for the user.
  */
 internal fun addressAmong(lines: List<String>): List<String> {
-    // **A postcode alone is not enough, and a real card proved it**: `IS/S0 9001 & IS/S0 14001`
-    // carries "14001", and the first version read a certification as the anchor of an address —
-    // placing the ISO line and leaving the real address unplaced. An address line carries a
-    // **comma**; a certification does not. That one condition separates them.
-    val anchor = lines.indexOfFirst { POSTCODE.containsMatchIn(it) && ',' in it }
+    val anchor = lines.indexOfFirst { POSTCODE.containsMatchIn(it) && looksLikeAddressLine(it) }
     if (anchor < 0) return emptyList()
 
-    // Neighbours on **both** sides, because OCR block order is not the order the address is
-    // printed in: on the card that found this, the street line came *after* the city line.
-    var first = anchor
-    while (first > 0 && isAddressNeighbour(lines[first - 1])) first--
-    var last = anchor
-    while (last < lines.lastIndex && isAddressNeighbour(lines[last + 1])) last++
-    return lines.subList(first, last + 1)
+    // **Every address line, not a contiguous run** (SRS 1.211). Adjacency was the rule until a
+    // card printed its address in two columns: the recogniser returned the flat and the building,
+    // then the whole telephone block, then the street, the city and the state. Expanding outwards
+    // from the postcode stopped at the first telephone number and kept three lines of seven.
+    // Reading order is not printed order — SRS 1.134 recorded the same thing about the name — so
+    // an address is gathered by what its lines *are* rather than by where they sit.
+    //
+    // **Kept in printed order** regardless of where they were found, because a reader needs the
+    // flat before the street; the anchor decides only that there is an address here at all.
+    //
+    // **A comma alone is not enough to join from a distance**, which gathering exposed at once: a
+    // government card's *"Empowerment of Persons with Disabilities (Divyangjan),"* carries a comma
+    // and nothing else, and the walk had never reached it because it sits eight lines from the
+    // postcode. So a line earns its place outright only by carrying a postcode or one of the words
+    // an address is built from; a comma-only line joins if it sits **beside** one that did, which
+    // is how *"West Bengal, India"* follows *"Block-EP & GP Sector-V"*. Weak evidence plus
+    // adjacency, rather than either alone.
+    val strong = lines.indices.filter { looksLikeAddressLine(lines[it]) && hasAddressVocabulary(lines[it]) }
+    if (strong.isEmpty()) return emptyList()
+    val taken = strong.toMutableSet()
+    lines.indices.forEach { i ->
+        if (i !in taken && looksLikeAddressLine(lines[i]) && ',' in lines[i] &&
+            strong.any { kotlin.math.abs(it - i) <= COMMA_REACH }
+        ) {
+            taken += i
+        }
+    }
+    // **One card can print three addresses, and one field can hold one** (SRS 1.211). A steel
+    // company's card carries its works, its registered office and a mine; gathering took all
+    // three and joined them into a single line that describes nowhere. So the lines are cut into
+    // clusters wherever the gap between them exceeds [ADDRESS_GAP], and the cluster holding the
+    // anchor wins - which is the office whose postcode was found first, and on these cards is the
+    // one the person actually sits in.
+    val ordered = taken.sorted()
+    var cluster = mutableListOf(ordered.first())
+    val clusters = mutableListOf(cluster)
+    ordered.zipWithNext { previous, next ->
+        if (next - previous > ADDRESS_GAP) {
+            cluster = mutableListOf(next)
+            clusters += cluster
+        } else {
+            cluster += next
+        }
+    }
+    return (clusters.firstOrNull { anchor in it } ?: clusters.first()).map { lines[it] }
 }
 
-private fun isAddressNeighbour(line: String): Boolean =
-    ',' in line && !hasOrganisationSuffix(line) && !looksLikeJobTitle(line)
+/**
+ * Is this line part of a postal address?
+ *
+ * **The comma was the whole test and it cost 45% of the addresses on thirty-nine real cards**
+ * (SRS 1.211). It entered as a guard: `IS/S0 9001 & IS/S0 14001` carries "14001", and a
+ * certification was being read as the anchor of an address, where an address line carries a comma
+ * and a certification does not. The guard is sound about certifications and wrong about India: an
+ * address printed one element to a line — *13th & 14th Floor* / *Building-Omega* / *Salt Lake
+ * Electronics Complex* — carries no commas at all, and one such card lost **seven** address lines
+ * while another lost only its flat number, `B-201`.
+ *
+ * **So the certification is excluded by name and the address is recognised by its own vocabulary**,
+ * which is what the comma was standing in for. A line belongs to an address if it carries a
+ * postcode, a comma, or one of the words an Indian address is built from.
+ *
+ * **What it must never swallow is a contact line**, and that is the real hazard rather than the
+ * certification: `TEL. :91-0141-4044237, 2363015 MOBILE:91-94140-78411` has a comma and a run of
+ * five digits that reads as a postcode, so the comma rule would have taken it too. A telephone
+ * number is refused before anything else is asked.
+ */
+internal fun looksLikeAddressLine(line: String): Boolean {
+    if (line.isBlank()) return false
+    if (line.contains('@') || line.contains(DOMAIN_SHAPED)) return false
+    if (CERTIFICATION.containsMatchIn(line)) return false
+    // A number with a label, or a bare run long enough to be one, is the contact block.
+    if (PHONE.containsMatchIn(line) && !POSTCODE.containsMatchIn(line)) return false
+    if (PHONE_LABEL.containsMatchIn(line)) return false
+    if (hasOrganisationSuffix(line) || looksLikeJobTitle(line)) return false
+    if (',' in line || POSTCODE.containsMatchIn(line)) return true
+    // Split on anything that is not a letter, so `Sector-V`, `Block-EP` and `Road,` all offer
+    // the word they are built on. `WORD_BREAK` keeps hyphens and would have missed every one.
+    return line.lowercase().split(NOT_LETTERS).any { it in ADDRESS_WORDS }
+}
+
+/**
+ * How far a comma-only line may sit from one with real address vocabulary and still join it.
+ *
+ * Two, because one intervening line is the ordinary case — a website or a telephone number
+ * printed between the street and the state — and three began collecting the company block.
+ */
+private const val COMMA_REACH = 2
+
+/**
+ * How far apart two address lines may sit and still describe the same place.
+ *
+ * Six, because a card routinely prints its telephone block *inside* its address — one did exactly
+ * that, four numbers and an email between the building and the street — and because the second
+ * address on a multi-office card sits further away than that.
+ */
+private const val ADDRESS_GAP = 6
+
+/** Does this line carry the evidence that earns a place in an address outright? */
+private fun hasAddressVocabulary(line: String): Boolean =
+    POSTCODE.containsMatchIn(line) || line.lowercase().split(NOT_LETTERS).any { it in ADDRESS_WORDS }
+
+/** Anything that is not a letter, for reading the word a hyphenated fragment is built on. */
+private val NOT_LETTERS = Regex("[^a-z]+")
+
+/** The certification lines whose numbers read as postcodes. */
+private val CERTIFICATION = Regex("""(?i)(IS[O0]|IS/|OHSAS|certified)""")
+
+/** A labelled number is the contact block however much it looks like an address. */
+private val PHONE_LABEL = Regex("""(?i)(tel|mob|mobile|phone|fax|dir|direct|extn|off)[.: ]""")
+
+/**
+ * The words an Indian address is built from, which is what the comma was standing in for.
+ *
+ * Deliberately *not* an exhaustive gazetteer: this decides whether a line **continues** an address
+ * already anchored on a postcode, so a word that appears on half of them is enough, and a list
+ * long enough to catch a company name would be worse than the comma it replaces.
+ */
+private val ADDRESS_WORDS = setOf(
+    "floor", "road", "street", "marg", "nagar", "block", "sector", "complex", "building",
+    "tower", "plot", "house", "lane", "colony", "chowk", "bhawan", "bhavan", "centre", "center",
+    "park", "area", "estate", "wing", "opp", "near", "phase", "extension", "market", "mall",
+    "enclave", "vihar", "puram", "gate", "circle", "square", "district", "layout", "cross",
+)
 
 /**
  * **The second half of the space rule: OCR breaks a domain as readily as it breaks an `@`.**
